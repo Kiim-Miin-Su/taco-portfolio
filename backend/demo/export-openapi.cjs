@@ -10,6 +10,9 @@ const { buildOpenApi } = require('../dist/src/openapi.js');
 (async () => {
   const app = await createApp();
   try {
+    // 원본 타입 생성기는 global prefix 없는 AppModule에서 계약을 추출한다.
+    // /api/v1은 transport가 소유하므로 동일한 상대 경로 계약을 유지한다.
+    app.setGlobalPrefix('');
     const document = buildOpenApi(app);
     fs.writeFileSync('openapi.json', JSON.stringify(document, null, 2) + '\n');
     const verbs = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options']);
