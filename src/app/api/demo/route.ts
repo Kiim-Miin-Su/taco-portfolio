@@ -7,6 +7,7 @@ interface DemoRuntime {
 }
 
 // Node의 실제 loader로 Nest decorators/PGlite WASM을 유지한다. Webpack 변환을 거치지 않는다.
+// light-my-request 6.8 → cookie 2는 ESM이므로 Vercel의 NODE_OPTIONS 설정은 README와 함께 유지한다.
 const loadRuntime = process.getBuiltinModule('node:module').createRequire(path.join(process.cwd(), 'package.json'));
 let demoRuntime: DemoRuntime | undefined;
 export const runtime = 'nodejs';
