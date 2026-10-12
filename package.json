@@ -4,7 +4,7 @@
   "private": true,
   "description": "TACO ERP 공개 체험 — 방문자별 메모리 데이터",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
@@ -17,7 +17,7 @@
     "types:gen": "openapi-typescript backend/openapi.json -o src/api/schema.d.ts",
     "usage:gen": "node scripts/component-usage.mjs",
     "build:backend": "npm run build --prefix backend",
-    "vercel-build": "npm ci --prefix backend --no-audit --no-fund && npm run build:backend && npm prune --prefix backend --omit=dev --no-audit --no-fund && next build",
+    "vercel-build": "npm ci --prefix backend --include=dev --no-audit --no-fund && npm run build:backend && npm prune --prefix backend --omit=dev --no-audit --no-fund && next build",
     "test:demo": "node scripts/verify-demo-api.mjs"
   },
   "dependencies": {
