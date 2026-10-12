@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-12T01:31:45.240201+00:00",
+  "targetOrigin": "https://taco-portfolio.vercel.app",
+  "path": "/login",
+  "codeCommit": "7a2d0a4",
+  "method": "CUA Chrome actual UI",
+  "observed": [
+    "Four role buttons: CEO, manager, admin, teacher",
+    "Synthetic data and tab memory/reset notice visible",
+    "Custom demo account login and password reset link present"
+  ],
+  "screenshot": {
+    "path": "browser/public-login.jpg",
+    "sha256": "37e178d1fc5370ae3d96653c3af609584310f584c6458b01f7869526e05fe9b0"
+  },
+  "boundary": "This screenshot is display evidence; role login and CRUD results have separate receipts."
+}

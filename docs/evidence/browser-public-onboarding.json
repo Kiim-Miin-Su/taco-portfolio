@@ -1,0 +1,88 @@
+{
+  "version": 2,
+  "date": "2026-10-12",
+  "target": "https://taco-portfolio.vercel.app",
+  "immutableDeployment": "https://taco-portfolio-5q2q6laod-kiim-miin-sus-projects.vercel.app",
+  "deploymentId": "dpl_y9bczX2EVtyooVGZFZY36eK21DYt",
+  "sourceCommit": "7a2d0a4",
+  "method": "CUA Chrome dedicated tab 545759080; same tab and in-app navigation preserve visitor RAM",
+  "status": "passed-through-new-account-onboarding-and-simulated-code-display",
+  "initialFailure": {
+    "immutableDeployment": "https://taco-portfolio-no0kj4s9r-kiim-miin-sus-projects.vercel.app",
+    "result": "failed-before-role-selection",
+    "visibleMessage": "로그인 상태를 확인하지 못했습니다. 체험판을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "retry": "One visible retry; stopped after independent parent reproduction.",
+    "screenshot": "browser-public/01-initial-runtime-unavailable.jpg",
+    "recoveryEvidence": "serverless-startup-diagnosis.md"
+  },
+  "observations": [
+    {
+      "step": "repaired-public-login-entry",
+      "result": "passed",
+      "observed": "After reload, all four role buttons appeared."
+    },
+    {
+      "step": "manager-role-login",
+      "result": "passed",
+      "observed": "Manager role button opened /schedule and displayed the synthetic manager account."
+    },
+    {
+      "step": "member-create-input",
+      "result": "passed",
+      "observed": "Visible role choices were teacher, manager and admin; CEO was absent."
+    },
+    {
+      "step": "default-initial-password-reuse",
+      "result": "expected-rejection",
+      "observed": "초기 비밀번호는 쓸 수 없습니다 — 새 비밀번호를 정해 주세요"
+    },
+    {
+      "step": "synthetic-teacher-create",
+      "result": "passed",
+      "observed": "Created a synthetic teacher with distinct temporary credentials; success message and new member row were visible.",
+      "screenshot": "browser-public/02-manager-created-teacher.jpg"
+    },
+    {
+      "step": "logout-and-new-account-login",
+      "result": "passed",
+      "observed": "Logged out without document reload; login with the new account automatically opened /onboarding."
+    },
+    {
+      "step": "onboarding-form",
+      "result": "passed",
+      "observed": "New account ID, masked registered contacts, email/phone code controls, blank new-password fields and final setup control were visible.",
+      "screenshot": "browser-public/03-new-teacher-onboarding.jpg"
+    },
+    {
+      "step": "simulated-email-code",
+      "result": "passed",
+      "observed": "Registered synthetic email accepted; displayed a demo code, no-real-delivery label, masked destination, 10-minute validity and retry cooldown."
+    },
+    {
+      "step": "simulated-sms-code",
+      "result": "passed",
+      "observed": "Registered synthetic phone accepted; displayed a demo code, no-real-delivery label, masked destination, 10-minute validity and retry cooldown."
+    },
+    {
+      "step": "qa-cleanup-logout",
+      "result": "passed",
+      "observed": "Logged out from onboarding; /login role buttons returned."
+    }
+  ],
+  "notExecuted": [
+    "Browser OTP submission, new password entry and final password-change confirmation",
+    "Browser login after onboarding completion"
+  ],
+  "apiCompletionEvidence": {
+    "path": "auth-public-http.json",
+    "owner": "independent backend QA",
+    "observedReceipt": "success=true; 20 HTTP calls across 9 operation pairs, including onboarding complete 201, post-setup meta 200 and login 201"
+  },
+  "privacy": "Synthetic contacts only. Passwords, code digits, tokens, cookies and RAM snapshots are excluded from saved evidence. Onboarding screenshot is a native crop above the code digits.",
+  "excluded": [
+    "Real email/SMS delivery",
+    "Original service accounts or production database",
+    "Cross-tab or persistent account creation claims"
+  ],
+  "finalBrowserLocation": "/login"
+}

@@ -26,10 +26,12 @@
 - [x] PGlite 124개 migration·149개 테이블과 주요 서비스 호환성을 확인했다.
 - [x] 브라우저 RAM snapshot·직렬 전송·서버 독점 복원과 baseline 초기화 계약을 확정했다.
 - [x] 전체 화면·CRUD 소유자를 이식하고 합성 자료·외부 발송 대역·체험용 OTP를 연결했다.
-- [ ] 전체 기능·격리·브라우저·빌드 검증을 완료한다.
-- [ ] 공개 저장소 push와 데모 배포 후 포트폴리오 링크를 교체한다.
+- [x] 전체 화면/API 목록을 대조하고 격리·대표 CRUD·브라우저·빌드 검증을 완료했다.
+- [ ] 모든 API·분기 전수 실행: 고유 78/309 실행, 231개는 후속 검수 범위로 남긴다. 구현 이식과 전수 실행의 완료 수는 구분한다.
+- [x] 공개 저장소 push와 별도 데모 배포, 공개 HTTP/인증/브라우저 저장·재조회·초기화 검증을 완료했다.
+- [x] R122 포트폴리오 31장·공개 링크·실제 데모 로그인 화면·전체 렌더·metadata를 최종 검수하고 원본 문서에 연결했다. 원본 문서 저장소의 최종 게이트·커밋 영수증은 R122 원장이 소유한다.
 
-기존 Nest API를 PGlite 메모리 DB로 실행하고 방문자 상태는 브라우저 RAM이 소유한다. 직접 런타임·로컬 HTTP 각각 63개 시나리오를 실행해 72개 고유 API를 검증했다. 309개 API의 정적 연결과 모든 API 성공/오류 분기의 전수 실행은 다른 검증이다.
+기존 Nest API를 PGlite 메모리 DB로 실행하고 방문자 상태는 브라우저 RAM이 소유한다. 직접 런타임·로컬 HTTP·공개 HTTP 각각 63개 시나리오를 실행해 72개 고유 API를 검증했다. 공개 인증 20회 회귀를 더한 고유 API 합계는 78개다. 309개 API의 정적 연결과 모든 API 성공/오류 분기의 전수 실행은 다른 검증이다.
 
 ## 검증 중 발견·조치
 
@@ -39,8 +41,14 @@
 - 전체 Front 테스트 2,392개·typecheck·lint·Next production build가 통과했다. 개인정보 fixture 치환 후 검색 테스트도 새 합성 검색어로 확인했다.
 - 브라우저 학생 등록 성공 후 학교·학년·보호자 관계 재조회 누락을 발견했다. 기존 student_profile_current 뷰를 목록·상세·검색·meta에 재사용하고 관계 코드 표시를 연결한 뒤 등록→재조회·수정·비우기 회귀를 통과했다. 원본 제품 후속 이슈는 backend/evidence/student-readback-issue.md에 남겼다.
 
+## 배포 중 확인한 경계
+
+- 공개 GitHub 저장소 생성·push 완료. GitHub 인증에 workflow 권한이 없어 Actions 정의는 예제로 보존했고 자동 실행하지 않는다. Vercel Git 연결·push 자동 빌드는 확인했다.
+- 첫 Vercel 빌드에서 생산 환경 npm 설치가 Nest compiler를 제외했다. Backend 빌드 단계에 `--include=dev`를 지정하고 패키징 전 prune한다.
+- 첫 READY 배포는 API 초기화 503이었다. `light-my-request 6.8 → cookie 2`의 CommonJS/ESM 연동과 Vercel 기본 제한이 원인이며 Node 22 제한 모드에서 재현했다. [공식 가이드](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration)에 따라 데모 프로젝트 Production·Preview에 `NODE_OPTIONS=--experimental-require-module`을 설정했다. 성공 검증 전 실패 영수증도 보존한다.
+
 ## 매 청크 갱신 대상
 
 새 저장소의 README·PLAN·기능 CRUD 원장·검증 evidence·소스 이식/공개 검사 receipt를 갱신한다. 원본 문서의 두 PROMPT·TODO·ENTRY·CLAUDE·계약 원장·포트폴리오 생성기/metadata/PPTX/렌더/증거 색인도 R122로 연결한다. 원본 제품 요구/Figma/DBML은 데모 분리로 업무 형상이 바뀌지 않아 영향 없음으로 기록하며 실제 편집했다고 표시하지 않는다. 신규 계약은 공개 메모리 snapshot·파일 제한·모의 발송·OTP 표시다.
 
-청크 기록: 문서 기준 `924aaad`, 전체 Front 이식·통신 `e396b6b`. Backend의 공개 사본·정본 이력 조회 교정은 다음 코드 청크에 함께 기록한다.
+청크 기록: 문서 기준 `924aaad`, 전체 Front 이식·통신 `e396b6b`. Backend 이식·정본 이력 조회 교정 `62fa60c`, 상대 OpenAPI 경로 정정 `5b16dc3`, 빌드 단계 서버 컴파일러 설치 `b8e53f1`, 안전한 초기화 진단 `8af3736`, 서버리스 ESM 계약·주석 `dd09db3`·`7a2d0a4`, 공개 인증 회귀 도구 `9f9fb03`.

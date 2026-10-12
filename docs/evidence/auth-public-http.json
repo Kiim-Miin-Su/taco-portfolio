@@ -1,0 +1,134 @@
+{
+  "startedAt": "2026-10-12T01:15:56.705Z",
+  "nodeEnv": "production",
+  "networkDisabled": false,
+  "mode": "http-memory-runtime",
+  "target": "https://taco-portfolio.vercel.app",
+  "checks": [
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/password-reset/codes",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/password-reset/codes",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/password-reset/complete",
+      "httpStatus": 200,
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/auth/password-reset/complete",
+      "httpStatus": 200,
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me",
+      "httpStatus": 200,
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/password-reset/complete",
+      "httpStatus": 200,
+      "status": 409
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/drawer/staff",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "httpStatus": 200,
+      "status": 403
+    },
+    {
+      "method": "POST",
+      "path": "/auth/onboarding/codes",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/onboarding/codes",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/auth/onboarding/complete",
+      "httpStatus": 200,
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "httpStatus": 200,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/auth/onboarding",
+      "httpStatus": 200,
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "httpStatus": 200,
+      "status": 201
+    }
+  ],
+  "boundaries": [
+    "방문자별 메모리 상태만 변경하며 실제 메일·문자 발송과 운영 계정은 검증하지 않는다.",
+    "토큰·쿠키·snapshot·OTP·요청/응답 본문은 영수증에 기록하지 않는다."
+  ],
+  "success": true
+}

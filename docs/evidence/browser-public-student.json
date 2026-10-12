@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-12T01:21:48.140755+00:00",
+  "targetOrigin": "https://taco-portfolio.vercel.app",
+  "deploymentId": "dpl_y9bczX2EVtyooVGZFZY36eK21DYt",
+  "codeCommit": "7a2d0a4",
+  "method": "CUA Chrome actual UI; only synthetic data entered",
+  "checks": [
+    {
+      "id": "B-01",
+      "result": "pass",
+      "observed": "CEO role button logs into schedule; student list baseline contains 19 students"
+    },
+    {
+      "id": "B-02",
+      "result": "pass",
+      "observed": "Student form creates school, accepts female/US G5/KR and mother guardian with synthetic email; server preview returns 3 periods and 1 guardian"
+    },
+    {
+      "id": "B-03",
+      "result": "pass",
+      "observed": "Student save succeeds; detail shows student #21, total 20; profile reads the exact school, G5 and mother relationship"
+    },
+    {
+      "id": "B-04",
+      "result": "pass",
+      "observed": "Reset returns to login; CEO new session has 19 students; exact previous student search returns 0"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "browser/public-student-readback.jpg",
+      "sha256": "2a994c49a228fbb25f84f15d2f4aa83066d0560d805b088763ad431d113ef060"
+    },
+    {
+      "path": "browser/public-reset-readback.jpg",
+      "sha256": "91720821190c91a306511c678f16709dfd522b8c56f38aeb041ab7b18315a187"
+    }
+  ],
+  "boundaries": [
+    "This is a public demo-only browser check, not original production write verification.",
+    "No network interception, token reads, internal stores or database scripts were used in the browser.",
+    "Other CRUD and role cases have separate HTTP and browser receipts."
+  ]
+}

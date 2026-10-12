@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "recordedAt": "2026-10-12T01:12:42.394293+00:00",
+  "scope": "public-memory-demo-startup-only",
+  "status": "cause-reproduced-and-local-mitigation-verified",
+  "sourceCommitAtInspection": "dd09db35ad2115d12d2321817e0ba1a226646b69",
+  "sourceFiles": [
+    {
+      "path": "backend/package.json",
+      "sha256": "fae81ab53e020e69a9c4eb55f047a2e101cd9dcf15e2658bf57a8d91da9c6ece"
+    },
+    {
+      "path": "backend/package-lock.json",
+      "sha256": "4e5ab8373bada75a2f013467f81c917f62a5b92d2e21e4850420396b9320bd36"
+    },
+    {
+      "path": "backend/dist/demo/entry.js",
+      "sha256": "be2ce75018370049810eabdb17b287fd46d6460142a0a360ef464d45fd2a7e8c"
+    }
+  ],
+  "observedPublicFailure": {
+    "source": "parent agent inspected sanitized Vercel function logs; initial HTTP failure retained separately",
+    "receipt": "api-public-http-initial-failure.json",
+    "outerHttpStatus": 503,
+    "phase": "load",
+    "code": "ERR_REQUIRE_ESM"
+  },
+  "reproduction": {
+    "directory": "isolated temporary copy; original backend/node_modules unchanged",
+    "install": "npm ci --omit=dev --ignore-scripts --no-audit --no-fund",
+    "platform": "darwin",
+    "node": "22.23.3",
+    "networkBlockedForRuntime": true,
+    "packages": {
+      "light-my-request": "6.8.0",
+      "cookie": "2.0.1"
+    },
+    "disabledRequireEsm": {
+      "startedAt": "2026-10-12T01:12:42.325Z",
+      "node": "v22.23.3",
+      "flags": "--no-experimental-require-module",
+      "require": {
+        "ok": false,
+        "durationMs": 5,
+        "code": "ERR_REQUIRE_ESM",
+        "requiringModule": "light-my-request/lib/cookies.js",
+        "requiredModule": "light-my-request/node_modules/cookie/dist/index.js"
+      }
+    },
+    "explicitRequireEsm": {
+      "startedAt": "2026-10-12T01:11:35.406Z",
+      "node": "v22.23.3",
+      "flags": "--experimental-require-module",
+      "nodeEnv": "production",
+      "dependencies": {
+        "lightMyRequest": "6.8.0",
+        "cookie": "2.0.1"
+      },
+      "require": {
+        "ok": true,
+        "durationMs": 328
+      },
+      "request": {
+        "method": "GET",
+        "path": "/auth/me",
+        "expectedStatus": 401,
+        "actualStatus": 401,
+        "code": "UNAUTHORIZED",
+        "totalDurationMs": 3001
+      },
+      "externalNetworkBlocked": true
+    }
+  },
+  "cause": {
+    "chain": [
+      "backend/dist/demo/entry.js",
+      "light-my-request@6.8.0 (CommonJS)",
+      "light-my-request/lib/cookies.js requires cookie",
+      "cookie@2.0.1 (ES module)"
+    ],
+    "explanation": "Vercel disables experimental require(ESM) by default. Local Node 22 defaults allowed this dependency chain; matching the disabled flag reproduces ERR_REQUIRE_ESM before Nest/PGlite initialization.",
+    "missingDependency": false
+  },
+  "decision": {
+    "setting": "NODE_OPTIONS=--experimental-require-module",
+    "target": "taco-portfolio Vercel project only",
+    "owner": "root deployment task",
+    "dependencyChangesApplied": false,
+    "note": "A 6.6.0 downgrade was considered only in the temporary copy; the repository keeps its existing dependency version and lock. The chosen mitigation follows Vercel official runtime configuration."
+  },
+  "officialSource": {
+    "url": "https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration#experimental-nodejs-require-of-es-module",
+    "title": "Advanced Node.js Usage — Experimental Node.js require() of ES Module",
+    "accessedAt": "2026-10-12",
+    "pageLastUpdated": "2026-04-27",
+    "supports": [
+      "Vercel disables experimental require(ESM) by default",
+      "NODE_OPTIONS=--experimental-require-module explicitly enables it"
+    ]
+  },
+  "verificationBoundary": [
+    "Local Node 22 restricted-mode reproduction and explicit-flag startup are verified; this file alone does not prove the redeployed public runtime succeeds.",
+    "Expected anonymous /auth/me business response is 401 UNAUTHORIZED; this is a successful startup check, not authenticated CRUD coverage.",
+    "Production/public HTTP, role flows and browser receipts must be read separately.",
+    "No original ERP source, database, environment or deployment was modified; no real email/SMS/provider I/O was executed.",
+    "Snapshot, tokens, cookies, request bodies and credentials are omitted."
+  ],
+  "publicFollowup": {
+    "receipt": "auth-public-http.json",
+    "sha256": "6017c8dfb65bf24f7a4be5d38f94ae42289f9b8006f09f5feeea41fdcc6037c7",
+    "startedAt": "2026-10-12T01:15:56.705Z",
+    "target": "https://taco-portfolio.vercel.app",
+    "success": true,
+    "calls": 20,
+    "uniqueOperations": 9,
+    "allOuterHttp200": true,
+    "boundary": "비밀번호 복구·최초 설정·재로그인 9개 operation의 선택된 20회 호출이며 전체 309 operation 또는 브라우저 완료를 뜻하지 않는다."
+  }
+}

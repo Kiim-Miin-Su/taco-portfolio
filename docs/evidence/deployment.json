@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-12T01:21:48.140755+00:00",
+  "repository": "https://github.com/Kiim-Miin-Su/taco-portfolio",
+  "visibility": "public",
+  "branch": "main",
+  "codeCommit": "7a2d0a4",
+  "publicURL": "https://taco-portfolio.vercel.app",
+  "deploymentId": "dpl_y9bczX2EVtyooVGZFZY36eK21DYt",
+  "immutableURL": "https://taco-portfolio-5q2q6laod-kiim-miin-sus-projects.vercel.app",
+  "status": "READY",
+  "runtime": "nodejs22.x",
+  "memoryMiB": 2048,
+  "regions": [
+    "icn1"
+  ],
+  "requiredConfiguration": {
+    "NODE_OPTIONS": "--experimental-require-module"
+  },
+  "checks": {
+    "publicLoginHTTP": 200,
+    "publicApi": "api-public-http.json",
+    "publicAuthentication": "auth-public-http.json",
+    "browserStudent": "browser-public-student.json",
+    "browserOnboarding": "browser-public-onboarding.json"
+  },
+  "gitIntegration": "connected; push-triggered deployment verified",
+  "githubActions": "not active; workflow permission unavailable, definition preserved as example",
+  "originalServiceModified": false
+}

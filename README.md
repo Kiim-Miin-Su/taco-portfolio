@@ -1,6 +1,6 @@
 # TACO ERP Portfolio Demo
 
-TACO ERP의 기존 전체 화면과 API를 합성 데이터로 체험하는 공개 데모입니다. 공개 URL은 배포 검증 후 기재합니다.
+TACO ERP의 기존 전체 화면과 API를 합성 데이터로 체험하는 공개 데모입니다. [공개 체험 바로가기](https://taco-portfolio.vercel.app) · [GitHub](https://github.com/Kiim-Miin-Su/taco-portfolio)
 
 방문자별 데이터는 현재 브라우저 탭의 메모리에서 관리합니다. 새로고침·탭 종료·체험 초기화 시 처음 상태로 돌아갑니다. 실제 학원 운영 데이터나 외부 발송 서비스에 연결하지 않습니다. [구현 계획](PLAN.md)과 [화면·CRUD 체크리스트](docs/FEATURE-CRUD-CHECKLIST.md)에 구현과 검증 범위를 구분했습니다.
 
@@ -64,7 +64,7 @@ flowchart LR
 - `scripts/verify-demo-api.mjs`: 동일 시나리오를 직접 runtime·로컬 HTTP·배포 HTTP에서 실행
 - `docs/evidence`: 비밀값·요청 본문을 제외한 검증 결과
 
-정적 연결은 309/309 API와 31개 route entry(28페이지·3 redirect)를 대조했습니다. 통합 시나리오와 실제 실행한 고유 API 수는 [HTTP 증거](docs/evidence/api-local-http.json)에서 확인할 수 있습니다. 코드 이식 수를 전체 CRUD 검증 완료 수로 설명하지 않습니다. 원본에서 제공하지 않는 일반 학생 프로필 수정 API·UI에 연결되지 않은 레거시 API 등의 경계도 체크리스트에 남겼습니다.
+정적 연결은 309/309 API와 31개 route entry(28페이지·3 redirect)를 대조했습니다. 공개 배포에서 63개 통합 시나리오(126회 호출)와 인증 추가 20회가 통과했습니다. 실제 실행한 고유 API는 합계 78/309이며 나머지 231개와 전체 분기 전수 실행은 미검증입니다. [공개 HTTP 증거](docs/evidence/api-public-http.json), [인증 증거](docs/evidence/auth-public-http.json), [배포 영수증](docs/evidence/deployment.json)을 확인할 수 있습니다. 코드 이식 수를 전체 CRUD 검증 완료 수로 설명하지 않습니다. 원본에서 제공하지 않는 일반 학생 프로필 수정 API·UI에 연결되지 않은 레거시 API 등의 경계도 체크리스트에 남겼습니다.
 
 ## 배포·자동 검사
 

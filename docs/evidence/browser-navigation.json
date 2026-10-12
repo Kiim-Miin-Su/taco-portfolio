@@ -1,0 +1,437 @@
+{
+  "version": 1,
+  "observedOn": "2026-10-12",
+  "timezone": "Asia/Seoul",
+  "status": "navigation-review-completed-with-explicit-gaps",
+  "targets": [
+    {
+      "origin": "http://localhost:3300",
+      "mode": "Next dev",
+      "tabId": "545759074"
+    },
+    {
+      "origin": "http://localhost:3301",
+      "mode": "production build",
+      "tabId": "545759077"
+    }
+  ],
+  "method": "CUA Chrome. Application links/buttons used after login. Parent later authorized direct navigation for six remaining route entries; full navigation resets RAM state and returned to login. No hidden state reads or browser network scripts.",
+  "summary": {
+    "observedRouteEntries": 31,
+    "totalRouteEntries": 31,
+    "unverifiedRouteEntries": 0,
+    "observedProductionRoles": [
+      "manager",
+      "teacher",
+      "admin"
+    ],
+    "observedDevRoles": [
+      "ceo"
+    ],
+    "crudSaveCompletionClaim": false,
+    "bodyObservedRouteEntries": 25,
+    "authBoundaryOnlyRouteEntries": 6
+  },
+  "routes": [
+    {
+      "id": "UI-09",
+      "route": "/login",
+      "roles": [
+        "public"
+      ],
+      "ports": [
+        "3300",
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "4 role buttons + direct account fields; first CEO login and production role switching passed"
+    },
+    {
+      "id": "UI-13",
+      "route": "/password-reset",
+      "roles": [
+        "public"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Reset form rendered; no code request or password change performed"
+    },
+    {
+      "id": "UI-20",
+      "route": "/schedule",
+      "roles": [
+        "ceo",
+        "manager",
+        "admin",
+        "teacher"
+      ],
+      "ports": [
+        "3300",
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Admin calendar and teacher calendar loaded; app links retained visitor state"
+    },
+    {
+      "id": "UI-25",
+      "route": "/students",
+      "roles": [
+        "ceo",
+        "manager",
+        "admin"
+      ],
+      "ports": [
+        "3300",
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "List/search/grade filter/new-student link rendered"
+    },
+    {
+      "id": "UI-23",
+      "route": "/students/[id]",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Student 19 overview, comments, profile and Kinder marker inputs rendered"
+    },
+    {
+      "id": "UI-22",
+      "route": "/staff",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Synthetic staff list, state/search and detail links rendered"
+    },
+    {
+      "id": "UI-21",
+      "route": "/staff/[id]",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Teacher 7 detail and eight tabs rendered; actor and target displayed separately"
+    },
+    {
+      "id": "UI-08",
+      "route": "/intake",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Stage board and new inquiry form opened then cancelled"
+    },
+    {
+      "id": "UI-04",
+      "route": "/consulting",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "List and start form opened; unconfigured types disabled with explanation"
+    },
+    {
+      "id": "UI-02",
+      "route": "/board",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Lesson board and MAP Math detail opened; roster, attendance, change and cancellation entry points visible"
+    },
+    {
+      "id": "UI-03",
+      "route": "/books",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Progress list and create form opened then cancelled"
+    },
+    {
+      "id": "UI-07",
+      "route": "/guides",
+      "roles": [
+        "ceo",
+        "admin"
+      ],
+      "ports": [
+        "3300",
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Student guide writer opened then cancelled; template-management link used"
+    },
+    {
+      "id": "UI-19",
+      "route": "/reports",
+      "roles": [
+        "ceo",
+        "teacher"
+      ],
+      "ports": [
+        "3300",
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Admin unsubmitted list and teacher group report structured fields opened"
+    },
+    {
+      "id": "UI-01",
+      "route": "/accounting",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Board and invoice issue form opened; settlement/transfer not executed"
+    },
+    {
+      "id": "UI-11",
+      "route": "/ops",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Marketing board and activity create form opened then cancelled"
+    },
+    {
+      "id": "UI-05",
+      "route": "/exec",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Daily report and aggregate sections rendered; no submission"
+    },
+    {
+      "id": "UI-31",
+      "route": "/zoom",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Drawer link to account page; create form opened then cancelled"
+    },
+    {
+      "id": "UI-16",
+      "route": "/programs",
+      "roles": [
+        "ceo"
+      ],
+      "ports": [
+        "3300"
+      ],
+      "status": "navigation-observed",
+      "observed": "Drawer link to program page; program/subject list and create inputs visible"
+    },
+    {
+      "id": "UI-28",
+      "route": "/teacher",
+      "roles": [
+        "teacher"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Home, upcoming classes, settings and workflow links rendered"
+    },
+    {
+      "id": "UI-30",
+      "route": "/teacher/unavailable",
+      "roles": [
+        "teacher"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Two-week grid loaded; selected an open slot, mandatory reason input rendered; cleared selection"
+    },
+    {
+      "id": "UI-26",
+      "route": "/teacher/guides",
+      "roles": [
+        "teacher"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Received guides, confirmation, material-request input and assigned students rendered"
+    },
+    {
+      "id": "UI-27",
+      "route": "/teacher/history",
+      "roles": [
+        "teacher"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "KST previous-month September settlement/history rendered; lesson-linked note form opened then cancelled"
+    },
+    {
+      "id": "UI-29",
+      "route": "/teacher/suggestions",
+      "roles": [
+        "teacher"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Suggestion categories, body input and synthetic prior requests rendered"
+    },
+    {
+      "id": "UI-24",
+      "route": "/students/new",
+      "roles": [
+        "admin"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Common registration form and review/preview/create controls rendered; no registration performed"
+    },
+    {
+      "id": "UI-15",
+      "route": "/phrases",
+      "roles": [
+        "admin"
+      ],
+      "ports": [
+        "3301"
+      ],
+      "status": "navigation-observed",
+      "observed": "Guide-management link to phrase list and create name/body fields rendered"
+    }
+  ],
+  "panels": [
+    {
+      "name": "Staff creation",
+      "roles": [
+        "ceo",
+        "manager"
+      ],
+      "observed": "Role options teacher/manager/admin and name/login/temporary-password fields. No CEO option. No account created."
+    },
+    {
+      "name": "Permissions",
+      "roles": [
+        "ceo"
+      ],
+      "observed": "Permission table opened in modal. No modification."
+    }
+  ],
+  "findings": [
+    {
+      "id": "NAV-LOGIN-01",
+      "status": "dev-only-observed; not-reproduced-in-production-build",
+      "observed": "After initial CEO menu session and logout, manager/admin/teacher/CEO re-login on dev briefly reached schedule then returned to login without visible error. One reset did not resolve it. Production-build new tab manager login, logout to teacher, teacher menus, logout to admin and subsequent navigation passed.",
+      "cause": "Not established. HMR/new-bundle state suspected by parent; do not assert a role-policy failure."
+    },
+    {
+      "id": "NAV-RESET-COPY-01",
+      "status": "reported-to-parent; follow-up-copy-not-rechecked",
+      "observed": "Dev password reset displayed generic email/SMS code copy. No code request or credential change. Parent subsequently reported demo-specific copy edits."
+    },
+    {
+      "id": "NAV-LEGACY-PRECONDITION-01",
+      "status": "verification-boundary",
+      "observed": "/gpa is read-only historical GPA, not a retirement redirect. /permissions is a standalone legacy URL for the same matrix. Full document navigation clears demo RAM auth; legacy entry body/query verification needs an in-app entry or separate authenticated harness."
+    }
+  ],
+  "boundaries": [
+    "Route navigation and input-path observations do not prove CRUD save, direct DB readback, all UI states or mobile behavior.",
+    "API execution evidence is separate: api-runtime.json and api-local-http.json.",
+    "Student basic-profile edit is absent in the current source contract and observed UI; Kinder marker has a separate input path.",
+    "Student list explicitly says lead combined search, enrollment/country filters and bulk actions are not provided.",
+    "Guide writer entry may create an internal draft; final guide submission or external sending was not executed.",
+    "No real accounts, production DB, email/SMS delivery or bank transfer used.",
+    "All 31 route entries were navigated, but only 25 page bodies were observed. The other six show authentication boundaries only; do not mark all S01–S04 complete."
+  ],
+  "directEntryChecks": [
+    {
+      "id": "UI-06",
+      "route": "/gpa",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    },
+    {
+      "id": "UI-10",
+      "route": "/onboarding",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    },
+    {
+      "id": "UI-12",
+      "route": "/",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    },
+    {
+      "id": "UI-14",
+      "route": "/permissions",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    },
+    {
+      "id": "UI-17",
+      "route": "/reports/[section]/[onDate]",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    },
+    {
+      "id": "UI-18",
+      "route": "/reports/[section]",
+      "status": "auth-boundary-only",
+      "observed": "Direct navigation on localhost:3301 reached the route and then /login without visible 404 or crash. Fresh document navigation discards RAM login state.",
+      "remaining": "Authenticated page body or intermediate redirect query was not observed."
+    }
+  ]
+}
