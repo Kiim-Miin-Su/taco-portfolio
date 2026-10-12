@@ -15,7 +15,7 @@ TACO ERP의 기존 전체 화면과 API를 합성 데이터로 체험하는 공�
 
 ## 실행과 검증
 
-Node.js 22 이상과 npm을 사용합니다. 원본 환경 파일이나 DB 접속 정보가 필요하지 않습니다.
+Node.js 22와 npm을 사용합니다. 원본 환경 파일이나 DB 접속 정보가 필요하지 않습니다.
 
 ```sh
 npm ci
@@ -65,6 +65,12 @@ flowchart LR
 - `docs/evidence`: 비밀값·요청 본문을 제외한 검증 결과
 
 정적 연결은 309/309 API와 31개 route entry(28페이지·3 redirect)를 대조했습니다. 통합 시나리오와 실제 실행한 고유 API 수는 [HTTP 증거](docs/evidence/api-local-http.json)에서 확인할 수 있습니다. 코드 이식 수를 전체 CRUD 검증 완료 수로 설명하지 않습니다. 원본에서 제공하지 않는 일반 학생 프로필 수정 API·UI에 연결되지 않은 레거시 API 등의 경계도 체크리스트에 남겼습니다.
+
+## 배포·자동 검사
+
+Vercel은 별도 `taco-portfolio` 프로젝트와 이 공개 저장소를 연결합니다. `main` push 시 배포 빌드를 실행합니다. 서버 컴파일 단계에는 개발 의존성을 설치하고, 함수 패키징 전에 제거합니다. Node 22로 고정했습니다. Vercel Production·Preview에는 `NODE_OPTIONS=--experimental-require-module`이 필요합니다. light-my-request 6.8의 cookie 2 ESM 로딩을 위한 [Vercel 공식 설정](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration)이며, 이 값이 빠지면 첫 API 요청에서 ERR_REQUIRE_ESM으로 초기화가 실패합니다.
+
+현재 GitHub 인증에는 workflow 생성 권한이 없어 자동 Actions는 활성화하지 않았습니다. 검증 정의는 `.github/verify-workflow.example.yml`에 보존했고, 이번 테스트·타입·린트·빌드는 로컬과 Vercel에서 직접 실행한 증거로 기록합니다. Actions를 사용할 때는 workflow 권한이 있는 인증으로 해당 파일을 `.github/workflows/verify.yml`에 배치합니다.
 
 ## 제품 기술 스택
 

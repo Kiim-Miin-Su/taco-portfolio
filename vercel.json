@@ -7,8 +7,7 @@
   "buildCommand": "npm run vercel-build",
   "functions": {
     "src/app/api/demo/route.ts": {
-      "maxDuration": 120,
-      "memory": 4096
+      "maxDuration": 120
     }
   }
 }
