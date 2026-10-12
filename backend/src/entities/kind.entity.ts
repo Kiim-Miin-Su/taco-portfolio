@@ -1,0 +1,50 @@
+/** @file-guide
+ * 목적: kind 테이블 ORM 매핑 — Kind (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * KIND — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, PrimaryColumn } from 'typeorm';
+import { KIND_GRP_T_VALUES } from './enums';
+
+@Entity({ name: 'kind' })
+export class Kind {
+  /** class · mock · gpa · study · consult · diagx · consulting · meeting */
+  @PrimaryColumn({ type: 'varchar', length: 16 })
+  key: string;
+
+  @Column({ type: 'varchar', length: 30 })
+  name: string;
+
+  @Column({ type: 'char', length: 7 })
+  color: string;
+
+  /** 정원 */
+  @Column({ type: 'smallint' })
+  cap: number;
+
+  /** 묶음 분류 */
+  @Column({ type: 'enum', enum: KIND_GRP_T_VALUES, enumName: 'kind_grp_t' })
+  grp: 'lesson'|'intake'|'meeting';
+
+  /** true 인 종류만 리포트 대상 (D-4) */
+  @Column({ type: 'boolean', default: false })
+  rep: boolean;
+
+  /** ⚠️ 쓰지 않는다 — 양식은 5칸 하나뿐 (D-R40). 컬럼만 남겨 둔다 */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  repForm: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  sort: number | null;
+
+  /** 추가 수업인가 — 시간표 「추가」 배지 · §54 「추가」 칸 · 청구서 별도 줄 (C94-d · C-38 · v4.31) */
+  @Column({ type: 'boolean', default: false })
+  extra: boolean;
+}

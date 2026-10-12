@@ -1,0 +1,92 @@
+/** @file-guide
+ * 목적: issue 테이블 ORM 매핑 — Issue (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * ISSUE — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Check, Column, Entity, ForeignKey, Index, PrimaryGeneratedColumn } from 'typeorm';
+
+@Index('issue_student_state_idx', ['studentId', 'state', 'id'])
+@ForeignKey('stu', ['studentId'], ['id'], { name: 'issue_student_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@Check('issue_form_words', "form IS NULL OR form IN ('pdf','print')")
+@Entity({ name: 'issue' })
+export class Issue {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: number;
+
+  @Column({ type: 'bigint' })
+  libId: number;
+
+  @Column({ type: 'bigint', nullable: true })
+  versId: number | null;
+
+  /** T11 자료가 만들어진 정확한 리포트 회차. 일반 교재 배정은 NULL이다. */
+  @Column({ type: 'bigint', nullable: true })
+  sourceRepId: number | null;
+
+  @Column({ type: 'bigint' })
+  studentId: number;
+
+  /** BOC-04D-03b 새 배정의 실제 수업 담당자. 옛 배부는 NULL로 보존한다. */
+  @Column({ type: 'bigint', nullable: true })
+  teacherId: number | null;
+
+  /** BOC-04D-03b 새 배정의 실제 수업 과목. teacherId와 함께 있거나 함께 NULL이다. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  subKey: string | null;
+
+  /** 상태·진도·회수 동시 수정 충돌을 감지하는 낙관적 버전. */
+  @Column({ type: 'int', default: 1 })
+  rowVersion: number;
+
+  @Column({ type: 'date', nullable: true })
+  issuedOn: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  returnedOn: string | null;
+
+  @Column({ type: 'varchar', length: 12, default: 'ok' })
+  state: string;
+
+  @Column({ type: 'int', nullable: true })
+  progressPage: number | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  requestedBy: number | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  approvedBy: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  deliveredAt: Date | null;
+
+  /** 배부 사유 — 무슨 교재를 왜 줬는지 (N-62 ① 채택 · W11 · 원문 슬라이드 37). 옛 줄은 NULL */
+  @Column({ type: 'text', nullable: true })
+  reason: string | null;
+
+  /** 배부 형태 — pdf | print (§38 칩 「PDF」 · 「실물 책」 · 7-3 §38-2 · W11 A'). 옛 줄은 NULL = 칩 없음 */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  form: string | null;
+
+  /** 취소·반려 사유. 활성/반납 상태에는 NULL 이다. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  endedReason: string | null;
+
+  /** 취소·반려를 확정한 직원. */
+  @Column({ type: 'bigint', nullable: true })
+  endedBy: number | null;
+
+  /** 취소·반려 확정 시각. */
+  @Column({ type: 'timestamptz', nullable: true })
+  endedAt: Date | null;
+
+  /** 종료 건을 근거로 다시 배부한 경우 원본 ISSUE id. */
+  @Column({ type: 'bigint', nullable: true })
+  reissuedFrom: number | null;
+}

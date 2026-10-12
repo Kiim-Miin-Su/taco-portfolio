@@ -1,0 +1,223 @@
+/** @file-guide
+ * 목적: guides.controller.ts — GuidesController (controller)
+ * 책임/재사용: HTTP DTO/경로와 인증·Perm 메타데이터를 연결하고 기존 service에 위임한다. SQL/업무 전이를 컨트롤러에 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Perm, type RequestUser } from '../../common/perm';
+import {
+  GuideActionDto, GuideActionParamsDto, GuideBodyWriteDto, GuideClassDiagListDto, GuideClassDiagWriteDto, GuideCopyDto, GuideCopyResultDto, GuideDraftCreateDto, GuideDto, GuideHistoryDto, GuideHistoryQueryDto,
+  GuideStudentsDto, GuideTemplateDto, GuideTemplateWriteDto, GuidesDto, ZoomNoticeBatchResultDto, ZoomNoticeResultDto, ZoomNoticeWriteDto,
+} from './guides.dto';
+import { GuidesService } from './guides.service';
+
+@ApiTags('guides')
+@Controller('guides')
+export class GuidesController {
+  constructor(private readonly svc: GuidesService) {}
+
+  @Get()
+  @Perm('canAdminPage')
+  @ApiOperation({ summary: '수업 안내 — 한 번만(GUIDE) · 회차마다(PNOTI) (§43)' })
+  @ApiOkResponse({ type: GuidesDto })
+  async all(@CurrentUser() user: RequestUser): Promise<GuidesDto> {
+    return this.svc.all(undefined, user);
+  }
+
+  @Get('students')
+  @Perm('canAdminPage')
+  @ApiOperation({ summary: '안내 학생별 — 최신 유효 안내·교재·진단 projection (§44)' })
+  @ApiOkResponse({ type: GuideStudentsDto })
+  async students(@CurrentUser() user: RequestUser): Promise<GuideStudentsDto> {
+    return this.svc.students(user);
+  }
+
+  @Get('history')
+  @Perm('canAdminPage')
+  @ApiOperation({ summary: '안내 이력과 필요한데 없는 안내 — 일·주·월 (§45)' })
+  @ApiOkResponse({ type: GuideHistoryDto })
+  async history(@CurrentUser() user: RequestUser, @Query() query: GuideHistoryQueryDto): Promise<GuideHistoryDto> {
+    return this.svc.history(query, user);
+  }
+
+  @Post('drafts')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '필요한데 없는 안내를 초안으로 만들기 (§45)',
+    description: '화면은 회차/학생 id만 보낸다. 서버가 첫 수업·강사 교체를 다시 판정하고 중복 생성은 같은 GUIDE로 수렴시킨다.',
+  })
+  @ApiCreatedResponse({ type: GuideDto })
+  @ApiConflictResponse({ description: 'code GUIDE_CANDIDATE_STALE | GUIDE_CREATE_RACE' })
+  async createDraft(@CurrentUser() user: RequestUser, @Body() dto: GuideDraftCreateDto): Promise<GuideDto> {
+    return this.svc.createDraft(user.id, dto, user);
+  }
+
+  /* ══ §43 머리의 「문구 관리」 — 문구 틀 ═══════════════════════════════════ */
+
+  @Get('templates')
+  @Perm('canAdminPage')
+  @ApiOperation({
+    summary: '문구 틀 목록 (§43 「문구 관리」)',
+    description: '틀은 안내와 끊어져 있다 — 안내를 만들 때 본문을 복사해 넣고, 그 뒤로 틀을 고쳐도 이미 쓴 안내는 안 바뀐다.',
+  })
+  @ApiOkResponse({ type: [GuideTemplateDto] })
+  async templates(): Promise<GuideTemplateDto[]> {
+    return this.svc.templates();
+  }
+
+  @Post('templates')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({ summary: '문구 틀 추가 — 이름이 겹치면 막는다' })
+  @ApiCreatedResponse({ type: GuideTemplateDto })
+  @ApiConflictResponse({ description: 'code GTPL_DUPLICATE' })
+  async createTemplate(@CurrentUser() user: RequestUser, @Body() dto: GuideTemplateWriteDto): Promise<GuideTemplateDto> {
+    return this.svc.createTemplate(dto, user.id);
+  }
+
+  @Patch('templates/:id')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({ summary: '문구 틀 고치기 — 이미 쓴 안내는 안 바뀐다' })
+  @ApiOkResponse({ type: GuideTemplateDto })
+  @ApiConflictResponse({ description: 'code GTPL_DUPLICATE' })
+  @ApiNotFoundResponse({ description: '문구 없음' })
+  async patchTemplate(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GuideTemplateWriteDto,
+  ): Promise<GuideTemplateDto> {
+    return this.svc.patchTemplate(id, dto, user.id);
+  }
+
+  /* ══ §43 「안내 작성」 ════════════════════════════════════════════════════ */
+
+  @Put(':id/body')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '안내 작성 — 쓰면 보낼 준비가 된다 (§43)',
+    description: '상태 낱말은 화면이 보내지 않는다. 「썼다」와 expectedVersion·requestKey만 주며 상태·동시성·멱등은 서버가 정한다 (D-R18 · BOC-04D-03a).',
+  })
+  @ApiOkResponse({ type: GuideDto })
+  @ApiConflictResponse({ description: 'code GUIDE_ALREADY_SENT | GUIDE_VERSION_CONFLICT | GUIDE_WRITE_REQUEST_KEY_REUSED | GUIDE_WRITE_REPLAY_STALE' })
+  @ApiNotFoundResponse({ description: '안내 없음' })
+  async writeBody(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GuideBodyWriteDto,
+  ): Promise<GuideDto> {
+    return this.svc.writeBody(user.id, id, dto, user);
+  }
+
+  @Get(':id/class-diagnostics')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '반 진단 — 안내 작성 창의 학생별 진단 탭 (F-60 「진단 입력 탭이 인원수만큼」)',
+    description: '안내의 학생과 같은 반(같은 규칙 · 같은 날 · 같은 사유의 안내) 학생마다 최신 진단(DIAG) 한 줄 · 안내의 학생이 먼저 · 나머지는 이름 차례.',
+  })
+  @ApiOkResponse({ type: GuideClassDiagListDto })
+  @ApiNotFoundResponse({ description: '안내 없음' })
+  async classDiagnostics(@Param('id', ParseIntPipe) id: number): Promise<GuideClassDiagListDto> {
+    return this.svc.classDiagnostics(id);
+  }
+
+  @Post(':id/class-diagnostics')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '반 진단 쓰기 — 탭마다 적은 진단을 한 번에 (F-60 · F-61 · 사용자 결정 2026-09-30 「탭에서 관리자도 입력」)',
+    description: 'C61(「진단 리포트 작성 — 강사 가능 · 나머지 조회」)을 안내 작성 창에서 넓힌다 — 안내를 쓰는 사람(canAdminPage + canCrudAll)이 그 반 학생의 진단을 적는다. '
+      + '강사 진단과 같은 표(DIAG · 쌓고 · 읽기는 늘 최신)다. 반 밖 학생이 하나라도 있으면 400 GUIDE_DIAG_NOT_CLASS · 현재 수준이 비면 409 EMPTY_BODY — 아무것도 쓰지 않는다.',
+  })
+  @ApiCreatedResponse({ type: GuideClassDiagListDto })
+  @ApiBadRequestResponse({ description: 'code GUIDE_DIAG_NOT_CLASS' })
+  @ApiConflictResponse({ description: 'code EMPTY_BODY' })
+  @ApiNotFoundResponse({ description: '안내 없음' })
+  async writeClassDiagnostics(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GuideClassDiagWriteDto,
+  ): Promise<GuideClassDiagListDto> {
+    return this.svc.writeClassDiagnostics(user.id, id, dto);
+  }
+
+  @Post(':id/copy')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '나머지 학생에게 복사 — 그룹 수업 안내 (§43 · F-61)',
+    description:
+      '같은 규칙·같은 날·같은 사유의 다른 학생 **초안**에만 옮긴다. 이미 쓴 형제는 덮지 않고 이유를 돌려준다. '
+      + '머리말은 받는 학생 것으로 다시 만든다 — 그대로 옮기면 남의 이름이 학부모에게 간다. '
+      + '`targetIds` 를 보내면 작성 창에서 고른 형제에게만 옮긴다(F-60 「같은 반 학생이 함께 선택됨」) — 안 보내면 형제 전부.',
+  })
+  @ApiCreatedResponse({ type: GuideCopyResultDto })
+  @ApiBadRequestResponse({ description: 'code GUIDE_COPY_NOT_SIBLING — 형제가 아닌 번호 · 아무것도 쓰지 않았다' })
+  @ApiConflictResponse({ description: 'code GUIDE_COPY_EMPTY · GUIDE_COPY_NO_SIBLING' })
+  @ApiNotFoundResponse({ description: '안내 없음' })
+  async copyBody(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GuideCopyDto,
+  ): Promise<GuideCopyResultDto> {
+    return this.svc.copyBody(user.id, id, user, dto?.targetIds);
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({ summary: '수업 안내를 저장된 수신 강사에게 내부 전달한다. 반복 요청은 기존 결과를 반환한다' })
+  @ApiBody({ required: false, schema: { type: 'object', additionalProperties: false } })
+  @ApiOkResponse({ type: GuideDto })
+  @ApiConflictResponse({ description: 'code GUIDE_NOT_READY | GUIDE_BODY_EMPTY | GUIDE_RECIPIENT_UNAVAILABLE' })
+  async sendGuide(
+    @CurrentUser() user: RequestUser,
+    @Param() params: GuideActionParamsDto,
+    @Body() _body: GuideActionDto,
+  ): Promise<GuideDto> {
+    GuideActionDto.assertEmpty(_body);
+    return this.svc.sendGuide(user, params.id);
+  }
+
+  /* ══ §43 회차 안내의 「강사 안내」 — 줌 안내 ═══════════════════════════════ */
+
+  @Post('zoom-notice')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '줌 안내 — 온라인 회차의 강사에게 보낸다 (§43 · §12 준비 · F-63)',
+    description:
+      '강사 수신함에 줄이 남는다(NOTI · PNOTI sent_at) — 강사 화면의 알림 칸은 N-26 이 닫혀야 붙는다. '
+      + '학부모 줄은 「보낼 것」으로 남는다 — 수신처가 없다(N-42). '
+      + '회차 키는 (serId, onDate) 다. 비밀번호는 본문에 싣지 않는다.',
+  })
+  @ApiCreatedResponse({ type: ZoomNoticeResultDto })
+  @ApiConflictResponse({
+    description: 'code ZOOM_NOTICE_NOT_ONLINE · ZOOM_NOTICE_CANCELED · ZOOM_NOTICE_NO_TEACHER · ZOOM_NOTICE_NO_ACCOUNT · ZOOM_NOTICE_ALREADY',
+  })
+  @ApiNotFoundResponse({ description: 'code OCCURRENCE_NOT_FOUND' })
+  async sendZoomNotice(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ZoomNoticeWriteDto,
+  ): Promise<ZoomNoticeResultDto> {
+    return this.svc.sendZoomNotice(user.id, dto);
+  }
+
+  @Post('zoom-notice/batch')
+  @Perm('canAdminPage', 'canCrudAll')
+  @ApiOperation({
+    summary: '강사 N명 한 번에 — 오늘 온라인 회차의 강사 줌 안내를 한 번에 (§43 매번 머리 · wave 6)',
+    description:
+      '입력은 없다 — 보낼 회차는 서버가 목록의 canSendTeacher 와 같은 문(sendGate)으로 고른다. '
+      + '줄마다 단건 줌 안내와 같은 쓰기·같은 트랜잭션 단위라 한 줄의 거절이 다른 줄을 되돌리지 않는다. '
+      + '못 보낸 줄은 서버 코드·문장으로 skipped 에 싣는다.',
+  })
+  @ApiBody({ required: false, schema: { type: 'object', additionalProperties: false } })
+  @ApiCreatedResponse({ type: ZoomNoticeBatchResultDto })
+  async sendZoomNoticeBatch(
+    @CurrentUser() user: RequestUser,
+    @Body() _body: GuideActionDto,
+  ): Promise<ZoomNoticeBatchResultDto> {
+    GuideActionDto.assertEmpty(_body);
+    return this.svc.sendZoomNoticeBatch(user);
+  }
+
+}

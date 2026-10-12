@@ -1,0 +1,53 @@
+/** @file-guide
+ * 목적: noti 테이블 ORM 매핑 — Noti (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * NOTI — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+
+@Entity({ name: 'noti' })
+export class Noti {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: number;
+
+  @Column({ type: 'bigint' })
+  toId: number;
+
+  @Column({ type: 'bigint', nullable: true })
+  fromId: number | null;
+
+  /** §16 카드의 굵은 제목 (g2 16-1 · migration 1762900000000). 옛 행·제목을 안 적는 쓰기는 null — 화면은 본문만 그린다 */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  title: string | null;
+
+  @Column({ type: 'text' })
+  body: string;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  link: string | null;
+
+  /** §16 분류 정본. 특히 같은 링크를 쓰는 최초 독촉과 재알람을 구분한다. */
+  @Column({ type: 'varchar', length: 20, default: 'etc' })
+  category: 'report_due'|'re_alarm'|'report'|'schedule'|'request'|'etc';
+
+  /** §47 독촉 배치의 HTTP 재시도 키. 기존/다른 알림은 null이다. */
+  @Column({ type: 'uuid', nullable: true })
+  requestKey: string | null;
+
+  /** §47 요청 범위 스냅샷. null은 전체, 값은 명시한 강사다. */
+  @Column({ type: 'bigint', nullable: true })
+  requestTeacherId: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  readAt: Date | null;
+
+  @Column({ type: 'timestamptz', default: () => "now()" })
+  createdAt: Date;
+}

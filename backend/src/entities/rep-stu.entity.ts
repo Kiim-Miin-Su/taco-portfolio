@@ -1,0 +1,32 @@
+/** @file-guide
+ * 목적: rep_stu 테이블 ORM 매핑 — RepStu (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * REP_STU — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, ForeignKey, Index, PrimaryColumn } from 'typeorm';
+
+@Index('rep_stu_student_report_idx', ['studentId', 'repId'])
+@ForeignKey('rep', ['repId'], ['id'], { name: 'rep_stu_rep_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@ForeignKey('stu', ['studentId'], ['id'], { name: 'rep_stu_student_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@Entity({ name: 'rep_stu' })
+export class RepStu {
+  @PrimaryColumn({ type: 'bigint' })
+  repId: number;
+
+  @PrimaryColumn({ type: 'bigint' })
+  studentId: number;
+
+  /** 그룹 리포트 학생별 코멘트 — v26 40자 이상 */
+  @Column({ type: 'text', nullable: true })
+  comment: string | null;
+
+  @Column({ type: 'boolean', default: true })
+  deliver: boolean;
+}

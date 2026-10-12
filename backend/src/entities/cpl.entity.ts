@@ -1,0 +1,74 @@
+/** @file-guide
+ * 목적: cpl 테이블 ORM 매핑 — Cpl (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * CPL — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Check, Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { CPL_AREA_T_VALUES } from './enums';
+
+@Entity({ name: 'cpl' })
+/** 심각도 낱말은 `lib/complaint-words` 한 곳 — 표는 마지막 방어다 (v4.32 · C93). NULL 은 「모른다」(옛 행 · N-25) */
+@Check('cpl_severity_words', "severity IS NULL OR severity IN ('light','normal','severe')")
+/** 문의자 관계 둘 — 어머니 · 아버지 (v4.49 · wave 6 67-5). NULL 은 「모른다」(옛 행 · N-25) */
+@Check('cpl_requester_words', "requester IS NULL OR requester IN ('mother','father')")
+/** 마무리 시각은 「결과」 건에만 — 열린 건이 마무리 날짜를 들면 거짓이다 (v4.49 · wave 6 67-6) */
+@Check('cpl_closed_at_stage', "closed_at IS NULL OR stage = 'closed'")
+export class Cpl {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: number;
+
+  @Column({ type: 'enum', enum: CPL_AREA_T_VALUES, enumName: 'cpl_area_t' })
+  area: 'lesson'|'intake'|'book'|'schedule'|'teacher';
+
+  @Column({ type: 'bigint', nullable: true })
+  studentId: number | null;
+
+  /**
+   * received | acting | closed — **저장되는 말이다** (`cpl_stage_words` CHECK · C86-d).
+   * 한동안 이 주석이 「open | acting | done」이라 적혀 있었고 대표 보고의 배지가 그 말을 믿어
+   * 끝난 건까지 전부 세었다. 낱말은 `lib/complaint-words` 한 곳에서 온다.
+   */
+  @Column({ type: 'varchar', length: 12 })
+  stage: string;
+
+  @Column({ type: 'text' })
+  body: string;
+
+  @Column({ type: 'text', nullable: true })
+  action: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  result: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  teacherChanged: boolean;
+
+  @Column({ type: 'bigint', nullable: true })
+  ownerId: number | null;
+
+  /** 대응 기한 (J-98) — 없으면 기한을 세지 않는다. 옛 행은 NULL (v4.32 · C93) */
+  @Column({ type: 'date', nullable: true })
+  dueOn: string | null;
+
+  /** light | normal | severe — 원본 §67 카드의 가벼움 · 보통 · 심각. 옛 행은 NULL (v4.32 · C93) */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  severity: string | null;
+
+  /** mother | father — 원본 §67 카드 「고은설 어머니」의 누가 알렸는지(§29 「누가 요청」과 같은 말). 옛 행은 NULL (v4.49 · wave 6) */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  requester: string | null;
+
+  /** 「결과」로 옮긴 순간 — 서버가 찍고 다시 열면 비운다(입력 칸 아님). 옛 「결과」 행은 NULL — 모른다 (v4.49 · wave 6 67-6) */
+  @Column({ type: 'timestamptz', nullable: true })
+  closedAt: Date | null;
+
+  @Column({ type: 'timestamptz', default: () => "now()" })
+  createdAt: Date;
+}

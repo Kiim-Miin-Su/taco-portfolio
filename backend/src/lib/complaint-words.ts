@@ -1,0 +1,95 @@
+/** @file-guide
+ * 목적: complaint-words.ts — CPL_STAGES, CplStage, CPL_STAGE_LABEL, CPL_STAGE_SUB, CPL_OPEN_STAGES 등 (util)
+ * 책임/재사용: 현재 lib 계층의 순수 계산/표시 방어를 우선 재사용한다. UI·네트워크·DB 부수효과와 서버 업무 권위를 섞지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 컴플레인 단계 셋 — **낱말과 순서가 사는 단 하나의 자리** (원본 §67).
+ *
+ * **이 파일이 생긴 이유는 한 낱말 때문이다.** DBML 의 `CPL.stage` 주석과 entity 주석은
+ * 둘 다 「open | acting | done」이라 적어 두었는데 **실제로 저장되는 말은
+ * `received | acting | closed`** 다. 셋 중 둘은 아무 일도 안 했지만
+ * `lib/exec-areas` 의 컴플레인 판정이 그 선언을 **믿고** `stage <> 'done'` 으로 세는 바람에
+ * **끝난 건까지 전부 세어** 대표 보고의 배지가 「8」이 됐다(열린 건은 5다).
+ * **선언과 데이터가 다르면, 그 차이를 읽은 쪽이 조용히 틀린다.**
+ *
+ * 그래서 판정도 낱말도 여기서만 나온다. `CPL_OPEN_STAGES` 를 쓰는 한 이 값들이 바뀌어도
+ * 세는 쪽이 따라온다.
+ */
+
+export const CPL_STAGES = ['received', 'acting', 'closed'] as const;
+export type CplStage = (typeof CPL_STAGES)[number];
+
+export const CPL_STAGE_LABEL: Record<CplStage, string> = {
+  received: '접수',
+  acting: '대응',
+  closed: '결과',
+};
+
+/**
+ * 칸 이름 아래 한 줄 — 원본 §67 의 칸마다 있다.
+ * **무엇인지가 아니라 다음에 무엇을 하는지**를 적는다: 「받았습니다 · 담당을 정해야 합니다」.
+ */
+export const CPL_STAGE_SUB: Record<CplStage, string> = {
+  received: '받았습니다 · 담당을 정해야 합니다',
+  acting: '연락하고 조치하는 중입니다',
+  closed: '마무리했습니다',
+};
+
+/** 아직 안 끝난 것 — 대표 보고의 컴플레인 배지가 세는 집합 (§69) */
+export const CPL_OPEN_STAGES: readonly CplStage[] = ['received', 'acting'];
+
+/**
+ * 컴플레인 → 환불 연결의 감사 줄 (J-99 · N-135 「연결이 끊기면 실패」) — 쓰는 곳(수강 종료)과 읽는 곳(§67 컴플레인 이력)이
+ * 같은 표지를 본다. `after` 의 모양(studentId · endedOn · refundTotal · invoices · serIds · reason)은 이 두 곳의 계약이다 —
+ * 모양을 바꾸면 컴플레인 이력이 조용히 빈다(withdraw-db.spec ⑤ 가 둘을 함께 본다).
+ */
+export const CPL_REFUND_LOG = { entity: 'CPL', action: 'refund' } as const;
+
+export const cplStageLabel = (stage: string): string =>
+  CPL_STAGE_LABEL[stage as CplStage] ?? stage;
+
+/** 갈래 다섯 — `cpl_area_t` 의 낱말. 화면이 제 표를 들면 §67 칩과 §69 줄이 갈린다 (D-R18) */
+export const CPL_AREA_LABEL: Record<string, string> = {
+  lesson: '수업',
+  intake: '상담',
+  book: '교재',
+  schedule: '스케줄',
+  teacher: '선생님',
+};
+
+export const cplAreaLabel = (area: string): string => CPL_AREA_LABEL[area] ?? area;
+
+/** 갈래 다섯의 순서 — 「+ 접수」 폼과 칩 줄이 같은 순서로 선다 (원본 §67 「전체 · 수업 · 상담 · 교재 · 스케줄 · 선생님」) */
+export const CPL_AREAS = ['lesson', 'intake', 'book', 'schedule', 'teacher'] as const;
+export type CplArea = (typeof CPL_AREAS)[number];
+
+/** 심각도 셋 — 원본 §67 카드의 「가벼움 · 보통 · 심각」. 표의 `cpl_severity_words` 가 같은 셋을 지킨다 (v4.32 · C93) */
+export const CPL_SEVERITIES = ['light', 'normal', 'severe'] as const;
+export type CplSeverity = (typeof CPL_SEVERITIES)[number];
+export const CPL_SEVERITY_LABEL: Record<CplSeverity, string> = {
+  light: '가벼움',
+  normal: '보통',
+  severe: '심각',
+};
+export const cplSeverityLabel = (severity: string | null | undefined): string | null =>
+  severity ? (CPL_SEVERITY_LABEL[severity as CplSeverity] ?? severity) : null;
+
+/**
+ * 문의자 관계 — 누가 알렸는가 (원본 §67 카드 「고은설 **어머니**」 · 67-5 · wave 6).
+ *
+ * 컷 §67 이 보여 주는 말은 「어머니」 하나라 한 낱말로는 고를 거리가 없다. 같은 원본이 같은 뜻의 칸
+ * (§29 컨설팅 시작 「누가 요청」)에 **어머니 · 아버지** 둘을 보여 주므로 그 둘만 둔다 — 「학생」 같은 말은
+ * 원본 어디에도 없어 짓지 않는다(D-R44). 코드값도 컨설팅 요청자(`cons.requester`)와 같다.
+ * 저장값은 `CPL.requester`(`cpl_requester_words` CHECK · NULL 허용) — **옛 행은 NULL**, 모르는 것을 채우지 않는다(N-25).
+ * 표의 CHECK 가 이 둘을 한 번 더 지킨다 — 여기를 늘리면 마이그레이션도 함께 늘린다.
+ */
+export const CPL_REQUESTERS = ['mother', 'father'] as const;
+export type CplRequester = (typeof CPL_REQUESTERS)[number];
+export const CPL_REQUESTER_LABEL: Record<CplRequester, string> = {
+  mother: '어머니',
+  father: '아버지',
+};
+export const cplRequesterLabel = (requester: string | null | undefined): string | null =>
+  requester ? (CPL_REQUESTER_LABEL[requester as CplRequester] ?? requester) : null;

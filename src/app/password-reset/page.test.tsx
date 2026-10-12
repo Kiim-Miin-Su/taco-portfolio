@@ -86,7 +86,7 @@ describe('비밀번호 찾기 화면', () => {
     expect(view.getByRole('button', { name: /다시 받기 \(\d+초\)/ }).hasAttribute('disabled')).toBe(true);
     fireEvent.click(view.getByRole('button', { name: '문자로 코드 받기' }));
     await waitFor(() => expect(h.post).toHaveBeenCalledWith('/auth/password-reset/codes', { loginId: 'Kim@tnacademy.kr', channel: 'sms' }));
-    expect(view.queryByText(/체험용 코드/)).toBeNull();
+    expect(view.queryByText(/체험용 코드: [0-9]/)).toBeNull();
 
     type(view, '이메일 인증 코드', '111111');
     type(view, '휴대폰 인증 코드', '222222');

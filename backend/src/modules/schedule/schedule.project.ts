@@ -1,0 +1,246 @@
+/** @file-guide
+ * 목적: schedule.project.ts — HORIZON_BACK, HORIZON_AHEAD, horizon, project (service)
+ * 책임/재사용: 기존 lib/도메인 방어·Perm 함수를 재사용한다. 쓰기는 트랜잭션/DB 제약, 읽기는 권한별 projection으로 최종 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 투영 — `SER` + `EXC` (원본) → `ser_occ` (사본).
+ *
+ * `ser_occ` 는 **파생 표**다. 반복 규칙은 기간이 열려 있어 겹침 제약을 걸 대상이 없으므로,
+ * 회차를 펼쳐 이 표에 넣고 **여기에** EXCLUDE 를 건다 (D-R43 · erd 부록 A).
+ *
+ * 그래서 규칙이 바뀔 때마다 다시 펼쳐야 한다. 안 하면 원본과 사본이 갈라지고,
+ * 갈라진 사본이 겹침을 판정하게 된다 — 제약이 있으나 마나가 된다.
+ *
+ * 펼치는 함수는 `occ()` 하나다. **화면이 보는 목록과 제약이 걸리는 행이 같은 함수에서 나온다** (D-R1).
+ */
+import type { QueryRunner } from 'typeorm';
+import { addD, occ, ruleHits, type IsoDate, type State } from '../../lib/recurrence';
+import { todayKst } from '../../lib/kst';
+import { REPORT_UNWRITTEN_CANDIDATE_DB } from '../../lib/rules';
+import { serStuOn } from '../../lib/sql';
+import { lockTeacherUnavailableWrite } from '../../lib/teacher-unavailable';
+
+/**
+ * 펼쳐 두는 기간.
+ *
+ * 규칙은 끝이 없지만 표에는 끝이 있어야 한다. 뒤로는 지난 학기를 볼 만큼,
+ * 앞으로는 다음 학기 시간표를 짤 만큼 둔다. 이 범위 밖은 **비어 있다는 사실을 화면이 말한다** —
+ * 조용히 빈 달력이 제일 나쁘다.
+ */
+export const HORIZON_BACK = 90;
+export const HORIZON_AHEAD = 180;
+
+// 「오늘」은 lib/kst.ts 가 갖는다 — 자정 언저리에서 화면마다 답이 갈리지 않게
+export { todayKst };
+
+export function horizon(): { from: IsoDate; to: IsoDate } {
+  const t = todayKst();
+  return { from: addD(t, -HORIZON_BACK), to: addD(t, HORIZON_AHEAD) };
+}
+
+/** KST 의 분 단위 시각을 UTC 순간으로. `span` 이 tstzrange 라 여기서 한 번만 변환한다. */
+function at(date: IsoDate, min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return new Date(
+    `${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+09:00`,
+  ).toISOString();
+}
+
+/**
+ * 리포트는 회차의 소비자다. 회차를 만든 뒤 같은 트랜잭션에서 REP·REP_STU까지 투영해야
+ * 새 수업도 종료 시점에 독촉/작성 화면으로 자연스럽게 넘어간다.
+ *
+ * 제출 전 학생 목록은 현재 명단을 따라가고, 제출한 순간부터는 발송 대상 스냅샷으로 보존한다.
+ *
+ * **그날 명단이 빈 회차에는 새 REP 를 만들지 않는다** (impl3-w8). 상담의 진단 일정은 학생 없이 진단고사
+ * (`rep=true`) 회차를 만든다 — 그대로 두면 받는 사람 없는 리포트가 서서 독촉·작성 화면에 오른다.
+ * 학생을 넣으면 명단 쓰기가 같은 투영을 다시 부르므로 그때 생긴다. 이미 있는 REP 는 예전대로 강사·종류를 따라간다.
+ */
+async function projectReports(q: QueryRunner, serIds: number[]): Promise<void> {
+  await q.query(
+    `INSERT INTO rep (ser_id, on_date, teacher_id, kind_key, lang, body, state)
+     SELECT o.ser_id, o.on_date, o.teacher_id, s.kind_key,
+            COALESCE((
+              SELECT st.lang
+                FROM ser_stu ss JOIN stu st ON st.id = ss.student_id
+               WHERE ss.ser_id = o.ser_id
+               ORDER BY ss.student_id LIMIT 1
+            ), 'ko'),
+            '{}'::jsonb,
+            CASE WHEN upper(o.span) <= now() THEN 'none'::rep_state_t ELSE 'plan'::rep_state_t END
+       FROM ser_occ o
+       JOIN ser s ON s.id = o.ser_id
+       JOIN kind k ON k.key = s.kind_key
+      WHERE o.ser_id = ANY($1) AND k.rep AND NOT o.canceled
+        -- 아래 REP_STU 투영과 같은 명단 판정이다 — 받을 학생이 한 명도 없으면 새로 만들지 않는다
+        AND (
+          EXISTS (
+            SELECT 1 FROM ser_stu ss
+              LEFT JOIN exc e ON e.ser_id = o.ser_id AND e.on_date = o.on_date
+             WHERE ss.ser_id = o.ser_id AND ${serStuOn('ss', 'o.on_date')}
+               AND NOT EXISTS (SELECT 1 FROM exc_stu_out xo WHERE xo.exc_id = e.id AND xo.student_id = ss.student_id)
+          )
+          OR EXISTS (SELECT 1 FROM rep r0 WHERE r0.ser_id = o.ser_id AND r0.on_date = o.on_date)
+        )
+     ON CONFLICT (ser_id, on_date) DO UPDATE SET
+       teacher_id = EXCLUDED.teacher_id,
+       kind_key = EXCLUDED.kind_key
+     WHERE rep.state = ANY($2::rep_state_t[])`,
+    [serIds, REPORT_UNWRITTEN_CANDIDATE_DB],
+  );
+
+  // 아직 제출하지 않은 리포트만 현재 명단으로 다시 만든다. wait/ok/rej는 제출 당시 대상을 보존한다.
+  await q.query(
+    `DELETE FROM rep_stu rs
+      USING rep r
+      WHERE rs.rep_id = r.id
+        AND r.ser_id = ANY($1)
+        AND r.state = ANY($2::rep_state_t[])`,
+    [serIds, REPORT_UNWRITTEN_CANDIDATE_DB],
+  );
+  await q.query(
+    `INSERT INTO rep_stu (rep_id, student_id, deliver)
+     SELECT r.id, ss.student_id, true
+       FROM rep r
+       JOIN ser_occ o ON o.ser_id = r.ser_id AND o.on_date = r.on_date
+       -- 수강 종료 뒤의 회차에는 그 학생의 리포트 발송 대상도 없다 (C94-c)
+       JOIN ser_stu ss ON ss.ser_id = r.ser_id AND ${serStuOn('ss', 'o.on_date')}
+       LEFT JOIN exc e ON e.ser_id = o.ser_id AND e.on_date = o.on_date
+      WHERE r.ser_id = ANY($1)
+        AND r.state = ANY($2::rep_state_t[])
+        AND NOT o.canceled
+        AND NOT EXISTS (
+          SELECT 1 FROM exc_stu_out xo
+           WHERE xo.exc_id = e.id AND xo.student_id = ss.student_id
+        )
+     ON CONFLICT (rep_id, student_id) DO NOTHING`,
+    [serIds, REPORT_UNWRITTEN_CANDIDATE_DB],
+  );
+}
+
+/**
+ * 주어진 규칙들의 회차를 기간만큼 다시 펼쳐 `ser_occ` 에 넣는다.
+ *
+ * 지우고 다시 넣는다. 「바뀐 것만 고치기」는 규칙·예외·명단이 함께 움직이는 이 도메인에서
+ * 빠뜨리기 쉽고, 회차 수가 규칙당 수백 줄이라 통째로 다시 쓰는 편이 단순하고 빠르다.
+ *
+ * **트랜잭션 안에서 부른다.** 지운 뒤 넣기 전에 다른 트랜잭션이 겹침을 통과하면 안 된다.
+ */
+export async function project(
+  q: QueryRunner,
+  state: State,
+  serIds: number[],
+  range?: { from: IsoDate; to: IsoDate },
+): Promise<number> {
+  if (!serIds.length) return 0;
+  const { from, to } = range ?? horizon();
+
+  const want = new Set(serIds);
+  const rows: Array<[number, string, number | null, number | null, boolean, string, number | null]> = [];
+
+  /* 줌 계정 배정 — 정본은 `zassign` 이고 `ser_occ.zacc_id` 는 그 **투영**이다 (C48).
+     규칙 단위(ser_id)로 붙인 것이 기본이고, 회차 하나만 다른 계정을 쓰면 그 회차의 EXC 에 붙는다.
+     회차 쪽이 이기고, 겹침은 `ser_occ` 의 EXCLUDE 가 마지막으로 막는다 — 같은 계정이 같은 시간에
+     두 수업에 붙을 수 없다. 투영이 이 칸을 채우지 않으면 그 제약이 아무것도 지키지 못한다. */
+  const zas = (await q.query(
+    `SELECT z.ser_id, z.exc_id, z.zacc_id, e.ser_id AS exc_ser_id, to_char(e.on_date,'YYYY-MM-DD') AS exc_on_date
+       FROM zassign z LEFT JOIN exc e ON e.id = z.exc_id
+      WHERE z.ser_id = ANY($1) OR e.ser_id = ANY($1)`,
+    [serIds],
+  )) as Array<{ ser_id: string | null; exc_id: string | null; zacc_id: string; exc_ser_id: string | null; exc_on_date: string | null }>;
+  const zBySer = new Map<number, number>();
+  const zByOcc = new Map<string, number>();
+  for (const z of zas) {
+    if (z.exc_id && z.exc_ser_id && z.exc_on_date) zByOcc.set(`${z.exc_ser_id}|${z.exc_on_date}`, Number(z.zacc_id));
+    else if (z.ser_id) zBySer.set(Number(z.ser_id), Number(z.zacc_id));
+  }
+  const zaccOf = (serId: number, onDate: string): number | null =>
+    zByOcc.get(`${serId}|${onDate}`) ?? zBySer.get(serId) ?? null;
+  /* 현장 회차에는 줌이 없다 (N-56) — 규칙이 온라인이어도 그 회차만 현장으로 바꿨으면 계정 자리를 잡지 않는다.
+     「실제 방식」은 `occ()` 가 이미 계산한 값(예외의 방식 ?? 규칙의 방식)을 그대로 쓴다. */
+  const zaccWhen = (mode: string, serId: number, onDate: string): number | null =>
+    mode === 'online' ? zaccOf(serId, onDate) : null;
+
+  /* `occ()` 는 **표시용**이라 휴강을 그리지 않는다 (「휴강 — 그리지 않는다」).
+     투영은 그것만으로 부족하다 — 현황판이 「취소·휴강 n건」을 세려면 그 회차도 표에 있어야 하고,
+     EXCLUDE 는 `WHERE canceled = false` 라 취소 행이 있어도 자리를 잡지 않는다.
+     그래서 **그린 것 + 취소된 것**을 함께 넣는다. 판정은 여전히 한 함수에서 나온다. */
+  const excAt = new Map(
+    (state.EXC ?? []).map((e) => [`${e.serId}|${e.onDate}`, e]),
+  );
+
+  for (let d = from; d <= to; d = addD(d, 1)) {
+    for (const o of occ(d, state)) {
+      if (!want.has(o.serId)) continue;
+      rows.push([
+        o.serId,
+        // EXC 의 키는 「원래 날짜」다. 옮긴 회차도 원래 날짜로 저장해야 예외를 다시 찾는다.
+        o.onDate,
+        o.teacherId,
+        o.roomId,
+        o.canceled,
+        `[${at(o.date, o.startMin)},${at(o.date, o.endMin)})`,
+        zaccWhen(o.mode, o.serId, o.onDate),
+      ]);
+    }
+
+    // 취소된 회차 — 규칙에는 맞는데 occ() 가 안 그린 것
+    for (const ser of state.SER) {
+      if (!want.has(ser.id)) continue;
+      if (!ruleHits(ser, d)) continue;
+      const e = excAt.get(`${ser.id}|${d}`);
+      if (!e?.canceled) continue;
+      rows.push([
+        ser.id, d,
+        e.teacherSet ? e.teacherId : ser.teacherId,
+        e.roomSet ? e.roomId : ser.roomId,
+        true,
+        `[${at(d, e.startMin ?? ser.startMin)},${at(d, e.endMin ?? ser.endMin)})`,
+        zaccWhen(e.mode ?? ser.mode, ser.id, d),
+      ]);
+    }
+  }
+
+  /*
+   * BOC-06D-01 권고안: 관리자 편성은 기존처럼 UNAV를 경고로만 허용하되, 강사의 동시 등록과
+   * 결과가 엇갈리지 않도록 투영 전 같은 강사 잠금을 공유한다. 기존 회차와 새 회차 담당자를 모두
+   * 잠그므로 이동·교체·삭제도 직렬화된다. 잠금 범위를 바꾸면 teacher-unavailable helper와 BOC-06 문서를 함께 고친다.
+   */
+  const previousTeachers = (await q.query(
+    `SELECT DISTINCT teacher_id FROM ser_occ
+      WHERE ser_id = ANY($1) AND on_date BETWEEN $2::date AND $3::date AND teacher_id IS NOT NULL`,
+    [serIds, from, to],
+  )) as Array<{ teacher_id: string | number | null }>;
+  await lockTeacherUnavailableWrite(q, [
+    ...previousTeachers.map((row) => row.teacher_id == null ? null : Number(row.teacher_id)),
+    ...rows.map((row) => row[2]),
+  ]);
+
+  await q.query(
+    `DELETE FROM ser_occ WHERE ser_id = ANY($1) AND on_date BETWEEN $2::date AND $3::date`,
+    [serIds, from, to],
+  );
+  if (!rows.length) return 0;
+
+  // 한 번에 넣는다 — 회차마다 왕복하면 규칙 하나에 수백 번이 된다
+  const vals: unknown[] = [];
+  const tuples = rows.map((r, i) => {
+    const b = i * 7;
+    vals.push(...r);
+    return `($${b + 1}, $${b + 2}::date, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}::tstzrange, $${b + 7})`;
+  });
+
+  await q.query(
+    `INSERT INTO ser_occ (ser_id, on_date, teacher_id, room_id, canceled, span, zacc_id)
+     VALUES ${tuples.join(', ')}
+     ON CONFLICT (ser_id, on_date) DO UPDATE SET
+       teacher_id = EXCLUDED.teacher_id, room_id = EXCLUDED.room_id,
+       canceled = EXCLUDED.canceled, span = EXCLUDED.span, zacc_id = EXCLUDED.zacc_id`,
+    vals,
+  );
+  await projectReports(q, serIds);
+  return rows.length;
+}

@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-12",
+  "patterns": [
+    "GitHub token",
+    "AWS access key",
+    "private key",
+    "credentialed DB URL",
+    "original initial password",
+    "original initial login identities"
+  ],
+  "findings": [],
+  "scope": "tracked and nonignored source; generated dependencies and binary assets excluded"
+}

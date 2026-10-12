@@ -1,0 +1,1046 @@
+/** @file-guide
+ * 목적: schedule.dto.ts — AttendanceDto, OccStudentDto, OccurrenceDto, OccurrenceListDto, SCHEDULE_INPUT_LIMITS 등 (dto)
+ * 책임/재사용: 프론트 CRUD 입력/응답을 Swagger와 validator로 명시한다. DB entity를 직접 반환하거나 UI 임시 상태를 영속 필드로 만들지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 스케줄 — 탭 01 의 여섯 화면(§07~§12)이 전부 이 한 모양을 쓴다.
+ * 일간·주간·월간·학생별·선생님별이 다른 DTO 를 쓰면 색과 상태가 갈린다.
+ */
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ATTENDANCE_CANCEL_REASONS, ATTENDANCE_RESULTS, CANCEL_TREATS,
+  type AttendanceCancelReason, type AttendanceResult, type CancelTreat,
+} from '../../lib/rules';
+
+export class AttendanceLateStudentDto {
+  @ApiProperty({ description: '이 회차에서 지각으로 표시된 학생' }) studentId!: number;
+  @ApiProperty() studentName!: string;
+  @ApiProperty({ description: '마지막 지각 표시/정정자' }) confirmedBy!: number;
+  @ApiProperty() confirmedByName!: string;
+  @ApiProperty({ format: 'date-time' }) confirmedAt!: string;
+}
+
+export class AttendanceDto {
+  @ApiProperty() id!: number;
+  @ApiProperty({ enum: ATTENDANCE_RESULTS }) result!: AttendanceResult;
+  @ApiPropertyOptional({ enum: ATTENDANCE_CANCEL_REASONS, nullable: true })
+  reason!: AttendanceCancelReason | null;
+  @ApiProperty() confirmedBy!: number;
+  @ApiProperty() confirmedByName!: string;
+  @ApiProperty({ format: 'date-time' }) confirmedAt!: string;
+  @ApiProperty({ description: 'completed=true, canceled=false. 정산 소비자가 문자열을 다시 비교하지 않는다' })
+  countsForPay!: boolean;
+  @ApiProperty({
+    type: [AttendanceLateStudentDto],
+    description: 'C-40 회차×학생 지각 현재값. 빈 배열도 completed 출석/정산 판정을 바꾸지 않는다',
+  })
+  lateStudents!: AttendanceLateStudentDto[];
+}
+
+export class OccStudentDto {
+  @ApiProperty() id!: number;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional({ type: String, nullable: true }) grade?: string | null;
+  @ApiProperty({ description: '그날만 빠진 학생인가 (D-R21)' }) droppedOnce!: boolean;
+  @ApiProperty({ description: '그날 휴원 중인가 — 명단에 남되 시간표·청구에서는 빠진다 (C92-c · C-36)' }) paused!: boolean;
+  @ApiProperty({ description: 'C-40 이 회차에서 학생이 지각으로 기록됐는가. 출석 계산은 ATT.completed 그대로다' })
+  late!: boolean;
+}
+
+/** 학생 카드의 휴원 기간 — 진행 중이거나 앞으로 잡힌 것 하나 (C92-c) */
+export class StudentPauseDto {
+  @ApiProperty() id!: number;
+  @ApiProperty({ description: 'YYYY-MM-DD' }) fromDate!: string;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'YYYY-MM-DD · null 이면 복귀 전까지' }) toDate?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) reason?: string | null;
+  @ApiProperty({ description: '복귀 처리가 끝났는가 — 끝났으면 「복귀」 단추가 서지 않는다 (복귀일 전이라도)' }) resumed!: boolean;
+}
+
+export class OccurrenceDto {
+  @ApiProperty({ description: '반복 규칙 id' }) serId!: number;
+  @ApiProperty({ example: '2026-08-28', description: '화면에 그려질 날짜' }) date!: string;
+
+  @ApiProperty({
+    example: '2026-08-28',
+    description: '규칙상 원래 날짜 — **EXC 의 키**다. 쓰기(PATCH·DELETE)는 이 값으로 회차를 찾는다',
+  })
+  onDate!: string;
+  @ApiProperty({ description: '자정부터 분' }) startMin!: number;
+  @ApiProperty() endMin!: number;
+  @ApiProperty() kindKey!: string;
+  @ApiProperty({ description: '추가 수업 종류의 회차인가 — 블록 「추가」 배지 (C94-d · C-38). 판정은 KIND.extra 다' }) extra!: boolean;
+  @ApiPropertyOptional({ type: String, nullable: true }) subKey?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) title?: string | null;
+  @ApiPropertyOptional({ maxLength: 80, description: '이 회차가 속한 SER의 반복 규칙. 구버전 응답 호환을 위해 optional 표기' })
+  rrule?: string;
+  @ApiPropertyOptional({ format: 'date', description: '이 회차가 속한 SER의 시작일. 구버전 응답 호환을 위해 optional 표기' })
+  fromDate?: string;
+  @ApiPropertyOptional({ format: 'date', type: String, nullable: true, description: '이 회차가 속한 SER의 종료일' })
+  toDate!: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) teacherId?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) teacherName?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) roomId?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) roomName?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) zaccId?: number | null;
+  @ApiProperty({ enum: ['offline', 'online'], description: '회차의 실제 방식 — 회차 예외가 바꿨으면 그 값, 아니면 규칙의 값 (N-56)' })
+  mode!: string;
+  @ApiPropertyOptional({
+    type: String, nullable: true, maxLength: 200,
+    description: '회차 메모 한 줄 (N-57 · 이번 회차만) — 블록 「노트」 배지와 수업 상세의 회차 메모 줄. 휴강 메모와 다르다',
+  })
+  memo?: string | null;
+  @ApiProperty() canceled!: boolean;
+  /* 휴강의 사유와 처리 — 낱말은 서버가 만든다 (D-R18 · C92). 옛 휴강 행은 넷 다 null 이며 기본 정책(이월)이다 */
+  @ApiPropertyOptional({ enum: ATTENDANCE_CANCEL_REASONS, nullable: true, description: '휴강 사유 코드 — 취소된 회차만' })
+  cancelKind?: AttendanceCancelReason | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '휴강 사유 이름' }) cancelKindLabel?: string | null;
+  @ApiPropertyOptional({ enum: CANCEL_TREATS, nullable: true, description: 'carry 이월 · deduct 차감 · makeup 보강 이관' })
+  cancelTreat?: CancelTreat | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '처리 이름 — 「이월」 「차감」 「보강 이관」' })
+  cancelTreatLabel?: string | null;
+  /* 보강 링크 (C92-b · C-34) — 원래 회차는 보강이 언제인지, 보강 회차는 어느 회차의 보강인지 */
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '보강 이관이면 보강 회차의 SER id' })
+  makeupSerId?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '보강 회차의 날짜 YYYY-MM-DD' })
+  makeupDate?: string | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '보강 회차의 시작 (KST 분)' })
+  makeupStartMin?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '이 회차가 보강이면 원래 회차의 날짜 YYYY-MM-DD' })
+  makeupOfDate?: string | null;
+  @ApiProperty({ description: '이 회차에 예외가 붙었는가' }) hasException!: boolean;
+
+  @ApiProperty({
+    description:
+      '편집할 때 범위를 물어야 하는가 — rrule≠ONCE 이고 남은 회차≥2 (CALENDAR §5A.0). 판정은 서버 한 곳이다',
+  })
+  recurring!: boolean;
+
+  @ApiProperty({
+    enum: ['na', 'plan', 'none', 'draft', 'wait', 'ok', 'rej'],
+    description:
+      '현재 시각 기준 유효 리포트 상태. 비대상 na · 종료 전 plan · 종료 후 none이며 캘린더 블록 색이 이 값에서 나온다 (D-R7 · V26 §2.3)',
+  })
+  repState!: string;
+
+  @ApiProperty({
+    description:
+      '이 회차가 **이미 끝났는가** — 서버 시각 기준 사실 하나. 리포트 상태(plan/none)와 같은 값에서 나온다. '
+      + '화면의 기간 집계는 이 값으로 「리포트 미제출」을 센다: 「썼다」는 제출부터라서 **끝난 수업의 초안**도 미제출이다 (N-19)',
+  })
+  ended!: boolean;
+
+  @ApiProperty({ description: '리포트를 썼는가 — 정산에 들어가는 조건 하나 (D-R7)' })
+  written!: boolean;
+
+  @ApiProperty({
+    enum: ['unavailable', 'readonly', 'manage'],
+    description: '출결 동작은 이 서버 판정만 소비한다. 종료 전/관리 취소=unavailable, 강사=readonly, 관리자 이상=manage',
+  })
+  attendanceMode!: 'unavailable' | 'readonly' | 'manage';
+
+  @ApiProperty({ type: AttendanceDto, nullable: true })
+  attendance!: AttendanceDto | null;
+
+  @ApiProperty({ type: [OccStudentDto] }) students!: OccStudentDto[];
+}
+
+export class OccurrenceListDto {
+  @ApiProperty({ example: '2026-08-24' }) from!: string;
+  @ApiProperty({ example: '2026-08-30' }) to!: string;
+  @ApiProperty({
+    type: 'integer', minimum: 0,
+    description: '이 목록을 읽기 **직전**의 변경 기록 번호(LOG 의 마지막 id) — 수정(PATCH)에 readVersion 으로 돌려주면 그 뒤 남이 '
+      + '같은 수업을 고쳤는지 서버가 알려 준다(N-142 · overwrote). 막지 않는다 — 나중 저장이 반영된다',
+  })
+  version!: number;
+  @ApiProperty({ type: [OccurrenceDto] }) items!: OccurrenceDto[];
+}
+
+/* ══ 쓰기 ═══════════════════════════════════════════════════════════════
+   저장은 **자원 + scope** 한 형태로만 받는다. 엔드포인트를 동작마다 만들면
+   같은 3범위 판정이 여러 곳에 흩어진다 (D-R16 · D-R21).                     */
+
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsDefined, IsIn, IsInt, IsObject, IsOptional, IsString,
+  Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
+} from 'class-validator';
+import { PASTE_MAX } from '../../lib/recurrence';
+
+import { DATE_SCHEMA, ID_SCHEMA, IsCalendarDate, ToHttpInteger } from '../../common/validation';
+/** SER varchar 길이와 대응한다. 변경 시 migration/DBML을 같은 청크에서 검증한다. memo 는 EXC.memo CHECK(`exc_memo_len`)와 같다 */
+export const SCHEDULE_INPUT_LIMITS = { kindKey: 16, subKey: 20, rrule: 80, title: 80, memo: 200 } as const;
+
+/** 수업 방식 두 낱말 — 규칙(SER.mode)과 회차 예외(EXC.mode)가 같은 목록을 쓴다 */
+export const CLASS_MODES = ['offline', 'online'] as const;
+
+/** 조회 필터는 영속 필드가 아니다. 모든 캘린더가 같은 계약과 생성 타입을 소비한다. */
+export class OccurrenceQueryDto {
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-24' })
+  @IsCalendarDate() from!: string;
+
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-30' })
+  @IsCalendarDate() to!: string;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '생략하면 전체. 강사는 유효한 값이어도 서버가 본인 ID를 강제한다' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number;
+
+  @ApiPropertyOptional(ID_SCHEMA)
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) studentId?: number;
+
+  @ApiPropertyOptional(ID_SCHEMA)
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) roomId?: number;
+}
+
+/**
+ * 기간 표시 자료 — 공휴일 이름표와 강사 불가 시간(관리자 읽기)이 같은 기간 질의를 쓴다.
+ * 화면의 회차 질의와 같은 날짜 방어(IsCalendarDate)를 재사용한다.
+ */
+export class ScheduleRangeQueryDto {
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-01' })
+  @IsCalendarDate() from!: string;
+
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-31' })
+  @IsCalendarDate() to!: string;
+}
+
+export class ScheduleUnavQueryDto extends ScheduleRangeQueryDto {
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '생략하면 그 기간의 모든 강사' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number;
+}
+
+/** 원문 §09 월간 칸 「광복절」·「광복절 대체」 칩 · §10 요일 머리 — 서버 표 HOLIDAY 의 한 줄 */
+export class HolidayDto {
+  @ApiProperty({ ...DATE_SCHEMA }) date!: string;
+  @ApiProperty({ description: '공휴일 이름 — 화면이 그대로 칩에 적는다' }) name!: string;
+}
+
+export class HolidayListDto {
+  @ApiProperty({ ...DATE_SCHEMA }) from!: string;
+  @ApiProperty({ ...DATE_SCHEMA }) to!: string;
+  @ApiProperty({ type: [HolidayDto] }) items!: HolidayDto[];
+}
+
+/**
+ * 강사 불가 시간 한 줄 — **관리자 읽기** (원문 §07 데이터 「읽기: … UNAV」 · §11 「UNAV(불가 시간)」 · G37).
+ * 강사가 적어 낸 날짜(on_date)가 있는 줄만 — 날짜를 모르는 옛 줄은 격자에 놓을 수 없어 싣지 않는다(N-20).
+ */
+export class ScheduleUnavRowDto {
+  @ApiProperty(ID_SCHEMA) id!: number;
+  @ApiProperty(ID_SCHEMA) teacherId!: number;
+  @ApiProperty() teacherName!: string;
+  @ApiProperty({ ...DATE_SCHEMA, description: '강사가 불가로 적은 날짜(KST)' }) date!: string;
+  @ApiProperty() startMin!: number;
+  @ApiProperty() endMin!: number;
+  @ApiProperty({ description: '강사가 적은 사유 — 화면이 그대로 보여 준다' }) reason!: string;
+}
+
+export class ScheduleUnavListDto {
+  @ApiProperty({ ...DATE_SCHEMA }) from!: string;
+  @ApiProperty({ ...DATE_SCHEMA }) to!: string;
+  @ApiProperty({ type: [ScheduleUnavRowDto] }) items!: ScheduleUnavRowDto[];
+}
+
+/** 일정 원본 수 한 칸 — 종류(kind) 또는 과목(sub) 코드 하나. 이름·색은 코드표(`GET /meta`)가 준다 */
+export class ScheduleSeriesCountDto {
+  @ApiProperty({ description: '종류 또는 과목 코드' }) key!: string;
+  @ApiProperty({ type: 'integer', minimum: 0 }) count!: number;
+}
+
+/** 원문 §07 사이드바의 묶음 한 줄 — 「수업 24」 · 그 아래 종류 줄들 */
+export class ScheduleSeriesGroupDto {
+  @ApiProperty({ description: '묶음 코드(kind.grp)' }) grp!: string;
+  @ApiProperty({ description: '묶음 낱말 — 「수업」·「상담·진단」·「회의」 (서버 lib/catalog-words 한 곳)' }) label!: string;
+  @ApiProperty({ type: 'integer', minimum: 0, description: '이 묶음 종류들의 일정 원본 수 합' }) count!: number;
+  @ApiProperty({ type: [ScheduleSeriesCountDto], description: '묶음 안의 종류 전부(0 도 싣는다) · 코드표 차례' })
+  kinds!: ScheduleSeriesCountDto[];
+}
+
+/**
+ * §07 좌측 사이드바 「프로그램」·「과목」 수 — **보는 기간과 무관한 일정 원본(SER) 수** (D-R44 · w5-7 결정).
+ * 원문 §07 「수업 24 · 상담·진단 6 · 회의 5」 합 35 = v2 slide 05 「SER 일정 원본 35」이고 §08~§11 컷도 같은 수다.
+ * 「일정 원본」 = 오늘(KST) 이후에 놓일 날이 남은 SER(규칙상 날짜 또는 옮겨 놓인 회차) — 끝난 규칙은 세지 않는다.
+ */
+export class ScheduleSeriesCountsDto {
+  @ApiProperty({ ...DATE_SCHEMA, description: '「남은 날」을 판정한 기준일 — 오늘(KST)' }) asOf!: string;
+  @ApiProperty({ type: 'integer', minimum: 0, description: '묶음 수의 합' }) total!: number;
+  @ApiProperty({ type: [ScheduleSeriesGroupDto], description: '수업 · 상담·진단 · 회의 차례' }) groups!: ScheduleSeriesGroupDto[];
+  @ApiProperty({ type: [ScheduleSeriesCountDto], description: '쓰는 과목(sub.active) 중 1 이상만 · 코드표 차례' })
+  subs!: ScheduleSeriesCountDto[];
+}
+
+/**
+ * §10 학생별 개인 머리의 「교재 없음」 (원문 §10 데이터 줄 「ISSUE」).
+ * 판정은 §79 「교재 N」·§12 준비 「교재 배정」과 같다 — 배부 완료(ISSUE ok)만 학생 손에 있는 교재다.
+ */
+export class ScheduleStudentBooksDto {
+  @ApiProperty(ID_SCHEMA) studentId!: number;
+  @ApiProperty({ type: 'integer', minimum: 0, description: '배부 완료(ISSUE ok) 교재 수' }) bookCount!: number;
+  @ApiProperty({
+    type: String, nullable: true,
+    description: '머리에 적을 낱말 — 배부 완료 교재가 없으면 「교재 없음」, 있으면 null(원문 컷은 없는 경우만 적는다)',
+  })
+  label!: string | null;
+}
+
+/** URL의 식별자는 body와 동일한 안전 정수 범위다. 다섯 쓰기 경로가 재사용한다. */
+export class ScheduleParamsDto {
+  @ApiProperty(ID_SCHEMA)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) serId!: number;
+}
+
+export class AttendanceParamsDto extends ScheduleParamsDto {
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-27', description: 'SER_OCC의 원래 날짜 키' })
+  @IsCalendarDate() onDate!: string;
+}
+
+export class AttendanceWriteDto {
+  @ApiProperty({ enum: ATTENDANCE_RESULTS })
+  @IsIn(ATTENDANCE_RESULTS as unknown as string[])
+  result!: AttendanceResult;
+
+  @ApiPropertyOptional({ enum: ATTENDANCE_CANCEL_REASONS, nullable: true })
+  @IsOptional()
+  @IsIn(ATTENDANCE_CANCEL_REASONS as unknown as string[])
+  reason?: AttendanceCancelReason | null;
+
+  @ApiPropertyOptional({
+    type: 'array', items: ID_SCHEMA, uniqueItems: true,
+    description: 'C-40 지각 학생 현재 목록. completed에서만 사용. 생략하면 기존 목록 보존, []이면 모두 해제',
+  })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) @Max(Number.MAX_SAFE_INTEGER, { each: true })
+  lateStudentIds?: number[];
+}
+
+export class AttendanceMutationResultDto {
+  @ApiProperty({ type: AttendanceDto, nullable: true })
+  attendance!: AttendanceDto | null;
+}
+
+/** 반복 편집 범위 — 단발이면 화면이 묻지 않고 'this' 를 보낸다 */
+export const SCOPES = ['this', 'future', 'all'] as const;
+
+export class OccurrencePatchDto {
+  @ApiPropertyOptional({
+    type: 'integer', minimum: 0,
+    description: '화면이 읽은 목록의 version(N-142). 주면 그 뒤 **다른 사람이** 같은 수업을 고친 기록이 있는지 보고 결과의 overwrote 에 싣는다. '
+      + '막지 않는다 — 나중 저장이 반영되고, 덮어쓴 사실만 알린다. 안 주면 보지 않는다',
+  })
+  @IsOptional() @IsInt() @Min(0) @Max(Number.MAX_SAFE_INTEGER)
+  readVersion?: number;
+
+  @ApiProperty({ enum: SCOPES, description: '이번만 · 향후 · 모두 (D-R16). 첫 회차의 future 는 all 로 강등된다 (D-R17)' })
+  @IsIn(SCOPES as unknown as string[])
+  scope!: 'this' | 'future' | 'all';
+
+  @ApiProperty({ ...DATE_SCHEMA, description: '규칙상 원래 날짜 — EXC 의 키다. 옮긴 회차도 이 값으로 찾는다' })
+  @IsCalendarDate()
+  onDate!: string;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 0, maximum: 1439, nullable: true, description: '0~1439' })
+  @IsOptional() @IsInt() @Min(0) @Max(1439)
+  startMin?: number | null;
+
+  @ApiPropertyOptional({ type: 'integer', minimum: 0, maximum: 1440, nullable: true })
+  @IsOptional() @IsInt() @Min(0) @Max(1440)
+  endMin?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  teacherId?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  roomId?: number | null;
+
+  @ApiPropertyOptional({ ...DATE_SCHEMA, nullable: true, description: '다른 날로 옮길 때만' })
+  @IsOptional() @IsCalendarDate()
+  date?: string | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '학생 개인 표 이동 안전 조건: 저장 시점 원본 회차에도 이 학생이 있어야 한다' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) requiredStudentId?: number;
+
+  @ApiPropertyOptional({ minLength: 1, maxLength: SCHEDULE_INPUT_LIMITS.kindKey, description: 'SER 종류. 반복 수업은 future/all 범위에서만 변경' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString() @MinLength(1) @MaxLength(SCHEDULE_INPUT_LIMITS.kindKey)
+  kindKey?: string;
+
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: SCHEDULE_INPUT_LIMITS.subKey, description: 'SER 과목. null이면 과목 없음' })
+  @IsOptional() @IsString() @MaxLength(SCHEDULE_INPUT_LIMITS.subKey)
+  subKey?: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: SCHEDULE_INPUT_LIMITS.title, description: 'SER 표시 제목. null이면 제목 없음' })
+  @IsOptional() @IsString() @MaxLength(SCHEDULE_INPUT_LIMITS.title)
+  title?: string | null;
+
+  @ApiPropertyOptional({ minLength: 1, maxLength: SCHEDULE_INPUT_LIMITS.rrule, description: 'SER 반복 규칙. ONCE | DAILY[/n] | WEEKLY:MO,WE[/n]' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString() @MinLength(1) @MaxLength(SCHEDULE_INPUT_LIMITS.rrule)
+  rrule?: string;
+
+  @ApiPropertyOptional({ ...DATE_SCHEMA, type: String, nullable: true, description: 'SER 반복 종료일. null이면 열린 반복' })
+  @IsOptional() @IsCalendarDate()
+  toDate?: string | null;
+
+  @ApiPropertyOptional({
+    enum: CLASS_MODES,
+    description: '방식 전환 (N-56). 온라인이면 강의실을 비우고(roomId 를 같이 보내면 400 MODE_ROOM_ONLINE) zaccId 를 이 회차(또는 규칙)에 붙인다. '
+      + '현장이면 줌 계정을 풀고 roomId 를 보내면 그 강의실로 둔다. 규칙과 같은 방식으로 돌아가면 예외를 비운다. '
+      + '범위(scope) 규칙은 다른 칸과 같다. 겹치면 EXCLUDE 409 로 통째로 되돌아가고, 함께 바뀐 것은 log 문장으로 온다',
+  })
+  @ValidateIf((_object, value) => value !== undefined) @IsIn(CLASS_MODES as unknown as string[])
+  mode?: 'offline' | 'online';
+
+  @ApiPropertyOptional({
+    ...ID_SCHEMA, nullable: true,
+    description: '온라인 전환과 함께 붙일 줌 계정 — mode=online 일 때만 받는다(아니면 400 MODE_ZOOM_NEEDS_ONLINE). null 이면 배정 없음. '
+      + '없는 계정 404 ZACC_NOT_FOUND · 꺼 둔 계정 409 ZACC_INACTIVE',
+  })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  zaccId?: number | null;
+
+  @ApiPropertyOptional({
+    type: String, nullable: true, maxLength: SCHEDULE_INPUT_LIMITS.memo,
+    description: '회차 메모 한 줄 (N-57) — 범위와 무관하게 **그 회차 하나**에 붙는다. null·빈 글은 지운다. '
+      + '메모만 보내면 규칙을 가르지 않고 휴강도 풀지 않는다',
+  })
+  @IsOptional() @IsString() @MaxLength(SCHEDULE_INPUT_LIMITS.memo)
+  memo?: string | null;
+}
+
+export class OccurrenceCreateDto {
+  @ApiProperty({ minLength: 1, maxLength: SCHEDULE_INPUT_LIMITS.kindKey })
+  @IsString() @MinLength(1) @MaxLength(SCHEDULE_INPUT_LIMITS.kindKey) kindKey!: string;
+
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: SCHEDULE_INPUT_LIMITS.subKey })
+  @IsOptional() @IsString() @MaxLength(SCHEDULE_INPUT_LIMITS.subKey) subKey?: string | null;
+
+  @ApiProperty({ enum: ['offline', 'online'] })
+  @IsIn(['offline', 'online']) mode!: string;
+
+  @ApiProperty({ ...DATE_SCHEMA, description: '첫 회차 날짜' }) @IsCalendarDate() fromDate!: string;
+
+  @ApiPropertyOptional({ ...DATE_SCHEMA, nullable: true, description: '없으면 열린 반복' })
+  @IsOptional() @IsCalendarDate() toDate?: string | null;
+
+  @ApiProperty({ minLength: 1, maxLength: SCHEDULE_INPUT_LIMITS.rrule, description: "ONCE | DAILY[/n] | WEEKLY:MO,WE[/n]. 요일 SU/MO/TU/WE/TH/FR/SA, n은 양의 안전한 십진 정수. 전체 문법 검증 후 대소문자·바깥 공백·요일 순서·간격1을 formatRule() 형식으로 정규화하며 잘못된 토큰은 BAD_RRULE400" })
+  @IsString() @MinLength(1) @MaxLength(SCHEDULE_INPUT_LIMITS.rrule) rrule!: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1439 }) @IsInt() @Min(0) @Max(1439) startMin!: number;
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1440 }) @IsInt() @Min(0) @Max(1440) endMin!: number;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) roomId?: number | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: SCHEDULE_INPUT_LIMITS.title })
+  @IsOptional() @IsString() @MaxLength(SCHEDULE_INPUT_LIMITS.title) title?: string | null;
+
+  @ApiPropertyOptional({ type: 'array', items: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, uniqueItems: true, description: '정식 명단. 생략/빈 배열 허용, null과 중복 ID는 거절' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true }) @Max(Number.MAX_SAFE_INTEGER, { each: true })
+  studentIds?: number[];
+}
+
+/** 붙여넣기 원본은 식별자만 받는다. 원본 내용은 트랜잭션 안에서 occ()로 다시 읽는다. */
+export class OccurrenceRefDto {
+  @ApiProperty(ID_SCHEMA) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) serId!: number;
+  @ApiProperty({ ...DATE_SCHEMA, description: '화면에 보이던 날짜. 이동 EXC를 찾고 상대 날짜 간격을 보존한다' })
+  @IsCalendarDate() date!: string;
+  @ApiProperty({ ...DATE_SCHEMA, description: '규칙상 원래 날짜 — EXC 키' }) @IsCalendarDate() onDate!: string;
+}
+
+/** 학생 A의 개인 표에서 B의 개인 표로 복사할 때 새 SER 명단만 A→B로 바꾼다. */
+export class StudentReplacementDto {
+  @ApiProperty(ID_SCHEMA) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) fromStudentId!: number;
+  @ApiProperty(ID_SCHEMA) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) toStudentId!: number;
+}
+
+/** Ctrl+드래그와 Ctrl/⌘+C/X/V가 공유하는 일괄 복제 계약 (D-R19). */
+export class OccurrencePasteDto {
+  @ApiProperty({ type: [OccurrenceRefDto], minItems: 1, maxItems: PASTE_MAX })
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(PASTE_MAX) @IsObject({ each: true })
+  @ValidateNested({ each: true }) @Type(() => OccurrenceRefDto)
+  sources!: OccurrenceRefDto[];
+
+  @ApiProperty({ enum: SCOPES }) @IsIn(SCOPES as unknown as string[])
+  scope!: 'this' | 'future' | 'all';
+
+  @ApiProperty(DATE_SCHEMA) @IsCalendarDate() targetDate!: string;
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1439, description: '붙여넣기 기준 시각 — 자정부터 분' })
+  @IsInt() @Min(0) @Max(1439) targetStartMin!: number;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true, description: '대상 강사 축이면 덮어쓴다' })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true, description: '대상 강의실 축이면 덮어쓴다' })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) roomId?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '학생별 표의 안전 조건: 원본 각 회차에 이 학생이 저장 시점에도 있어야 한다. 명단을 바꾸지는 않는다' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) requiredStudentId?: number;
+
+  @ApiPropertyOptional({ type: StudentReplacementDto, description: '새 SER의 유효 명단에서 출발 학생 한 명만 대상 학생으로 바꾼다. 원본은 보존한다. cut=true와 함께 사용할 수 없다' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsObject() @ValidateNested() @Type(() => StudentReplacementDto)
+  studentReplacement?: StudentReplacementDto;
+
+  @ApiPropertyOptional({ default: false, description: 'true면 붙여넣기 성공과 같은 트랜잭션에서 원본 회차를 취소한다' })
+  @ValidateIf((_object, value) => value !== undefined) @IsBoolean() cut?: boolean;
+}
+
+/** 다중 이동 한 건 — 원본 참조와 바뀐 위치를 분리해 원본 식별자를 덮어쓰지 않는다. */
+export class OccurrenceMoveItemDto {
+  @ApiProperty({ type: OccurrenceRefDto })
+  @IsDefined() @IsObject() @ValidateNested() @Type(() => OccurrenceRefDto)
+  source!: OccurrenceRefDto;
+
+  @ApiProperty(DATE_SCHEMA) @IsCalendarDate() date!: string;
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1439 }) @IsInt() @Min(0) @Max(1439) startMin!: number;
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 1440 }) @IsInt() @Min(1) @Max(1440) endMin!: number;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number | null;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) roomId?: number | null;
+}
+
+/** 다중 선택 드래그를 한 트랜잭션으로 저장한다 (C-7). */
+export class OccurrenceMoveDto {
+  @ApiProperty({ type: [OccurrenceMoveItemDto], minItems: 1, maxItems: PASTE_MAX })
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(PASTE_MAX) @IsObject({ each: true })
+  @ValidateNested({ each: true }) @Type(() => OccurrenceMoveItemDto)
+  items!: OccurrenceMoveItemDto[];
+
+  @ApiProperty({ enum: SCOPES }) @IsIn(SCOPES as unknown as string[])
+  scope!: 'this' | 'future' | 'all';
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '학생 개인 표 이동 안전 조건: 모든 원본 회차에 이 학생이 저장 시점에도 있어야 한다' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) requiredStudentId?: number;
+}
+
+/**
+ * 휴강 · 취소 (§12 「휴강 · 수정」 · 테스트 시나리오 C-30 ~ C-32).
+ *
+ * `scope='this'` 가 휴강이다. 사유와 처리를 함께 보내면 서버가 정책(학원 사정은 차감 불가)을
+ * 판정하고 EXC 에 새긴다. 둘 다 비우면 옛 방식 그대로 취소만 남긴다(기본 정책 = 이월).
+ * `future`·`all` 은 휴강이 아니라 **수업 종료**라 사유·처리를 받지 않는다.
+ */
+/** 보강 회차 — 원래 회차의 종류·과목·명단·강사·강의실을 물려받고 날짜·시각만 새로 정한다 (C92-b · C-34) */
+export class MakeupDto {
+  @ApiProperty({ ...DATE_SCHEMA, description: '보강 날짜 (실제 달력 날짜)' }) @IsCalendarDate() date!: string;
+  @ApiProperty({ description: 'KST 0~1439 분' }) @IsInt() @Min(0) @Max(1439) startMin!: number;
+  @ApiProperty({ description: 'KST 분 · 시작보다 뒤 · 24:00 = 1440' }) @IsInt() @Min(1) @Max(1440) endMin!: number;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '비우면 원래 회차의 강사 · null 이면 미지정' })
+  @ValidateIf((_o, v) => v !== undefined && v !== null) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  teacherId?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '비우면 원래 회차의 강의실 · null 이면 미지정' })
+  @ValidateIf((_o, v) => v !== undefined && v !== null) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  roomId?: number | null;
+}
+
+export class OccurrenceDeleteDto {
+  @ApiProperty({ enum: SCOPES }) @IsIn(SCOPES as unknown as string[])
+  scope!: 'this' | 'future' | 'all';
+
+  @ApiProperty(DATE_SCHEMA) @IsCalendarDate() onDate!: string;
+
+  @ApiPropertyOptional({ enum: ATTENDANCE_CANCEL_REASONS, description: '휴강 사유 — 처리를 보내면 필수' })
+  @IsOptional() @IsIn(ATTENDANCE_CANCEL_REASONS as unknown as string[])
+  cancelKind?: AttendanceCancelReason;
+
+  @ApiPropertyOptional({ enum: CANCEL_TREATS, description: 'carry 이월(기본) · deduct 차감(학생 결석만) · makeup 보강 이관' })
+  @IsOptional() @IsIn(CANCEL_TREATS as unknown as string[])
+  cancelTreat?: CancelTreat;
+
+  @ApiPropertyOptional({ description: '메모 — 「아침에 발열로 연락」 (500자)', maxLength: 500 })
+  @IsOptional() @IsString() @MaxLength(500)
+  memo?: string;
+
+  @ApiPropertyOptional({ type: () => MakeupDto, description: '처리가 makeup 이면 필수 — 보강 회차의 날짜·시각 (C-34)' })
+  @IsOptional() @IsObject() @ValidateNested() @Type(() => MakeupDto)
+  makeup?: MakeupDto;
+}
+
+/** 그날 전체 휴강 (테스트 시나리오 C-33 · N-133) — 그날의 취소 아닌 회차 전부를 같은 사유·처리로 */
+export class DayCancelDto {
+  @ApiProperty({ ...DATE_SCHEMA, description: '휴강할 날짜 (실제 달력 날짜)' }) @IsCalendarDate() date!: string;
+
+  @ApiProperty({ enum: ATTENDANCE_CANCEL_REASONS, description: '학원 사정 · 공휴일 … (차감은 학생 결석에만)' })
+  @IsIn(ATTENDANCE_CANCEL_REASONS as unknown as string[])
+  cancelKind!: AttendanceCancelReason;
+
+  @ApiPropertyOptional({ enum: CANCEL_TREATS, description: '비우면 이월 (기본). 전일 휴원은 차감·보강 이관을 받지 않는다' })
+  @IsOptional() @IsIn(CANCEL_TREATS as unknown as string[])
+  cancelTreat?: CancelTreat;
+
+  @ApiPropertyOptional({ maxLength: 500 }) @IsOptional() @IsString() @MaxLength(500)
+  memo?: string;
+}
+
+/** §12 수강 학생 — 넣고 빼기도 3범위다 (D-R21) */
+export class RosterPatchDto {
+  @ApiProperty({ enum: ['add', 'dropOnce', 'undoOnce', 'dropAll'] })
+  @IsIn(['add', 'dropOnce', 'undoOnce', 'dropAll'])
+  op!: 'add' | 'dropOnce' | 'undoOnce' | 'dropAll';
+
+  @ApiProperty(DATE_SCHEMA) @IsCalendarDate() onDate!: string;
+  @ApiProperty(ID_SCHEMA) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) studentId!: number;
+
+  /** B-20 — 정원을 넘길 때 사용자가 경고를 읽고 다시 확인한 요청에만 선다. */
+  @ApiPropertyOptional({ description: '정원 초과 경고를 확인하고도 학생을 넣는 경우 true' })
+  @IsOptional() @IsBoolean()
+  confirmOverCapacity?: boolean;
+}
+
+/**
+ * 저장은 됐지만 **강사가 못 한다고 적어 둔 시간**에 걸쳤다 (원본 §15·§16 불가 시간).
+ *
+ * 막지 않는다 — 불가 시간은 DB 제약이 아니라 강사가 미리 낸 사정이고, 급하면 관리자가
+ * 그 위에 잡는 일이 실제로 있다. 다만 **말은 해야 한다**: 지금까지 관리자 화면은 UNAV 를
+ * 어디에서도 보여 주지 않아 **적어 낸 사람만 알고 잡는 사람은 몰랐다.**
+ */
+export class UnavWarnDto {
+  @ApiProperty() serId!: number;
+  @ApiProperty({ description: '회차가 실제로 놓인 달력 날짜' }) date!: string;
+  @ApiProperty() teacherId!: number;
+  @ApiProperty() teacherName!: string;
+  @ApiProperty() startMin!: number;
+  @ApiProperty() endMin!: number;
+  @ApiProperty({ description: '강사가 적은 사유 — 화면이 그대로 보여 준다' }) reason!: string;
+}
+
+/**
+ * 저장은 됐지만 **같은 학생이 같은 시각에 다른 수업에도 있다** (N-58 · W11).
+ *
+ * 막지 않는다 — 학생은 겹침 제약(EXCLUDE)의 축이 아니고(강사 · 강의실 · 줌 계정 셋), 자습과 정규 수업이 겹치는 일이
+ * 실제 운영이다. 불가 시간 알림(UnavWarnDto · C84-c)과 같은 자리 · 같은 모양으로 알린다.
+ * 그날의 명단으로 본다 — 그날만 빠진 학생 · 휴원 중 · 수강 종료 뒤는 세지 않는다.
+ */
+export class StudentOverlapDto {
+  @ApiProperty(ID_SCHEMA) serId!: number;
+  @ApiProperty({ ...DATE_SCHEMA, description: '이 수업이 실제로 놓인 달력 날짜' }) date!: string;
+  @ApiProperty(ID_SCHEMA) studentId!: number;
+  @ApiProperty() studentName!: string;
+  @ApiProperty(ID_SCHEMA) otherSerId!: number;
+  @ApiProperty({ description: '겹친 상대 수업의 이름 — 과목 이름 · 제목 · 종류 이름 차례' }) otherTitle!: string;
+  @ApiProperty({ description: '상대 수업 시작 (KST 분)' }) otherStartMin!: number;
+  @ApiProperty({ description: '상대 수업 끝 (KST 분 · 24:00 = 1440)' }) otherEndMin!: number;
+}
+
+export class WriteResultDto {
+  @ApiProperty({ description: '실제로 적용된 범위 — 「향후」가 「모두」로 강등되면 여기서 드러난다 (D-R17)' })
+  effScope!: string;
+
+  @ApiProperty({
+    type: [String],
+    description: '사람이 읽는 변경 기록. 수정(PATCH)·이동은 문장이다 — 방식 전환이 함께 바꾼 것(「강의실을 비웠습니다」 · 「줌 계정을 풀었습니다」)도 여기 온다 (N-56)',
+  })
+  log!: string[];
+
+  @ApiProperty({ description: '다시 펼친 회차 수' }) projected!: number;
+
+  @ApiProperty({ type: [Number], description: '영향받은 규칙 — 화면은 이 범위만 다시 읽으면 된다' })
+  serIds!: number[];
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: '직전 일정 쓰기 실행 취소 토큰. 같은 수업이 다시 바뀌지 않은 때만 10분 안에 한 번 사용한다.',
+  })
+  undoToken!: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description: '그 토큰이 끝나는 시각 — 토큰 안의 만료와 같은 값. 화면의 「되돌리기 ▾」 목록은 지난 단계를 이 값으로 뺀다 (토큰이 없으면 null)',
+  })
+  undoExpiresAt!: string | null;
+
+  @ApiProperty({
+    type: [UnavWarnDto],
+    description: '강사 불가 시간과 겹친 회차 — **막지 않고 알린다.** 오늘 이후·취소 아닌 것만, 최대 10줄',
+  })
+  unavailable!: UnavWarnDto[];
+
+  @ApiProperty({
+    type: [StudentOverlapDto],
+    description: '같은 학생이 같은 시각 다른 수업에도 있는 회차 — **막지 않고 알린다** (N-58). 만들기 · 수정 · 이동 · 붙여넣기 · 명단 넣기만 싣고 '
+      + '나머지 쓰기는 빈 배열이다. 오늘 이후 · 취소 아닌 것만, 최대 10줄',
+  })
+  studentOverlaps!: StudentOverlapDto[];
+
+  @ApiPropertyOptional({
+    type: () => OverwroteDto, nullable: true,
+    description: '수정(PATCH)에 readVersion 을 줬고, 그 뒤 **다른 사람이** 같은 수업을 고친 기록이 있으면 그 마지막 한 건 — '
+      + '이 저장이 그 내용을 덮어썼다(N-142 「나중 저장이 반영된다 · 충돌 시 안내」). 다른 쓰기와 readVersion 없는 수정은 null',
+  })
+  overwrote?: OverwroteDto | null;
+}
+
+/** N-142 — 내가 읽은 뒤 같은 수업을 먼저 고친 사람 · 때 (LOG 한 줄) */
+export class OverwroteDto {
+  @ApiProperty({ type: String, nullable: true, description: '고친 사람 이름 — 없는 계정이면 null' }) byName!: string | null;
+  @ApiProperty({ type: String, format: 'date-time', description: '고친 때 (KST 오프셋)' }) at!: string;
+}
+
+/** 학원 사유 휴강(전일 휴원 N-133 · 한 회차 학원 사정 휴강 C-32) 뒤 보호자 선택 발송으로 넘기는 학생별 준비행 (DQ3) */
+export class DayCancelParentNoticeDto {
+  @ApiProperty(ID_SCHEMA) id!: number;
+  @ApiProperty(ID_SCHEMA) studentId!: number;
+  @ApiProperty() studentName!: string;
+  @ApiProperty({ description: '서버가 만든 휴강 안내문 — 화면은 이 본문으로 공용 보호자 선택 발송 창을 연다' })
+  body!: string;
+  @ApiProperty({ description: '안내 이름 — 「전일 휴원 안내」 · 「휴강 안내」 (서버 낱말 · 본문 머리말에서 고른다 · lib/cancel-notice)' })
+  title!: string;
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true, description: '실제 외부 발송이 한 건이라도 성공한 시각' })
+  sentAt!: string | null;
+}
+
+/** 전일 휴원 뒤 새로고침해도 보호자 발송을 이어 가는 날짜별 조회 (N-133) */
+export class DayCancelNoticeQueryDto {
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-09-28' })
+  @IsCalendarDate() date!: string;
+}
+
+export class DayCancelNoticeListDto {
+  @ApiProperty({ ...DATE_SCHEMA }) date!: string;
+  @ApiProperty({ type: [DayCancelParentNoticeDto] }) items!: DayCancelParentNoticeDto[];
+}
+
+/** 그날 전체 휴강의 결과 — 몇 회차를 접었는지와 보호자 발송 준비행을 서버가 센다 (D-R37 · N-133) */
+export class DayCancelResultDto extends WriteResultDto {
+  @ApiProperty({ description: '이번에 휴강 처리한 회차 수' }) count!: number;
+  @ApiProperty({ description: '이미 휴강이라 건너뛴 회차 수' }) skipped!: number;
+  @ApiProperty({ type: [DayCancelParentNoticeDto], description: '이번 휴원으로 만든 학생별 학부모 안내 준비행 — 실제 발송은 DQ3 보호자·채널 선택을 거친다' })
+  parentNotices!: DayCancelParentNoticeDto[];
+}
+
+export class ScheduleUndoDto {
+  @ApiProperty({ minLength: 32, maxLength: 100000, description: '직전 WriteResult.undoToken 그대로' })
+  @IsString() @MinLength(32) @MaxLength(100000) token!: string;
+}
+
+/** 명단 변경 직후 서버가 같은 트랜잭션 스냅숏에서 계산한 후속 작업 (D-R22). */
+export class RosterResultDto extends WriteResultDto {
+  @ApiProperty({ description: '그 회차의 변경 후 실제 인원' })
+  count!: number;
+
+  @ApiProperty({ description: 'KIND.cap — 정원' })
+  cap!: number;
+
+  @ApiProperty({ type: [String], description: '아직 발송된 수업 안내가 없는 학생' })
+  needGuide!: string[];
+
+  @ApiProperty({ type: [String], description: '해당 과목의 활성 배부 교재가 없는 학생' })
+  needBook!: string[];
+
+  /* N-17 채택(§4-17 ①) — 가격은 서버 한 곳(lib/rules.rosterPricing)만 계산한다 (§54 · D-R22). */
+  @ApiProperty({ description: '해당 종류·과목의 인원 구간 단가표 존재 여부 — false 면 아래 3필드는 null' })
+  priced!: boolean;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '대표 1인 단가 — 적용 구간(tierHeads)의 RATE 단가, 예외 학생 제외 기준 (N-17-a 표본)' })
+  unitPrice?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '수업당 총액 — Σ(학생별 STURATE 예외 ?? 구간 단가)' })
+  total?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '적용된 인원 구간 (변경 후 인원 이하의 최대 heads)' })
+  tierHeads?: number | null;
+  @ApiProperty({ description: '단가 예외(STURATE) 적용 학생 수' })
+  overrideCount!: number;
+}
+
+export class HorizonDto {
+  @ApiProperty({ description: '펼쳐 둔 기간의 시작' }) from!: string;
+  @ApiProperty({ description: '펼쳐 둔 기간의 끝' }) to!: string;
+  @ApiProperty({ description: '요청 범위가 이 밖으로 나갔는가 — 화면이 「비었다」와 「아직 안 펼쳤다」를 구분한다' })
+  clamped!: boolean;
+}
+
+/* ══ §79 수강 학생 — 학생 트래킹 (C55) ═══════════════════════════════════
+   원문 §79 는 수업 상세의 「수강 학생」 단계 오른쪽에 학생마다 카드 넉 장과
+   최신 리포트 3건을 둔다. 회차 목록(`GET /schedule/occurrences`)에 실으면
+   한 주치 회차마다 학생별 질의가 붙는다 — 창을 열 때만 따로 부른다.        */
+
+/** §79 카드의 리포트 한 줄 */
+export class TrackedReportDto {
+  @ApiProperty() repId!: number;
+  @ApiProperty({ example: '2026-08-19' }) onDate!: string;
+  @ApiPropertyOptional({ type: String, nullable: true }) subjectName?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true }) teacherName?: string | null;
+  /**
+   * 「정시 / 지연」 — 판정은 `lib/rules.tierFor` 한 곳이다. 제출 시각과 수업 종료 시각을
+   * 화면에서 견주면 여기 칩과 강사 화면의 차감액이 갈린다 (D-R32 · D-R39).
+   */
+  @ApiProperty({ description: '기한 안에 냈는가 — 차감 0 이면 정시' }) onTime!: boolean;
+  @ApiProperty({ description: '칩에 쓰는 이름 — 낱말은 서버가 만든다 (D-R18)' }) onTimeLabel!: string;
+  @ApiPropertyOptional({ ...{ type: String, nullable: true }, description: '본문 발췌 — 원문 카드의 두 줄' })
+  excerpt?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '숙제 줄' }) homework?: string | null;
+}
+
+/** §79 학생 카드의 인수인계 메모 한 줄 (N-36 ② · 누가 · 언제 · 고치기 · 지우기 없음 · 학부모에게 나가지 않는다) */
+export class TrackedNoteDto {
+  @ApiProperty() id!: number;
+  @ApiProperty() body!: string;
+  @ApiProperty({ type: String, nullable: true, description: '적은 사람' }) authorName!: string | null;
+  @ApiProperty({ description: '적은 시각 — KST ISO(…+09:00)' }) createdAt!: string;
+}
+
+/**
+ * `POST /schedule/tracking/notes` — §79 학생 트래킹에서 인수인계 메모 한 줄 (N-36 ② · 관리자 · 매니저).
+ * **더하기만 있다** — 고치기 · 지우기 경로가 없다(누가 언제 무엇을 넘겼는지가 남아야 한다). 그 학생을 맡은 강사가
+ * 수업 안내 학생 카드에서 읽는다. 학부모에게 나가는 글(안내 · 리포트)에는 쓰이지 않는다.
+ */
+export class NoteCreateDto {
+  @ApiProperty({ ...ID_SCHEMA, description: '어느 학생' }) @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  studentId!: number;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, nullable: true, description: '어느 수업에서 적었는가(§79 를 연 회차의 규칙) — 그 학생이 그 명단에 있어야 한다' })
+  @IsOptional() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  serId?: number | null;
+
+  @ApiProperty({ description: '한 줄 — 앞뒤 빈칸은 지운다 · 빈 글은 400', minLength: 1, maxLength: 500 })
+  @IsString() @MinLength(1) @MaxLength(500)
+  body!: string;
+}
+
+/** §79 오른쪽의 학생 카드 한 장 */
+export class TrackedStudentDto {
+  @ApiProperty() id!: number;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional({ type: String, nullable: true }) grade?: string | null;
+  @ApiProperty({ description: '그날만 빠진 학생인가 (D-R21)' }) droppedOnce!: boolean;
+  @ApiProperty({ description: '그날 휴원 중인가 (C92-c)' }) paused!: boolean;
+  @ApiProperty({ description: '그날은 수강 종료 뒤인가 — 명단 행은 남고 to_date 가 끝났다 (C94-c · H-80). 인원·단가에서 빠진다' }) ended!: boolean;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '수강 종료일(YYYY-MM-DD) — 이 규칙의 명단에서 마지막으로 있는 날. 없으면 null' })
+  endedOn?: string | null;
+  @ApiPropertyOptional({ type: () => StudentPauseDto, nullable: true, description: '진행 중이거나 앞으로 잡힌 휴원 — 「휴원 9/1~9/30」 · 「복귀」 단추의 근거' })
+  pause?: StudentPauseDto | null;
+
+  @ApiProperty({ description: '반납하지 않은 배부 교재 수 — 원문 「교재 N」' }) bookCount!: number;
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: '배부 완료 교재 중 진도 쪽수와 전체 쪽수가 모두 있는 책의 동일가중 평균. 알 수 있는 책이 없으면 null',
+  })
+  progressAverage!: number | null;
+  @ApiProperty({ description: '진도 평균에 포함된 교재 수. 0이면 0%가 아니라 미확인이다' })
+  progressKnownBooks!: number;
+  @ApiProperty({ description: '이 수업의 안내가 나갔는가 — 원문 「안내 됨 / 안내 없음」' }) guided!: boolean;
+
+  /** 원문 「13/13 · 30일 출결」 — 확정된 출결만 센다. 아직 확정 안 한 회차는 분모에도 없다 */
+  @ApiProperty({ description: '최근 30일 중 진행된 회차 수' }) attendDone!: number;
+  @ApiProperty({ description: '최근 30일 중 출결이 확정된 회차 수' }) attendTotal!: number;
+
+  /**
+   * 미수 — **금액이라 대표만 본다** (D-R39). 못 보는 사람에게는 서버가 `null` 을 보낸다.
+   * 0 원과 「가려짐」을 화면이 구분할 수 있도록 0 을 null 로 바꾸지 않는다.
+   */
+  @ApiPropertyOptional({ type: Number, nullable: true, description: '미수 합계 — 볼 수 없으면 null' })
+  unpaid?: number | null;
+
+  @ApiProperty({ type: [TrackedReportDto], description: '최신 리포트 3건 — 쓴 것만' })
+  reports!: TrackedReportDto[];
+
+  @ApiProperty({ type: [TrackedNoteDto], description: '인수인계 메모 — 최근 것부터 스무 줄 (N-36 ②)' })
+  notes!: TrackedNoteDto[];
+  @ApiProperty({ description: '인수인계 메모 전체 줄 수 — 스무 줄 밖이 있는지 (서버가 센다)' })
+  noteCount!: number;
+}
+
+/** `GET /schedule/tracking` — §79 수강 학생 단계의 오른쪽 칸 */
+/**
+ * §12 준비 한 줄 — **낱말도 판정도 횟수도 서버가 만든다** (D-R18 · D-R39 · D-R37).
+ *
+ * 전에는 화면이 `doneOf()` 로 스스로 판정하고 줄 이름을 자기 파일에 적고 있었다.
+ * 그러면 현황판이 「됐다」는 회차를 상세는 「아직」이라 말할 수 있다.
+ */
+export class LessonPrepRowDto {
+  @ApiProperty({ description: '줄을 가리키는 열쇠 — 화면이 비교하지 않고 그리기만 한다' }) key!: string;
+  @ApiProperty({ description: '줄 이름 — 원문 §12·§79 의 낱말 그대로' }) label!: string;
+  @ApiProperty({ description: '됐는가' }) done!: boolean;
+  @ApiProperty({ type: String, nullable: true, description: '줄 밑의 값 — 「1명 / 정원 4명 · 이담흔」 같은 것' })
+  detail!: string | null;
+}
+
+export class LessonTrackingDto {
+  @ApiProperty() serId!: number;
+  @ApiProperty({ example: '2026-08-21' }) onDate!: string;
+  @ApiProperty({ description: 'KIND.cap — 정원' }) cap!: number;
+  @ApiProperty({ description: '지금 인원 — 그날 빠진 학생은 빼고 센다 (D-R21)' }) count!: number;
+  @ApiProperty({ description: '몇 명 더 넣을 수 있는가 — 화면이 cap − count 를 다시 하지 않는다' })
+  canAdd!: number;
+  @ApiProperty({ description: '머리줄 문장 — 원문 「정원 4명 · 1명 더 넣을 수 있습니다」' }) capLabel!: string;
+
+  /* 가격은 명단 쓰기 응답(RosterResultDto)과 **같은 함수**에서 나온다 (lib/rules.rosterPricing · §54) */
+  @ApiProperty({ description: '인원 구간 단가표가 있는가' }) priced!: boolean;
+  @ApiPropertyOptional({ type: Number, nullable: true }) unitPrice?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true }) total?: number | null;
+  @ApiProperty({ description: '금액을 볼 수 있는가 — 단가·총액·미수가 이 값에 따라 null 이 된다' })
+  canSeeAmounts!: boolean;
+
+  @ApiProperty({ type: [TrackedStudentDto] }) students!: TrackedStudentDto[];
+
+  /* ── §12 준비 ────────────────────────────────────────────────────
+     원문은 온라인 아홉 줄(§12)·현장 일곱 줄(§79)이다. 기본 일곱에 온라인이면 「줌 안내」가,
+     그 회차에 걸린 대표 지시가 있으면 「대표 지시 할 일」이 더 선다 (C82-b 원장). */
+  @ApiProperty({ type: [LessonPrepRowDto] }) prep!: LessonPrepRowDto[];
+  @ApiProperty({ description: '된 줄 수 — 화면이 prep 를 다시 세지 않는다' }) prepDone!: number;
+  @ApiProperty({ description: '전체 줄 수' }) prepTotal!: number;
+  @ApiProperty({ description: '머리 문장 — 원문 「3가지 남았습니다」 · 다 됐으면 「다 됐습니다」' })
+  prepRemainLabel!: string;
+}
+
+/** 창을 열 때만 부른다 */
+export class LessonTrackingQueryDto {
+  @ApiProperty(ID_SCHEMA) @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER)
+  serId!: number;
+
+  @ApiProperty({ ...DATE_SCHEMA, description: 'EXC 키와 같은 규칙상 날짜' })
+  @IsCalendarDate()
+  onDate!: string;
+}
+
+/**
+ * 겹침 미리보기 한 줄 — **막는 것은 DB 의 EXCLUDE 이고 이것은 설명만 한다** (D-R43 · §19).
+ *
+ * 409 만 던지면 화면은 「안 됩니다」밖에 못 쓴다. 사람이 시간을 고치려면 *무엇과* 겹치는지를
+ * 알아야 한다. 이 모양은 §19 변경 요청과 §07~§11 일정 이동이 **같은 것**을 쓴다 —
+ * 두 곳이 다른 모양을 쓰면 같은 겹침이 화면마다 다르게 읽힌다.
+ */
+export class ConflictRowDto {
+  @ApiProperty() serId!: number;
+  @ApiProperty() onDate!: string;
+  @ApiProperty() startMin!: number;
+  @ApiProperty() endMin!: number;
+  @ApiPropertyOptional({ type: String, nullable: true }) title?: string | null;
+  @ApiProperty({ enum: ['teacher', 'room', 'zoom'], description: '무엇이 겹치는가' }) with!: string;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '누구와 겹치는가 — 이름을 보여 준다' })
+  whoName?: string | null;
+}
+
+/**
+ * GET /schedule/conflicts 의 물음 — 자원을 하나도 안 주면 겹칠 대상이 없어 빈 배열이다.
+ *
+ * `date` 는 **실제로 놓일 달력 날짜**다. `ser_occ.span` 이 그 날짜로 만들어지므로
+ * 겹침도 그 날짜로 본다 — 옮긴 회차의 `on_date`(규칙이 원래 찍은 날)와는 다를 수 있다.
+ */
+export class ConflictQueryDto {
+  @ApiProperty({ ...DATE_SCHEMA, example: '2026-08-27', description: '놓일 달력 날짜 — EXC 키가 아니라 span 을 만드는 날짜다' })
+  @IsCalendarDate() date!: string;
+
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1439 })
+  @ToHttpInteger() @IsInt() @Min(0) @Max(1439) startMin!: number;
+
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 1440 })
+  @ToHttpInteger() @IsInt() @Min(1) @Max(1440) endMin!: number;
+
+  @ApiPropertyOptional(ID_SCHEMA)
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId?: number;
+
+  @ApiPropertyOptional(ID_SCHEMA)
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) roomId?: number;
+
+  @ApiPropertyOptional(ID_SCHEMA)
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) zaccId?: number;
+
+  @ApiPropertyOptional({ ...ID_SCHEMA, description: '자기 자신과는 겹치지 않는다 — 옮기는 회차의 SER' })
+  @ValidateIf((_object, value) => value !== undefined)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) exceptSerId?: number;
+
+  @ApiPropertyOptional({
+    type: [String], maxItems: 6,
+    description: '다른 시간 제안(altTimes)이 **함께 비어야 하는** 날짜 — 매주 월·수 규칙이면 첫 수를 준다(A-06). '
+      + '겹침 목록(conflicts)은 여전히 date 하나만 본다. 같은 키를 되풀이해 보낸다(alsoDates=…&alsoDates=…)',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (value === undefined ? undefined : Array.isArray(value) ? value : [value]), { toClassOnly: true })
+  @IsArray() @ArrayMaxSize(6) @IsCalendarDate({ each: true })
+  alsoDates?: string[];
+}
+
+/** 다른 시간 제안 한 칸 — 같은 날짜(들) · 같은 길이 (A-06 · N-134) */
+export class AltTimeDto {
+  @ApiProperty({ type: 'integer', minimum: 0, maximum: 1439 }) startMin!: number;
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 1440 }) endMin!: number;
+}
+
+export class ConflictPreviewDto {
+  @ApiProperty({ type: [ConflictRowDto], description: '비어 있어도 **저장을 건너뛰지 않는다** — 그 사이에 남이 그 자리를 잡을 수 있다' })
+  conflicts!: ConflictRowDto[];
+
+  @ApiProperty({
+    type: String, nullable: true,
+    description: '그 시각 비어 있는 강의실 · 줌 계정 이름 한 줄(각 최대 셋 · N-70). 물은 자원 종류(roomId · zaccId)만 적고, '
+      + '없으면 null. 누를 수 없고 미리 잡지 않는다 — 다시 저장해야 하며 그 사이 남이 잡을 수 있다',
+  })
+  freeLine!: string | null;
+
+  @ApiProperty({
+    type: [AltTimeDto],
+    description: '물은 자원(강사 · 강의실 · 줌)이 date 와 alsoDates 모두에서 비어 있는 같은 길이의 다른 시각 — 가까운 순서 최대 셋 · '
+      + '09:00~22:00 · 30분 간격 · 강사의 날짜 있는 불가 시간은 피한다(A-06). 미리 잡지 않는다 — 다시 저장해야 하며 그 사이 남이 잡을 수 있다',
+  })
+  altTimes!: AltTimeDto[];
+}
+
+/** §11 선생님별 개인 도구줄 「안내 N」 (N-100 · W11) */
+export class TeacherParamsDto {
+  @ApiProperty(ID_SCHEMA)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) teacherId!: number;
+}
+
+export class ScheduleTeacherGuidesDto {
+  @ApiProperty(ID_SCHEMA) teacherId!: number;
+  @ApiProperty({
+    type: 'integer', minimum: 0,
+    description: '그 강사에게 보냈는데 강사가 아직 확인하지 않은 안내 수 — 안내의 S4 상태 「보냄(sent)」 그대로(확인하면 read)',
+  })
+  unconfirmed!: number;
+}
+
+/* ══ 휴원 · 복귀 (C92-c · 테스트 시나리오 C-36 · C-37) ═══════════════════ */
+
+export class StudentParamsDto {
+  @ApiProperty(ID_SCHEMA)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) studentId!: number;
+}
+
+export class StudentResumeParamsDto extends StudentParamsDto {
+  @ApiProperty(ID_SCHEMA)
+  @ToHttpInteger() @IsInt() @Min(1) @Max(Number.MAX_SAFE_INTEGER) pauseId!: number;
+}
+
+/** 학생 카드 「휴원」 — 기간을 적으면 그 기간의 회차가 시간표·청구에서 빠진다. 회차를 지우지 않는다 */
+export class StudentPauseWriteDto {
+  @ApiProperty({ ...DATE_SCHEMA, description: '휴원 시작일' }) @IsCalendarDate() fromDate!: string;
+  @ApiPropertyOptional({ ...DATE_SCHEMA, description: '휴원 종료일(포함) — 비우면 복귀 처리 전까지' })
+  @IsOptional() @IsCalendarDate() toDate?: string;
+  @ApiPropertyOptional({ maxLength: 200 }) @IsOptional() @IsString() @MaxLength(200) reason?: string;
+}
+
+/** 학생 카드 「복귀」 — 복귀일부터 회차가 돌아온다. 기간은 이력으로 남는다 */
+export class StudentResumeWriteDto {
+  @ApiProperty({ ...DATE_SCHEMA, description: '복귀일 — 이 날부터 시간표·청구가 재개된다' }) @IsCalendarDate() resumeOn!: string;
+}
+
+export class StudentPauseResultDto extends StudentPauseDto {
+  @ApiProperty({ description: '학생 id' }) studentId!: number;
+  @ApiProperty({ description: '기간 안에서 빠지는(또는 돌아오는) 회차 수 — 서버가 센다 (D-R37)' }) affected!: number;
+  @ApiPropertyOptional({ type: String, nullable: true, description: '복귀 처리 시각 (ISO) — 복귀 전이면 null' }) resumedAt?: string | null;
+}

@@ -1,0 +1,367 @@
+/** @file-guide
+ * 목적: index.ts — ENTITIES (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/** 엔티티 색인 — 현행 ERD·migration과 대조하며 생성된 매핑과 수동 metadata를 함께 보존합니다. */
+export * from './enums';
+export * from './att.entity';
+export * from './autorep.entity';
+export * from './carry.entity';
+export * from './chreq.entity';
+export * from './cons.entity';
+export * from './cons-event.entity';
+export * from './cons-feedback.entity';
+export * from './cons-file.entity';
+export * from './cons-item.entity';
+export * from './cons-pick.entity';
+export * from './cons-sess.entity';
+export * from './cons-stu.entity';
+export * from './cpl.entity';
+export * from './cons-pay.entity';
+export * from './cons-template.entity';
+export * from './cons-template-item.entity';
+export * from './cons-write-req.entity';
+export * from './cons-template-write-req.entity';
+// ST1-b1 (2026-09-30) — 학생/구성원 공용 국가·시간대·학년·학교 사전
+export * from './country.entity';
+export * from './country-timezone.entity';
+export * from './education-grade.entity';
+export * from './school.entity';
+export * from './diag.entity';
+export * from './enr.entity';
+export * from './exc.entity';
+export * from './exc-stu-out.entity';
+export * from './expense.entity';
+export * from './file.entity';
+export * from './gpa-alloc.entity';
+export * from './gpa-cycle.entity';
+export * from './gpa-use.entity';
+export * from './gpapack.entity';
+export * from './gpapack-student.entity';
+export * from './gpapack-lib.entity';
+export * from './gpasvc.entity';
+export * from './gtpl.entity';
+export * from './guide.entity';
+export * from './hist.entity';
+export * from './inv.entity';
+export * from './inv-line.entity';
+export * from './inv-installment.entity';
+export * from './issue.entity';
+export * from './kind.entity';
+export * from './lead-stage-log.entity';
+export * from './lead-touch.entity';
+export * from './lead-diag.entity';
+export * from './lead-plan.entity';
+export * from './lead-appt.entity';
+export * from './lead.entity';
+export * from './lib.entity';
+export * from './log.entity';
+export * from './mfb.entity';
+export * from './material-request.entity';
+export * from './material-request-event.entity';
+export * from './material-request-file.entity';
+export * from './mkt.entity';
+export * from './mtattd.entity';
+export * from './mtagenda.entity';
+export * from './mtrec.entity';
+export * from './note.entity';
+export * from './teacher-private-note.entity';
+export * from './teacher-private-note-write-req.entity';
+export * from './noti.entity';
+export * from './pay.entity';
+export * from './payout.entity';
+export * from './payout-line.entity';
+// W11 M2 (2026-09-27) — 강사료 가산 규칙 · 회계 비공개 스위치 (N-93 · N-94)
+export * from './payout-bonus-rule.entity';
+export * from './acct-privacy.entity';
+export * from './pdflog.entity';
+export * from './plan.entity';
+// W11 (2026-09-26) — 기획 지정 공개 · 대표 보고 영역 담당 (N-72 · N-81)
+export * from './plan-pick.entity';
+export * from './exec-area-owner.entity';
+export * from './pnoti.entity';
+export * from './rate.entity';
+export * from './rep.entity';
+export * from './rep-book-progress.entity';
+export * from './rep-stu.entity';
+export * from './req.entity';
+export * from './room.entity';
+export * from './rpt.entity';
+export * from './rsend.entity';
+export * from './ser.entity';
+export * from './ser-occ.entity';
+export * from './ser-stu.entity';
+export * from './staff.entity';
+export * from './stu.entity';
+export * from './stu-contact.entity';
+export * from './stu-staff.entity';
+export * from './stu-sibling.entity';
+export * from './stu-profile-audit.entity';
+export * from './stu-profile-period.entity';
+export * from './stu-kinder-marker.entity';
+export * from './sturate.entity';
+export * from './sub.entity';
+export * from './suggestion.entity';
+export * from './todo.entity';
+export * from './tzg.entity';
+export * from './unav.entity';
+export * from './vers.entity';
+export * from './wage.entity';
+export * from './wrep.entity';
+export * from './stu-pause.entity';
+export * from './month-close.entity';
+export * from './guardian.entity';
+export * from './guardian-contact.entity';
+export * from './guardian-send.entity';
+export * from './holiday.entity';
+export * from './auth-code.entity';
+// W11 (2026-09-26) — §39 교재 두 층 분류 코드표 (N-47)
+export * from './book-subject.entity';
+export * from './book-category.entity';
+export * from './zacc.entity';
+export * from './zassign.entity';
+export * from './zlog.entity';
+
+import {
+  Att,
+  Carry,
+  StuPause,
+  MonthClose,
+  Guardian,
+  GuardianContact,
+  GuardianSend,
+  Holiday,
+  AuthCode,
+  BookSubject,
+  BookCategory,
+  Autorep,
+  Chreq,
+  Cons,
+  ConsEvent,
+  ConsFeedback,
+  ConsFile,
+  ConsItem,
+  ConsPick,
+  ConsSess,
+  ConsStu,
+  ConsPay,
+  ConsTemplate,
+  ConsTemplateItem,
+  ConsWriteReq,
+  ConsTemplateWriteReq,
+  Country,
+  CountryTimezone,
+  Cpl,
+  Diag,
+  EducationGrade,
+  Enr,
+  Exc,
+  ExcStuOut,
+  Expense,
+  FileRow,
+  GpaAlloc,
+  GpaCycle,
+  GpaUse,
+  Gpapack,
+  GpapackStudent,
+  GpapackLib,
+  Gpasvc,
+  Gtpl,
+  Guide,
+  Hist,
+  Inv,
+  InvLine,
+  InvInstallment,
+  Issue,
+  Kind,
+  Lead,
+  LeadStageLog,
+  LeadTouch,
+  LeadDiag,
+  LeadPlan,
+  LeadAppt,
+  Lib,
+  Log,
+  Mfb,
+  MaterialRequest,
+  MaterialRequestEvent,
+  MaterialRequestFile,
+  Mkt,
+  Mtattd,
+  Mtagenda,
+  Mtrec,
+  Note,
+  TeacherPrivateNote,
+  TeacherPrivateNoteWriteReq,
+  Noti,
+  Pay,
+  Payout,
+  PayoutLine,
+  PayoutBonusRule,
+  AcctPrivacy,
+  Pdflog,
+  Plan,
+  PlanPick,
+  ExecAreaOwner,
+  Pnoti,
+  Rate,
+  Rep,
+  RepBookProgress,
+  RepStu,
+  Req,
+  Room,
+  Rpt,
+  Rsend,
+  School,
+  Ser,
+  SerOcc,
+  SerStu,
+  Staff,
+  Stu,
+  StuContact,
+  StuStaff,
+  StuSibling,
+  StuProfileAudit,
+  StuProfilePeriod,
+  StuKinderMarker,
+  Sturate,
+  Sub,
+  Suggestion,
+  Todo,
+  Tzg,
+  Unav,
+  Vers,
+  Wage,
+  Wrep,
+  Zacc,
+  Zassign,
+  Zlog,
+} from './index';
+
+/** DataSource 에 넘길 목록. 현행 ORM 113표, 기존 GPA 4표와 MATREQ 3표 포함. */
+export const ENTITIES = [
+  // ST1-b1 공유 사전4표. 현행 ERD→생성기 출력과 대조했고 나머지 엔티티의 수동 metadata는 유지한다.
+  Country,
+  CountryTimezone,
+  EducationGrade,
+  School,
+  Carry,
+  StuPause,
+  MonthClose,
+  // DQ3 (2026-09-25) — 보호자와 보호자별 발송 원장
+  Guardian,
+  GuardianContact,
+  GuardianSend,
+  Holiday,
+  // W8 (2026-09-26) — 첫 설정 이메일 · 휴대폰 인증 코드
+  AuthCode,
+  // W11 (2026-09-26) — §39 교재 두 층 분류 코드표 (N-47)
+  BookSubject,
+  BookCategory,
+  Att,
+  Autorep,
+  Chreq,
+  Cons,
+  ConsEvent,
+  ConsFeedback,
+  ConsFile,
+  ConsItem,
+  ConsPick,
+  ConsSess,
+  ConsStu,
+  // 기존 두 영속 표가 ENTITIES에서 빠져 schema:check가 검수하지 못하던 범위를 닫는다.
+  ConsPay,
+  ConsTemplate,
+  ConsTemplateItem,
+  ConsWriteReq,
+  ConsTemplateWriteReq,
+  Cpl,
+  Diag,
+  Enr,
+  Exc,
+  ExcStuOut,
+  Expense,
+  FileRow,
+  GpaAlloc,
+  GpaCycle,
+  GpaUse,
+  Gpapack,
+  GpapackStudent,
+  GpapackLib,
+  Gpasvc,
+  Gtpl,
+  Guide,
+  Hist,
+  Inv,
+  InvLine,
+  InvInstallment,
+  Issue,
+  Kind,
+  Lead,
+  LeadStageLog,
+  LeadTouch,
+  // DQ1 (2026-09-25) — 상담 단계 진단 점수 원장
+  LeadDiag,
+  // wave3 g3 (23-15 · 23-16) — 상담 배치안 초안 · 2차/진단 일정
+  LeadPlan,
+  LeadAppt,
+  Lib,
+  Log,
+  Mfb,
+  MaterialRequest,
+  MaterialRequestEvent,
+  MaterialRequestFile,
+  Mkt,
+  Mtattd,
+  Mtagenda,
+  Mtrec,
+  Note,
+  TeacherPrivateNote,
+  TeacherPrivateNoteWriteReq,
+  Noti,
+  Pay,
+  Payout,
+  PayoutLine,
+  // W11 M2 (2026-09-27) — 강사료 가산 규칙 · 회계 비공개 스위치 (N-93 · N-94)
+  PayoutBonusRule,
+  AcctPrivacy,
+  Pdflog,
+  Plan,
+  // W11 (2026-09-26) — 기획 지정 공개 · 대표 보고 영역 담당 (N-72 · N-81)
+  PlanPick,
+  ExecAreaOwner,
+  Pnoti,
+  Rate,
+  Rep,
+  RepBookProgress,
+  RepStu,
+  Req,
+  Room,
+  Rpt,
+  Rsend,
+  Ser,
+  SerOcc,
+  SerStu,
+  Staff,
+  Stu,
+  StuContact,
+  StuStaff,
+  StuSibling,
+  StuProfileAudit,
+  StuProfilePeriod,
+  StuKinderMarker,
+  Sturate,
+  Sub,
+  Suggestion,
+  Todo,
+  Tzg,
+  Unav,
+  Vers,
+  Wage,
+  Wrep,
+  Zacc,
+  Zassign,
+  Zlog,
+];

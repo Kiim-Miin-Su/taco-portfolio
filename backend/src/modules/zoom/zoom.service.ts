@@ -1,0 +1,331 @@
+/** @file-guide
+ * 목적: zoom.service.ts — ZoomService (service)
+ * 책임/재사용: 기존 lib/도메인 방어·Perm 함수를 재사용한다. 쓰기는 트랜잭션/DB 제약, 읽기는 권한별 projection으로 최종 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { EntityManager, QueryRunner, Repository } from 'typeorm';
+import { Zacc } from '../../entities';
+import { nowHourKst, todayKst } from '../../lib/kst';
+import { assertClosedOccUnchanged, closedMonths, closedOccSnapshot, monthOf } from '../../lib/month-close';
+import { sealSecret, secretKeyFrom, SECRET_BOX_HEADER_BYTES } from '../../lib/secret-box';
+import { audit } from '../../lib/audit';
+import { altTimes, altTimesText } from '../../lib/alt-times';
+import { END_MIN, kstDateOf, START_MIN } from '../../lib/sql';
+import { maskEmail } from '../notify/sender';
+import { loadState } from '../schedule/schedule.state.repo';
+import { assertZaccAssignable } from '../schedule/schedule.references';
+import { project } from '../schedule/schedule.project';
+import type {
+  ZoomAccountCreateDto, ZoomAcctDto, ZoomAccountPatchDto, ZoomAssignDto, ZoomAssignResultDto, ZoomBoardDto,
+} from './zoom.dto';
+
+/** §21 격자가 보여 주는 시간 — 원본이 08~21 이다. 화면이 아니라 서버가 범위를 말한다 */
+const FROM_HOUR = 8;
+const TO_HOUR = 21;
+
+@Injectable()
+export class ZoomService {
+  constructor(
+    @InjectRepository(Zacc) private readonly zaccs: Repository<Zacc>,
+    private readonly cfg: ConfigService,
+  ) {}
+
+  private key(): Buffer {
+    const key = secretKeyFrom(this.cfg.get<string>('ZOOM_ENC_KEY'));
+    if (!key) {
+      throw new BadRequestException({
+        code: 'ZOOM_ENC_KEY_MISSING',
+        message: '줌 비밀을 저장할 키(ZOOM_ENC_KEY)가 없습니다 — 평문으로 저장하지 않습니다',
+      });
+    }
+    return key;
+  }
+
+  /**
+   * §21 격자 — 계정 × 시간. **점유는 `ser_occ` 에서 센다**(투영이 정본이고 EXCLUDE 가 지킨다).
+   * 「지금 가능」과 「만석 시간대」도 같은 배열에서 센다 — 두 곳에서 세지 않는다 (C40 의 교훈).
+   */
+  async board(onDate?: string): Promise<ZoomBoardDto> {
+    const date = onDate ?? todayKst();
+    const accounts = (await this.zaccs.query(
+      `SELECT z.id, z.label, z.login_email, z.join_url, z.meeting_id, z.active,
+              (octet_length(z.login_secret) > ${SECRET_BOX_HEADER_BYTES}) AS has_secret,
+              (SELECT count(*)::int FROM ser_occ o
+                WHERE o.zacc_id = z.id AND NOT o.canceled
+                  AND (lower(o.span) AT TIME ZONE 'Asia/Seoul')::date = $1::date) AS used
+         FROM zacc z ORDER BY z.active DESC, z.id`,
+      [date],
+    )) as Array<Record<string, unknown>>;
+
+    const busy = (await this.zaccs.query(
+      `SELECT o.zacc_id,
+              EXTRACT(HOUR FROM lower(o.span) AT TIME ZONE 'Asia/Seoul')::int AS h,
+              count(*)::int AS n
+         FROM ser_occ o
+        WHERE o.zacc_id IS NOT NULL AND NOT o.canceled
+          AND (lower(o.span) AT TIME ZONE 'Asia/Seoul')::date = $1::date
+        GROUP BY 1, 2`,
+      [date],
+    )) as Array<{ zacc_id: string; h: number; n: number }>;
+
+    const hours = Array.from({ length: TO_HOUR - FROM_HOUR + 1 }, (_, i) => FROM_HOUR + i);
+    const at = new Map(busy.map((b) => [`${b.zacc_id}|${b.h}`, Number(b.n)]));
+    const live = accounts.filter((a) => a.active === true);
+    const rows = live.map((a) => ({
+      zaccId: Number(a.id), label: String(a.label),
+      slots: hours.map((hour) => ({ hour, busy: at.get(`${a.id}|${hour}`) ?? 0 })),
+    }));
+
+    /*
+     * 「지금 가능」은 **그 시각에** 비었는가다 — 하루 내내 비었는가가 아니다.
+     * 원문 §21 은 다섯 계정 모두 낮에 붉은 칸이 있는데도 「지금 가능 5」라고 적는다.
+     * 하루 기준으로 세면 그 화면은 0 이 된다. 오늘이 아니면 「지금」이 없으므로 null 이다.
+     *
+     * 시각 밖(새벽 3시 같은)이라도 옳게 센다 — 점유 질의에 시(hour) 제한이 없어
+     * 격자에 안 그리는 시간도 `at` 에 들어 있다.
+     */
+    const nowHour = date === todayKst() ? nowHourKst() : null;
+    // 수와 이름을 **한 배열에서** 낸다. 따로 세면 「5개」인데 이름은 넷인 화면이 생긴다 (D-R37)
+    const freeRows = nowHour === null ? [] : rows.filter((r) => (at.get(`${r.zaccId}|${nowHour}`) ?? 0) === 0);
+
+    return {
+      onDate: date, fromHour: FROM_HOUR, toHour: TO_HOUR,
+      accounts: accounts.map((a) => this.row(a)),
+      rows,
+      nowHour,
+      freeNow: freeRows.length,
+      freeLabels: freeRows.map((r) => r.label),
+      fullHours: hours.filter((h) => rows.length > 0 && rows.every((r) => (at.get(`${r.zaccId}|${h}`) ?? 0) > 0)).length,
+    };
+  }
+
+  private row(r: Record<string, unknown>): ZoomAcctDto {
+    return {
+      id: Number(r.id), label: String(r.label), loginEmail: String(r.login_email),
+      joinUrl: String(r.join_url), meetingId: (r.meeting_id as string | null) ?? null,
+      active: r.active === true, usedCount: Number(r.used ?? 0), hasSecret: r.has_secret === true,
+    };
+  }
+
+  async create(userId: number, dto: ZoomAccountCreateDto): Promise<ZoomAcctDto> {
+    const key = this.key();
+    return this.zaccs.manager.transaction(async (m: EntityManager) => {
+      const [dup] = (await m.query(`SELECT id FROM zacc WHERE label = $1`, [dto.label.trim()])) as { id: string }[];
+      if (dup) throw new ConflictException({ code: 'ZACC_LABEL_TAKEN', message: `「${dto.label}」는 이미 있는 이름입니다` });
+      const [row] = (await m.query(
+        `INSERT INTO zacc (label, login_email, login_secret, join_url, meeting_id, meeting_pw_enc, active)
+         VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING id`,
+        [
+          dto.label.trim(), dto.loginEmail.trim(),
+          sealSecret(dto.loginSecret ?? '', key), dto.joinUrl.trim(),
+          dto.meetingId?.trim() || null,
+          dto.meetingPw ? sealSecret(dto.meetingPw, key) : null,
+        ],
+      )) as { id: string }[];
+      await m.query(`INSERT INTO zlog (zacc_id, actor_id, action) VALUES ($1,$2,'rotate')`, [Number(row.id), userId]);
+      const [out] = (await m.query(
+        `SELECT id,label,login_email,join_url,meeting_id,active,
+                (octet_length(login_secret) > ${SECRET_BOX_HEADER_BYTES}) AS has_secret, 0 AS used
+           FROM zacc WHERE id = $1`, [Number(row.id)],
+      )) as Array<Record<string, unknown>>;
+      return this.row(out);
+    });
+  }
+
+  async patch(userId: number, id: number, dto: ZoomAccountPatchDto): Promise<ZoomAcctDto> {
+    return this.zaccs.manager.transaction(async (m: EntityManager) => {
+      // 앞 값도 함께 잠그고 읽는다 — 감사 줄(N-73)의 before 다. 비밀 칸(login_secret · meeting_pw_enc)은 SELECT 에 넣지 않는다
+      const [cur] = (await m.query(
+        `SELECT id, label, login_email, join_url, meeting_id, active FROM zacc WHERE id = $1 FOR UPDATE`, [id],
+      )) as Array<Record<string, unknown>>;
+      if (!cur) throw new NotFoundException({ code: 'ZACC_NOT_FOUND', message: '줌 계정을 찾을 수 없습니다' });
+      const set: string[] = [];
+      const vals: unknown[] = [id];
+      const put = (col: string, v: unknown) => { vals.push(v); set.push(`${col} = $${vals.length}`); };
+      if (dto.label !== undefined) put('label', dto.label.trim());
+      if (dto.loginEmail !== undefined) put('login_email', dto.loginEmail.trim());
+      if (dto.joinUrl !== undefined) put('join_url', dto.joinUrl.trim());
+      if (dto.meetingId !== undefined) put('meeting_id', dto.meetingId.trim() || null);
+      if (dto.active !== undefined) put('active', dto.active);
+      // 폼의 「비우면 유지」와 직접 HTTP가 같다. 공백을 포함한 실제 비밀은 trim하지 않는다.
+      const rotateLogin = dto.loginSecret !== undefined && dto.loginSecret !== '';
+      const rotateMeeting = dto.meetingPw !== undefined && dto.meetingPw !== '';
+      if (rotateLogin) put('login_secret', sealSecret(dto.loginSecret!, this.key()));
+      if (rotateMeeting) put('meeting_pw_enc', sealSecret(dto.meetingPw!, this.key()));
+      if (!set.length) throw new BadRequestException({ code: 'NOTHING_TO_CHANGE', message: '바꿀 값이 없습니다' });
+      await m.query(`UPDATE zacc SET ${set.join(', ')} WHERE id = $1`, vals);
+      if (rotateLogin || rotateMeeting) {
+        await m.query(`INSERT INTO zlog (zacc_id, actor_id, action) VALUES ($1,$2,'rotate')`, [id, userId]);
+      }
+      const [out] = (await m.query(
+        `SELECT id,label,login_email,join_url,meeting_id,active,
+                (octet_length(login_secret) > ${SECRET_BOX_HEADER_BYTES}) AS has_secret,
+                (SELECT count(*)::int FROM ser_occ o WHERE o.zacc_id = zacc.id AND NOT o.canceled) AS used
+           FROM zacc WHERE id = $1`, [id],
+      )) as Array<Record<string, unknown>>;
+      /*
+       * N-73 감사 한 줄(같은 트랜잭션). **비밀 값은 싣지 않는다** — 비밀번호 · 로그인 비밀은 「바꿨다」는 사실만,
+       * 참가 링크는 링크 안에 회의 암호가 들 수 있어 「바뀌었나」만, 로그인 이메일은 가린 모양으로만 적는다.
+       */
+      const shown = (r: Record<string, unknown>) => ({
+        label: r.label == null ? null : String(r.label), active: r.active === true,
+        loginEmail: r.login_email ? maskEmail(String(r.login_email)) : null,
+      });
+      await audit(m, 'zoom.account', {
+        actorId: userId, entityId: id,
+        before: shown(cur),
+        after: {
+          ...shown(out),
+          joinUrlChanged: String(out.join_url ?? '') !== String(cur.join_url ?? ''),
+          meetingIdChanged: String(out.meeting_id ?? '') !== String(cur.meeting_id ?? ''),
+          loginSecretRotated: rotateLogin, meetingPwRotated: rotateMeeting,
+        },
+      });
+      return this.row(out);
+    });
+  }
+
+  /**
+   * 배정 — 정본은 `zassign` 이고 `ser_occ.zacc_id` 는 투영이다.
+   *
+   * 회차 하나만 바꾸면 그 날짜의 **EXC 에** 붙인다. EXC 가 없으면 만든다 — 「이 회차는 다르다」가
+   * 곧 EXC 이므로, 줌만 다른 경우에도 같은 길을 탄다 (규칙을 두 벌 만들지 않는다).
+   * 겹침은 마지막에 `ser_occ` 의 EXCLUDE 가 막고, 그때 트랜잭션이 통째로 되돌아간다.
+   */
+  async assign(userId: number, dto: ZoomAssignDto): Promise<ZoomAssignResultDto> {
+    try {
+      return await this.zaccs.manager.transaction((m) => this.assignIn(m, userId, dto));
+    } catch (e) {
+      // 막은 것은 EXCLUDE 다(ApiErrorFilter 의 RESOURCE_CONFLICT). 트랜잭션이 되돌아간 뒤 **무엇을 할 수 있는지**만 보탠다 (B-27 · N-134)
+      const pg = (e as { driverError?: { code?: string; constraint?: string }; code?: string; constraint?: string }) ?? {};
+      const code = pg.driverError?.code ?? pg.code;
+      const constraint = pg.driverError?.constraint ?? pg.constraint;
+      if (dto.zaccId != null && code === '23P01' && (constraint === undefined || constraint === 'ser_occ_zoom_no_overlap')) {
+        throw await this.zoomConflict(dto.serId, dto.onDate ?? null, dto.zaccId);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * 줌 계정 겹침 거절의 제안 (테스트 시나리오 B-27 「비어 있는 다른 계정을 제안」 · N-134 「시간 조정 또는 계정 추가를 제안」).
+   *
+   * 「비어 있다」는 N-70 freeLine · §21 「지금 가능」과 같은 판정이다 — 쓰는 계정(active) 가운데 그 수업의 회차(이 요청이
+   * 붙이려던 회차들) 어느 것과도 다른 수업이 겹치지 않는 것. 없으면 계정을 늘리거나 시간을 옮기라고 말하고, 회차가 하나면
+   * 그날 강사 · 강의실 · 쓸 수 있는 계정이 함께 비는 시각을 붙인다(lib/alt-times · A-06 과 같은 계산).
+   * **미리 잡지 않는다** — 다시 배정해야 하며 그 사이 남이 잡을 수 있다. 코드는 그대로 RESOURCE_CONFLICT 이고 제안은 문장에만 싣는다
+   * (ApiErrorFilter 가 code · message 둘만 내보낸다 — 배정 창은 서버 문장을 그대로 보인다).
+   */
+  private async zoomConflict(serId: number, onDate: string | null, zaccId: number): Promise<ConflictException> {
+    const run = (sql: string, p: unknown[]) => this.zaccs.manager.query(sql, p) as Promise<unknown[]>;
+    const free = (await run(
+      `WITH t AS (SELECT o.span FROM ser_occ o
+                   WHERE o.ser_id = $1 AND NOT o.canceled AND ($2::date IS NULL OR o.on_date = $2::date))
+       SELECT z.id, z.label FROM zacc z
+        WHERE z.active AND z.id <> $3
+          AND NOT EXISTS (SELECT 1 FROM t JOIN ser_occ o
+                            ON o.zacc_id = z.id AND NOT o.canceled AND o.ser_id <> $1 AND o.span && t.span)
+        ORDER BY z.id LIMIT 3`,
+      [serId, onDate, zaccId],
+    )) as Array<{ id: string; label: string }>;
+    const base = '같은 시간에 이 줌 계정이 이미 다른 수업에 잡혀 있습니다';
+    if (free.length) {
+      return new ConflictException({
+        code: 'RESOURCE_CONFLICT',
+        message: `${base} — 그 시각 비어 있는 다른 계정: ${free.map((z) => z.label).join(' · ')}`,
+      });
+    }
+    const occs = (await run(
+      `SELECT to_char(${kstDateOf('lower(o.span)')}, 'YYYY-MM-DD') AS d, ${START_MIN} AS s, ${END_MIN} AS e, o.teacher_id, o.room_id
+         FROM ser_occ o
+        WHERE o.ser_id = $1 AND NOT o.canceled AND ($2::date IS NULL OR o.on_date = $2::date)
+        ORDER BY lower(o.span) LIMIT 2`,
+      [serId, onDate],
+    )) as Array<{ d: string; s: number | string; e: number | string; teacher_id: string | null; room_id: string | null }>;
+    const one = occs.length === 1 ? occs[0]! : null;
+    const times = one
+      ? await altTimes(run, {
+        dates: [one.d], startMin: Number(one.s), endMin: Number(one.e), anyZoom: true, exceptSerId: serId,
+        teacherId: one.teacher_id == null ? null : Number(one.teacher_id), roomId: one.room_id == null ? null : Number(one.room_id),
+      })
+      : [];
+    const move = times.length ? `수업 시간을 옮기거나(계정이 비는 시간: ${altTimesText(times)})` : '수업 시간을 옮기거나';
+    return new ConflictException({
+      code: 'RESOURCE_CONFLICT',
+      message: `${base} — 그 시각 비어 있는 다른 계정이 없습니다. ${move} 줌 계정을 추가해 주세요`,
+    });
+  }
+
+  /**
+   * 같은 일을 **남의 트랜잭션 안에서** 한다 — 변경 요청 반영이 이 길로 들어온다 (§20 줌 갈래).
+   * 배정과 요청 종결이 한 트랜잭션이라, 겹쳐서 막히면 요청도 pending 으로 되돌아간다 (C42 의 규칙).
+   */
+  async assignIn(m: EntityManager, userId: number, dto: ZoomAssignDto): Promise<ZoomAssignResultDto> {
+    const zaccId = dto.zaccId ?? null;
+    {
+      const q = m.queryRunner as QueryRunner;
+      if (!q?.isTransactionActive) throw new Error('줌 배정은 활성 transaction 안에서만 사용할 수 있습니다');
+      // 일정/출결과 같은 부모 잠금을 첫 snapshot 전에 잡고 commit까지 유지한다.
+      const before = await loadState(q, [dto.serId], { forWrite: true });
+      const ser = before.SER[0];
+      if (!ser) throw new NotFoundException({ code: 'SER_NOT_FOUND', message: '수업 규칙을 찾을 수 없습니다' });
+      // 회차 하나를 볼 때는 그 회차의 **실제 방식**이다 — 예외가 온라인으로 바꾼 회차에도 붙일 수 있다 (N-56)
+      const mode = (dto.onDate !== undefined ? before.EXC.find((row) => row.onDate === dto.onDate)?.mode : null) ?? ser.mode;
+      if (mode !== 'online') {
+        throw new ConflictException({ code: 'ZOOM_ASSIGN_NOT_ONLINE', message: '현장 수업에는 줌 계정을 배정하지 않습니다' });
+      }
+      if (dto.onDate !== undefined) {
+        const [occ] = (await m.query(
+          `SELECT canceled FROM ser_occ WHERE ser_id=$1 AND on_date=$2::date`, [dto.serId, dto.onDate],
+        )) as { canceled: boolean }[];
+        if (!occ) throw new NotFoundException({ code: 'OCCURRENCE_NOT_FOUND', message: '해당 회차를 찾을 수 없습니다. 최신 목록에서 다시 선택해 주세요' });
+        if (occ.canceled) throw new ConflictException({ code: 'ZOOM_ASSIGN_CANCELED', message: '휴강한 회차에는 줌 계정을 배정하지 않습니다' });
+      }
+      // 여러 배정은 함께 읽되 계정 비활성화는 이 transaction이 끝날 때까지 기다린다 — 회차 방식 전환과 같은 판정 (N-56)
+      if (zaccId !== null) await assertZaccAssignable(m, zaccId);
+
+      const closed = await closedMonths(q);
+      const closedBefore = await closedOccSnapshot(q, [dto.serId], closed);
+
+      let excId: number | null = null;
+      if (dto.onDate !== undefined) {
+        const exc = before.EXC.find((row) => row.onDate === dto.onDate);
+        if (exc) excId = exc.id;
+        else {
+          const [made] = (await m.query(
+            `INSERT INTO exc (ser_id, on_date, canceled, reason, by_id) VALUES ($1,$2::date,false,$3,$4) RETURNING id`,
+            [dto.serId, dto.onDate, '줌 계정 배정', userId],
+          )) as { id: string }[];
+          excId = Number(made.id);
+        }
+        await m.query(`DELETE FROM zassign WHERE exc_id = $1`, [excId]);
+        if (zaccId !== null) {
+          await m.query(`INSERT INTO zassign (exc_id, zacc_id, fixed) VALUES ($1,$2,false)`, [excId, zaccId]);
+        }
+      } else {
+        await m.query(`DELETE FROM zassign WHERE ser_id = $1`, [dto.serId]);
+        if (zaccId !== null) {
+          await m.query(`INSERT INTO zassign (ser_id, zacc_id, fixed) VALUES ($1,$2,true)`, [dto.serId, zaccId]);
+        }
+      }
+      if (zaccId !== null) {
+        await m.query(`INSERT INTO zlog (zacc_id, actor_id, action) VALUES ($1,$2,'assign')`, [zaccId, userId]);
+      }
+
+      // 새 EXC를 포함해 같은 부모 잠금 아래에서 다시 읽고 기존 투영/EXCLUDE를 재사용한다.
+      const state = await loadState(q, [dto.serId]);
+      const projected = await project(q, state, [dto.serId]);
+      if (closed.length) {
+        assertClosedOccUnchanged({
+          before: closedBefore, after: await closedOccSnapshot(q, [dto.serId], closed), closed,
+          fallbackMonth: monthOf(ser.fromDate),
+        });
+      }
+      return { serId: dto.serId, onDate: dto.onDate ?? null, zaccId, projected };
+    }
+  }
+}

@@ -1,0 +1,319 @@
+/** @file-guide
+ * 목적: schedule.state.repo.ts — lockScheduleSeries, loadState, persist (service)
+ * 책임/재사용: 기존 lib/도메인 방어·Perm 함수를 재사용한다. 쓰기는 트랜잭션/DB 제약, 읽기는 권한별 projection으로 최종 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * DB ↔ 리듀서 `State` 어댑터.
+ *
+ * **여기에 규칙은 없다.** 반복 3범위 판정은 전부 `lib/recurrence.ts` 가 갖고 (D-R16 · D-R21),
+ * 이 파일은 그 순수 함수가 먹을 수 있게 표를 읽어 오고, 결과를 다시 표로 되돌릴 뿐이다.
+ *
+ *   load    DB → State (SER · SER_STU · EXC)
+ *   reduce  순수 리듀서 (여기서 규칙이 적용된다)
+ *   persist State 차이를 SQL 로
+ *   project occ() 결과를 ser_occ 로 → EXCLUDE 가 최종 판정 (D-R43)
+ *
+ * 네 단계를 한 트랜잭션에 넣는 것은 서비스의 몫이다.
+ */
+import type { QueryRunner } from 'typeorm';
+import type { Exc, IsoDate, Ser, SerStu, State } from '../../lib/recurrence';
+
+type Row = Record<string, unknown>;
+
+const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+
+/** 부모 조회 SQL은 한 곳에 둔다. 잠금과 State 로딩이 같은 행/순서를 사용한다. */
+async function readSeries(q: QueryRunner, serIds: number[], forWrite: boolean): Promise<Row[]> {
+  if (forWrite && !q.isTransactionActive) {
+    throw new Error('일정 쓰기 상태 잠금은 활성 transaction 안에서만 사용할 수 있습니다');
+  }
+  if (!serIds.length) return [];
+  return q.query(
+    `SELECT id, kind_key, sub_key, mode, title, teacher_id, room_id, start_min, end_min,
+            rrule, from_date::text AS from_date, to_date::text AS to_date
+       FROM ser WHERE id = ANY($1) ORDER BY id${forWrite ? ' FOR NO KEY UPDATE' : ''}`,
+    [serIds],
+  ) as Promise<Row[]>;
+}
+
+/** 일정/출결은 재생성되는 SER_OCC보다 먼저 불변 부모를 잠근다. FK KEY SHARE 호환은 유지한다. */
+export function lockScheduleSeries(q: QueryRunner, serIds: number[]): Promise<Row[]> {
+  return readSeries(q, serIds, true);
+}
+
+/**
+ * 이 규칙들과 그 예외를 통째로 읽어 온다.
+ *
+ * 범위로 자르지 않는다 — 「향후」는 `to_date` 를 건드리고 「모두」는 규칙 자체를 바꾸므로,
+ * 범위 밖의 예외까지 손에 들고 있어야 리듀서가 옳게 판단한다.
+ * 쓰기는 부모 SER를 id 순서로 잠근 뒤 자식을 읽는다. EXC만 수정해도 같은 부모를 잠가야
+ * 동시 snapshot의 upsert가 서로의 필드를 지우지 않는다. NO KEY UPDATE는 쓰기끼리 배타적이되
+ * ATT 등의 FK KEY SHARE는 허용해 부모→투영 / 투영→FK 잠금 역전을 피한다.
+ * 일반 조회/감사는 잠금 없이 유지한다. 직접 SQL 자식 쓰기까지 직렬화하는 제약은 아니다.
+ */
+export async function loadState(
+  q: QueryRunner, serIds: number[], options: { forWrite?: boolean } = {},
+): Promise<State> {
+  const sers = options.forWrite ? await lockScheduleSeries(q, serIds) : await readSeries(q, serIds, false);
+  if (!serIds.length) return { SER: [], SER_STU: [], EXC: [] };
+
+  const stus = (await q.query(
+    `SELECT ser_id, student_id, from_date::text AS from_date, to_date::text AS to_date FROM ser_stu WHERE ser_id = ANY($1)`,
+    [serIds],
+  )) as Row[];
+
+  const excs = (await q.query(
+    `SELECT e.id, e.ser_id, e.on_date::text AS on_date, e.canceled,
+            e.new_date::text AS new_date, e.start_min, e.end_min,
+            e.teacher_set, e.teacher_id, e.room_set, e.room_id, e.reason,
+            e.cancel_kind, e.cancel_treat, e.makeup_ser_id, e.mode, e.memo,
+            (SELECT z.zacc_id FROM zassign z WHERE z.exc_id = e.id) AS zacc_id,
+            COALESCE(
+              (SELECT array_agg(o.student_id ORDER BY o.student_id)
+                 FROM exc_stu_out o WHERE o.exc_id = e.id), '{}') AS stu_out
+       FROM exc e WHERE e.ser_id = ANY($1) ORDER BY e.ser_id, e.on_date`,
+    [serIds],
+  )) as Row[];
+
+  /* 줌 배정의 정본은 `zassign` 이다 (C48). 규칙 대상 한 줄 · 회차 예외 대상 한 줄(부분 유니크 둘).
+     State 가 그것을 들고 있어야 규칙을 가르거나(향후) 방식을 바꿀 때(N-56) 배정이 조용히 사라지지 않는다. */
+  const serZacc = new Map(
+    ((await q.query(`SELECT ser_id, zacc_id FROM zassign WHERE ser_id = ANY($1)`, [serIds])) as Row[])
+      .map((r) => [Number(r.ser_id), Number(r.zacc_id)]),
+  );
+
+  return {
+    SER: sers.map<Ser>((r) => ({
+      id: Number(r.id),
+      kind: String(r.kind_key),
+      sub: str(r.sub_key),
+      mode: String(r.mode),
+      title: String(r.title ?? ''),
+      teacherId: num(r.teacher_id),
+      roomId: num(r.room_id),
+      startMin: Number(r.start_min),
+      endMin: Number(r.end_min),
+      rrule: String(r.rrule),
+      fromDate: String(r.from_date),
+      toDate: str(r.to_date),
+      zaccId: serZacc.get(Number(r.id)) ?? null,
+    })),
+    SER_STU: stus.map<SerStu>((r) => ({
+      serId: Number(r.ser_id), studentId: Number(r.student_id),
+      fromDate: (r.from_date as string | null) ?? null, toDate: (r.to_date as string | null) ?? null,
+    })),
+    EXC: excs.map<Exc>((r) => ({
+      id: Number(r.id),
+      serId: Number(r.ser_id),
+      onDate: String(r.on_date),
+      canceled: r.canceled === true,
+      newDate: str(r.new_date),
+      startMin: num(r.start_min),
+      endMin: num(r.end_min),
+      teacherSet: r.teacher_set === true,
+      teacherId: num(r.teacher_id),
+      roomSet: r.room_set === true,
+      roomId: num(r.room_id),
+      reason: str(r.reason),
+      cancelKind: str(r.cancel_kind),
+      cancelTreat: str(r.cancel_treat),
+      makeupSerId: num(r.makeup_ser_id),
+      stuOut: ((r.stu_out as number[]) ?? []).map(Number),
+      mode: str(r.mode),
+      memo: str(r.memo),
+      zaccId: num(r.zacc_id),
+    })),
+  };
+}
+
+/** SER 하나를 새로 넣고 **DB 가 준 id** 를 돌려준다. 리듀서가 만든 임시 id 는 버린다. */
+/**
+ * @param keepId **되살리는 규칙만** 준다 (N-138). 시퀀스는 이미 그 번호를 지나왔으므로 앞으로도
+ *   겹치지 않고, 번호가 바뀌면 되살아난 것이 아니라 **닮은 규칙이 하나 생긴 것**이다.
+ *   새 규칙은 지금처럼 시퀀스가 번호를 준다 — 이 인자를 넘기는 곳은 `undo()` 하나다.
+ */
+async function insertSer(q: QueryRunner, s: Ser, keepId?: number): Promise<number> {
+  if (keepId !== undefined) {
+    const r = (await q.query(
+      `INSERT INTO ser (id, kind_key, sub_key, teacher_id, room_id, mode, start_min, end_min,
+                        rrule, from_date, to_date, title)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::date,$11::date,$12) RETURNING id`,
+      [keepId, s.kind, s.sub, s.teacherId, s.roomId, s.mode, s.startMin, s.endMin,
+       s.rrule, s.fromDate, s.toDate, s.title || null],
+    )) as Array<{ id: string }>;
+    return Number(r[0].id);
+  }
+  const r = (await q.query(
+    `INSERT INTO ser (kind_key, sub_key, teacher_id, room_id, mode, start_min, end_min,
+                      rrule, from_date, to_date, title)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::date,$10::date,$11) RETURNING id`,
+    [s.kind, s.sub, s.teacherId, s.roomId, s.mode, s.startMin, s.endMin,
+     s.rrule, s.fromDate, s.toDate, s.title || null],
+  )) as Array<{ id: string }>;
+  return Number(r[0].id);
+}
+
+/**
+ * `before` → `after` 의 차이를 SQL 로 옮긴다.
+ *
+ * 리듀서는 새 행에 **임시 id** 를 붙인다(`mkGen` — 지금 State 의 최대값 + 1 이라 **양수**다.
+ * 「음수」라 적어 둔 옛 주석은 사실과 달랐다). 그것을 DB 시퀀스가 준 진짜 id 로 바꿔 주는 것이
+ * 이 함수의 절반이다 — 임시 id 가 밖으로 새면 다음 요청에서 못 찾는다.
+ * 임시 id 와 **되살리는 id** 는 둘 다 「before 에 없는 양수」라 구분이 안 되므로,
+ * 되살리는 쪽만 `opts.restoreSerIds` 로 **부르는 쪽이 말해 준다** (N-138).
+ *
+ * @returns 바뀐 SER id 들. 호출한 쪽이 이 범위만 다시 투영하면 된다.
+ */
+export async function persist(
+  q: QueryRunner, before: State, after: State,
+  /** 되돌리기가 **번호를 지키며 되살릴** SER (N-138). 그 밖에는 아무도 넘기지 않는다. */
+  opts: { restoreSerIds?: ReadonlySet<number> } = {},
+): Promise<number[]> {
+  const touched = new Set<number>();
+  /** 리듀서의 임시 id → DB id */
+  const idMap = new Map<number, number>();
+
+  const beforeSer = new Map(before.SER.map((s) => [s.id, s]));
+  const afterSer = new Map(after.SER.map((s) => [s.id, s]));
+
+  // ── SER: 새로 생긴 것 · 바뀐 것 · 사라진 것
+  for (const s of after.SER) {
+    const old = beforeSer.get(s.id);
+    if (!old) {
+      const realId = await insertSer(q, s, opts.restoreSerIds?.has(s.id) ? s.id : undefined);
+      idMap.set(s.id, realId);
+      touched.add(realId);
+      // 「향후」로 갈라진 규칙 · 되살린 규칙이 줌 계정을 이어받는다 (N-56)
+      await syncSerZassign(q, realId, null, s.zaccId ?? null);
+      continue;
+    }
+    if ((old.zaccId ?? null) !== (s.zaccId ?? null)) {
+      await syncSerZassign(q, s.id, old.zaccId ?? null, s.zaccId ?? null);
+      touched.add(s.id);
+    }
+    const changed =
+      old.kind !== s.kind ||
+      old.teacherId !== s.teacherId || old.roomId !== s.roomId ||
+      old.startMin !== s.startMin || old.endMin !== s.endMin ||
+      old.rrule !== s.rrule || old.fromDate !== s.fromDate || old.toDate !== s.toDate ||
+      old.title !== s.title || old.mode !== s.mode || old.sub !== s.sub;
+    if (changed) {
+      await q.query(
+        `UPDATE ser SET teacher_id=$2, room_id=$3, start_min=$4, end_min=$5,
+                        rrule=$6, from_date=$7::date, to_date=$8::date, title=$9, mode=$10, sub_key=$11, kind_key=$12
+          WHERE id=$1`,
+        [s.id, s.teacherId, s.roomId, s.startMin, s.endMin, s.rrule, s.fromDate, s.toDate,
+         s.title || null, s.mode, s.sub, s.kind],
+      );
+      touched.add(s.id);
+    }
+  }
+  const real = (id: number): number => idMap.get(id) ?? id;
+
+  // ── SER_STU: 키가 (serId, studentId) 뿐이라 집합 차이로 본다
+  const keyOf = (r: SerStu) => `${real(r.serId)}|${r.studentId}`;
+  const beforeStu = new Set(before.SER_STU.map((r) => `${r.serId}|${r.studentId}`));
+  const afterStu = new Set(after.SER_STU.map(keyOf));
+  for (const r of after.SER_STU) {
+    if (beforeStu.has(`${r.serId}|${r.studentId}`)) continue;
+    // 기간(수강 종료)도 함께 쓴다 — 규칙이 갈라질 때 복사된 행이 기간을 잃으면 종료한 학생이 되살아난다 (C94-c)
+    await q.query(
+      `INSERT INTO ser_stu (ser_id, student_id, from_date, to_date) VALUES ($1,$2,$3::date,$4::date) ON CONFLICT DO NOTHING`,
+      [real(r.serId), r.studentId, r.fromDate ?? null, r.toDate ?? null],
+    );
+    touched.add(real(r.serId));
+  }
+  for (const r of before.SER_STU) {
+    if (afterStu.has(`${r.serId}|${r.studentId}`)) continue;
+    await q.query(`DELETE FROM ser_stu WHERE ser_id=$1 AND student_id=$2`, [r.serId, r.studentId]);
+    touched.add(r.serId);
+  }
+
+  // ── EXC: 키는 (serId, onDate). stuOut 은 자식 표라 따로 맞춘다
+  const beforeExc = new Map(before.EXC.map((e) => [`${e.serId}|${e.onDate}`, e]));
+  const afterKeys = new Set(after.EXC.map((e) => `${real(e.serId)}|${e.onDate}`));
+
+  for (const e of after.EXC) {
+    const sid = real(e.serId);
+    const old = beforeExc.get(`${e.serId}|${e.onDate}`);
+    const row = (await q.query(
+      `INSERT INTO exc (ser_id, on_date, canceled, new_date, start_min, end_min,
+                       teacher_set, teacher_id, room_set, room_id, reason, cancel_kind, cancel_treat, makeup_ser_id,
+                       mode, memo)
+       VALUES ($1,$2::date,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       ON CONFLICT (ser_id, on_date) DO UPDATE SET
+         canceled=EXCLUDED.canceled, new_date=EXCLUDED.new_date,
+         start_min=EXCLUDED.start_min, end_min=EXCLUDED.end_min,
+         teacher_set=EXCLUDED.teacher_set, teacher_id=EXCLUDED.teacher_id,
+         room_set=EXCLUDED.room_set, room_id=EXCLUDED.room_id, reason=EXCLUDED.reason,
+         cancel_kind=EXCLUDED.cancel_kind, cancel_treat=EXCLUDED.cancel_treat, makeup_ser_id=EXCLUDED.makeup_ser_id,
+         mode=EXCLUDED.mode, memo=EXCLUDED.memo
+       RETURNING id`,
+      // 보강 SER 는 이 리듀스에서 막 생긴 임시 id 일 수 있다 — 위에서 붙인 진짜 id 로 바꿔 적는다
+      [sid, e.onDate, e.canceled, e.newDate, e.startMin, e.endMin,
+       e.teacherSet, e.teacherId, e.roomSet, e.roomId, e.reason, e.cancelKind, e.cancelTreat,
+       e.makeupSerId === null ? null : real(e.makeupSerId), e.mode ?? null, e.memo ?? null],
+    )) as Array<{ id: string }>;
+    const excId = Number(row[0].id);
+    // 회차 줌 배정 — 예외가 다른 규칙으로 옮겨 가면(향후 분할) 새 줄이 생기고 옛 줄은 CASCADE 로 사라진다.
+    // 그래서 **행 id 가 바뀐 경우도** 다시 적는다. 같은 행 · 같은 계정이면 건드리지 않는다.
+    const zOld = old && old.id === excId ? (old.zaccId ?? null) : null;
+    if (zOld !== (e.zaccId ?? null)) await syncExcZassign(q, excId, e.zaccId ?? null);
+
+    const oldOut = new Set(old?.stuOut ?? []);
+    const newOut = new Set(e.stuOut ?? []);
+    for (const sid2 of newOut) {
+      if (oldOut.has(sid2)) continue;
+      await q.query(
+        `INSERT INTO exc_stu_out (exc_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [excId, sid2],
+      );
+    }
+    for (const sid2 of oldOut) {
+      if (newOut.has(sid2)) continue;
+      await q.query(`DELETE FROM exc_stu_out WHERE exc_id=$1 AND student_id=$2`, [excId, sid2]);
+    }
+    touched.add(sid);
+  }
+
+  for (const e of before.EXC) {
+    if (afterKeys.has(`${e.serId}|${e.onDate}`)) continue;
+    await q.query(`DELETE FROM exc_stu_out WHERE exc_id=$1`, [e.id]);
+    await q.query(`DELETE FROM exc WHERE ser_id=$1 AND on_date=$2::date`, [e.serId, e.onDate]);
+    touched.add(e.serId);
+  }
+
+  // 즉시 NO ACTION FK: reducer가 제거한 자식부터 정리한 뒤 부모를 지운다.
+  // 업무 삭제/이력 보존 여부는 reducer가 결정하며 이 어댑터가 CASCADE로 확대하지 않는다.
+  for (const s of before.SER) {
+    if (!afterSer.has(s.id)) {
+      await q.query(`DELETE FROM ser_occ WHERE ser_id = $1`, [s.id]);
+      await q.query(`DELETE FROM ser WHERE id = $1`, [s.id]);
+      touched.delete(s.id);
+    }
+  }
+
+  return [...touched];
+}
+
+/**
+ * 규칙 대상 줌 배정 한 줄을 State 값에 맞춘다 — 규칙 배정은 고정(fixed)이다 (`ZoomService.assignIn` 과 같은 모양).
+ * 겹침은 투영의 EXCLUDE 가 막는다. 배정 이력(zlog)은 계정 화면의 몫이라 여기서 남기지 않는다.
+ */
+async function syncSerZassign(q: QueryRunner, serId: number, before: number | null, after: number | null): Promise<void> {
+  if (before === after) return;
+  await q.query(`DELETE FROM zassign WHERE ser_id = $1`, [serId]);
+  if (after !== null) await q.query(`INSERT INTO zassign (ser_id, zacc_id, fixed) VALUES ($1,$2,true)`, [serId, after]);
+}
+
+/** 회차 예외 대상 줌 배정 한 줄 — 회차 배정은 변동(fixed=false)이다 (`ZoomService.assignIn` 과 같은 모양) */
+async function syncExcZassign(q: QueryRunner, excId: number, after: number | null): Promise<void> {
+  await q.query(`DELETE FROM zassign WHERE exc_id = $1`, [excId]);
+  if (after !== null) await q.query(`INSERT INTO zassign (exc_id, zacc_id, fixed) VALUES ($1,$2,false)`, [excId, after]);
+}
+
+/** 리듀서가 만든 임시 id 를 DB id 로 바꾼 뒤의 SER 목록 — 응답에 쓴다. */
+export type { IsoDate };

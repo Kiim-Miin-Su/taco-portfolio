@@ -1,0 +1,258 @@
+/** @file-guide
+ * 목적: teacher.controller.ts — TeacherController (controller)
+ * 책임/재사용: HTTP DTO/경로와 인증·Perm 메타데이터를 연결하고 기존 service에 위임한다. SQL/업무 전이를 컨트롤러에 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseIntPipe, Post, Query, UseFilters } from '@nestjs/common';
+import {
+  ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiCreatedResponse, ApiExtraModels, ApiForbiddenResponse,
+  ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags, getSchemaPath,
+} from '@nestjs/swagger';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { ApiErrorDto, OkDto } from '../../common/http.dto';
+import { canAdminPage, isRole, type RequestUser } from '../../common/perm';
+import {
+  TeacherDiagCreateDto, TeacherGuideDiagDto,
+  TeacherGuidesDto, TeacherGuidesQueryDto, TeacherHistoryDto, TeacherHistoryQueryDto, TeacherHomeDto,
+  TeacherLessonHubDto, TeacherLessonHubParamsDto, TeacherLessonHubQueryDto,
+  TeacherSettingReqCreateDto, TeacherSettingRequestDto, TeacherShellDto,
+  TeacherSuggestionCreateDto, TeacherSuggestionDto, TeacherSuggestionsDto,
+  TeacherUnavBlockDto, TeacherUnavCreateDto, TeacherUnavDto, TeacherUnavQueryDto,
+} from './teacher.dto';
+import { TeacherService } from './teacher.service';
+import { GuidesService } from '../guides/guides.service';
+import { GuideActionDto, GuideActionParamsDto, GuideDto, ReceivedGuidesDto } from '../guides/guides.dto';
+import { previousMonthKst } from '../../lib/kst';
+import { TeacherLessonMovedErrorDto, TeacherLessonMovedFilter } from './teacher-lesson-moved.error';
+import {
+  TeacherUnavailableConflictErrorDto,
+  TeacherUnavailableConflictFilter,
+} from './teacher-unavailable-conflict.error';
+
+@ApiTags('teacher')
+@ApiExtraModels(TeacherUnavailableConflictErrorDto)
+@Controller('teacher')
+export class TeacherController {
+  constructor(private readonly svc: TeacherService, private readonly guidesService: GuidesService) {}
+
+  /**
+   * 강사 전용 표면 — 시급·정산이 실리므로 역할·본인 고정을 서버가 한다. 관리자 미리보기는 별도 결정 뒤에.
+   *
+   * 2026-09-12(C36-a) 교정 — 종전 `user.role !== 'teacher'` 는 **eslint no-restricted-syntax 를 어기고 있었다**
+   * (D-R39: 컨트롤러에서 role 을 직접 비교하지 않는다). 뜻은 그대로 세 줄에서 파생시킨다 —
+   * 「관리자 페이지에 들어갈 수 있는 사람」의 여집합이 강사다.
+   */
+  private assertTeacher(user: RequestUser): void {
+    if (!isRole(user.role) || canAdminPage(user.role)) throw new ForbiddenException('강사 전용 화면입니다');
+  }
+
+  @Get('shell')
+  @ApiOperation({
+    summary: '강사 머리줄 — 시간대 · 오늘 시급 · 내게 온 알림 (강사 덱 모든 화면의 머리줄 · 메뉴 사용자 칸)',
+    description: '알림은 받는 사람이 본인인 NOTI 행만 싣는다(관리자 서랍의 다른 칸은 없다). 읽음 처리는 PATCH /drawer/notis/{id}/read · /drawer/notis/read-all(본인 한정)을 쓴다.',
+  })
+  @ApiOkResponse({ type: TeacherShellDto })
+  @ApiForbiddenResponse({ description: '강사 전용 — 관리 화면 사용자는 서랍 알림을 쓴다' })
+  async shell(@CurrentUser() user: RequestUser): Promise<TeacherShellDto> {
+    this.assertTeacher(user);
+    return this.svc.shell(user.id);
+  }
+
+  @Get('home')
+  @ApiOperation({ summary: '강사 홈 — 오늘·다가오는 수업·주간 요약·오늘 할 일·내 설정 (강사 덱 §7~9)' })
+  @ApiOkResponse({ type: TeacherHomeDto })
+  @ApiForbiddenResponse({ description: '강사 전용 — 다른 역할은 관리자 화면을 쓴다' })
+  async home(@CurrentUser() user: RequestUser): Promise<TeacherHomeDto> {
+    this.assertTeacher(user);
+    return this.svc.home(user.id);
+  }
+
+  @Get('lessons/:serId/:onDate/hub')
+  @UseFilters(TeacherLessonMovedFilter)
+  @ApiOperation({
+    summary: '강사 수업 허브 — 본인 회차의 리포트·안내·학생 이력·일정 변경 진입점',
+    description: 'serId+원래 회차일+실제 수업일을 함께 검증한다. 없는 회차와 다른 강사 회차는 같은 404이며, 이동된 stale URL은 실제 날짜를 포함한 409다.',
+  })
+  @ApiOkResponse({ type: TeacherLessonHubDto })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: 'TEACHER_LESSON_NOT_FOUND — 없음 또는 다른 강사의 회차' })
+  @ApiConflictResponse({ type: TeacherLessonMovedErrorDto, description: 'TEACHER_LESSON_MOVED — actualDate가 요청 URL과 다름' })
+  async lessonHub(
+    @CurrentUser() user: RequestUser,
+    @Param() params: TeacherLessonHubParamsDto,
+    @Query() query: TeacherLessonHubQueryDto,
+  ): Promise<TeacherLessonHubDto> {
+    this.assertTeacher(user);
+    return this.svc.lessonHub(user.id, params.serId, params.onDate, query.date);
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: '수업 히스토리 — 서버 KST 직전 달 기록 + 본인 정산 (강사 덱 §29~31 · D-R7·D-R32·D-15)' })
+  @ApiOkResponse({ type: TeacherHistoryDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: 'TEACHER_HISTORY_MONTH_MISMATCH — 서버 KST 직전 달과 다른 legacy month' })
+  @ApiForbiddenResponse({ description: '강사 전용 — 다른 강사의 정산은 누구도 여기서 볼 수 없다' })
+  async history(@CurrentUser() user: RequestUser, @Query() query: TeacherHistoryQueryDto): Promise<TeacherHistoryDto> {
+    this.assertTeacher(user);
+    /*
+     * BOC-09D-01 권고안: 달 권위는 서버 KST 시계 한 곳이다. Front가 보낸 달로 과거 급여를 탐색하지 않는다.
+     * 이전 Front가 보낸 같은 달만 호환하고 다른 값은 명시적 400으로 거절한다. 정책을 바꾸면 kst helper,
+     * TeacherHistory DTO/service, generated OpenAPI/Front hook, 두 수정사항 대조표·scenario·portfolio를 함께 갱신한다.
+     */
+    const month = previousMonthKst();
+    if (query.month !== undefined && query.month !== month) {
+      throw new BadRequestException({
+        code: 'TEACHER_HISTORY_MONTH_MISMATCH',
+        message: '강사 수업 히스토리는 서버 KST 기준 직전 달만 조회할 수 있습니다.',
+        expectedMonth: month,
+      });
+    }
+    return this.svc.history(user.id, month);
+  }
+
+  @Get('guides')
+  @ApiOperation({ summary: '수업 안내 — 이번 주 담당 학생·교재·진단·수업 설정 (강사 덱 §10~13)' })
+  @ApiOkResponse({ type: TeacherGuidesDto })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async guides(@CurrentUser() user: RequestUser, @Query() query: TeacherGuidesQueryDto): Promise<TeacherGuidesDto> {
+    this.assertTeacher(user);
+    return this.svc.guides(user.id, query.week);
+  }
+
+  @Get('guides/received')
+  @ApiOperation({ summary: '내부 전달받은 본인 GUIDE — 현재 담당 학생 자료와 구분한다' })
+  @ApiOkResponse({ type: ReceivedGuidesDto })
+  async receivedGuides(@CurrentUser() user: RequestUser): Promise<ReceivedGuidesDto> {
+    this.assertTeacher(user);
+    return this.guidesService.receivedGuides(user);
+  }
+
+  @Post('guides/:id/ack')
+  @HttpCode(200)
+  @ApiOperation({ summary: '본인에게 전달된 수업 안내를 확인한다. 반복 확인은 기존 결과를 반환한다' })
+  @ApiBody({ required: false, schema: { type: 'object', additionalProperties: false } })
+  @ApiOkResponse({ type: GuideDto })
+  @ApiConflictResponse({ description: 'code GUIDE_NOT_SENT' })
+  @ApiNotFoundResponse({ description: '안내 없음 또는 본인 수신 대상 아님' })
+  async acknowledgeGuide(
+    @CurrentUser() user: RequestUser,
+    @Param() params: GuideActionParamsDto,
+    @Body() _body: GuideActionDto,
+  ): Promise<GuideDto> {
+    this.assertTeacher(user);
+    GuideActionDto.assertEmpty(_body);
+    return this.guidesService.acknowledgeGuide(user, params.id);
+  }
+
+  @Get('suggestions')
+  @ApiOperation({ summary: '건의 사항 — 내가 보낸 것 + 이달 쿼터 (덱 §33~34 · D-11·D-12)' })
+  @ApiOkResponse({ type: TeacherSuggestionsDto })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async suggestions(@CurrentUser() user: RequestUser): Promise<TeacherSuggestionsDto> {
+    this.assertTeacher(user);
+    return this.svc.suggestions(user.id);
+  }
+
+  @Post('suggestions')
+  @ApiOperation({
+    summary: '건의 등록 — 월 3회는 서버가 센다 (초과: SUGGESTION_QUOTA_EXCEEDED)',
+    description: '수업 팝업 건의는 exact 회차 identity와 requestKey를 보내며 서버가 담당·실제 날짜·읽은 version을 다시 검사하고 제출 당시 수업 정보를 저장한다.',
+  })
+  @ApiCreatedResponse({ type: TeacherSuggestionDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: 'SUGGESTION_REQUEST_KEY_REQUIRED' })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: 'SUGGESTION_LESSON_NOT_FOUND — 없음 또는 다른 강사의 회차' })
+  @ApiConflictResponse({ type: ApiErrorDto, description: 'SUGGESTION_QUOTA_EXCEEDED | SUGGESTION_REQUEST_KEY_REUSED | SUGGESTION_LESSON_CHANGED | SUGGESTION_LESSON_STALE | SUGGESTION_CHANGE_REQUEST_REQUIRED' })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async createSuggestion(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: TeacherSuggestionCreateDto,
+  ): Promise<TeacherSuggestionDto> {
+    this.assertTeacher(user);
+    return this.svc.createSuggestion(user.id, dto);
+  }
+
+
+  @Post('diagnostics')
+  @ApiOperation({
+    summary: '진단 리포트 작성 — 강사만 (강사 원문 슬라이드 20 · 47)',
+    description:
+      '원문 권한 표가 「진단 리포트 작성 — 강사 **가능** · 나머지 **조회**」라 적는다. '
+      + '역할만으로는 남의 학생 진단을 쓸 수 있어, 서버가 **그 학생이 정말 내 학생인지** 다시 본다 '
+      + '(수업 안내와 같은 담당 판정을 쓴다 — 두 곳이 따로 판정하면 「안내에는 보이는데 진단은 못 쓰는 학생」이 생긴다). '
+      + '고치는 자리는 없다 — 진단은 그때의 판단이라 쌓고, 읽기는 늘 최신 한 건이다.',
+  })
+  @ApiCreatedResponse({ type: TeacherGuideDiagDto })
+  @ApiConflictResponse({ description: 'code EMPTY_BODY — 현재 수준이 비었다' })
+  @ApiNotFoundResponse({ description: '내 담당 학생·내 수업이 아니다 — 남의 학생인지 없는 학생인지 구분해 주지 않는다' })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async createDiagnostic(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: TeacherDiagCreateDto,
+  ): Promise<TeacherGuideDiagDto> {
+    this.assertTeacher(user);
+    return this.svc.createDiagnostic(user.id, dto);
+  }
+
+  @Get('unavailable')
+  @ApiOperation({ summary: '불가 시간 — 2주 격자 메타 + 내 등록 (최신 강사 수정사항 T07 · 날짜별 10일 전 마감)' })
+  @ApiOkResponse({ type: TeacherUnavDto })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async unavailable(@CurrentUser() user: RequestUser, @Query() query: TeacherUnavQueryDto): Promise<TeacherUnavDto> {
+    this.assertTeacher(user);
+    return this.svc.unavailable(user.id, query.anchor);
+  }
+
+  @Post('unavailable')
+  @UseFilters(TeacherUnavailableConflictFilter)
+  @ApiOperation({ summary: '불가 시간 등록 — 10일·trim 사유 15자·실제 배정 수업 및 본인 겹침을 서버가 판정' })
+  @ApiCreatedResponse({ type: TeacherUnavBlockDto })
+  @ApiConflictResponse({
+    schema: {
+      oneOf: [
+        { $ref: getSchemaPath(ApiErrorDto) },
+        { $ref: getSchemaPath(TeacherUnavailableConflictErrorDto) },
+      ],
+    },
+    description: 'UNAV_LESSON_CONFLICT(본인 실제 배정 수업 상세) | UNAV_DEADLINE(10일 전 마감) | UNAV_REASON_TOO_SHORT | UNAV_OVERLAP | TIME_RANGE | INVALID_DATE',
+  })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async createUnavailable(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: TeacherUnavCreateDto,
+  ): Promise<TeacherUnavBlockDto> {
+    this.assertTeacher(user);
+    return this.svc.createUnavailable(user.id, dto);
+  }
+
+  @Delete('unavailable/:id')
+  @ApiOperation({ summary: '불가 시간 삭제 — 열린 날짜(오늘+10 이후)의 본인 등록만 (UNAV_LOCKED)' })
+  @ApiOkResponse({ type: OkDto })
+  @ApiConflictResponse({ description: 'code UNAV_LOCKED — 마감분·legacy 는 관리자 조정' })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  async deleteUnavailable(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<OkDto> {
+    this.assertTeacher(user);
+    return this.svc.deleteUnavailable(user.id, id);
+  }
+
+  @Post('requests')
+  @ApiOperation({
+    summary: '강사 요청 — 시급·시간대(덱 §8) · 교재 변경(수업 안내 교재 행)',
+    description: '올리기만 한다. **관리자 승인 후 적용**이며 시급은 한 달에 한 번이다 — 판정은 서버. 교재 변경은 새 교재를 정하지 않는다(승인 = 상태 + 알림 · '
+      + '배부 변경은 관리자가 §38 에서). 학생은 내 담당 학생만.',
+  })
+  @ApiCreatedResponse({ type: TeacherSettingRequestDto })
+  @ApiForbiddenResponse({ description: '강사 전용' })
+  @ApiBadRequestResponse({ description: 'code RATE_REQUIRED | TZ_REQUIRED | TZ_UNKNOWN | BOOK_REQUIRED | REASON_REQUIRED' })
+  @ApiNotFoundResponse({ description: '내 담당 학생이 아님 · 그 학생의 교재 없음' })
+  @ApiConflictResponse({ description: 'code WAGE_REQ_MONTHLY_QUOTA | REQ_PENDING | TZ_SAME | BOOK_NOT_IN_USE' })
+  async createSettingRequest(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: TeacherSettingReqCreateDto,
+  ): Promise<TeacherSettingRequestDto> {
+    this.assertTeacher(user);
+    return this.svc.createSettingRequest(user.id, dto);
+  }
+}

@@ -1,0 +1,30 @@
+/** @file-guide
+ * 목적: accounting.module.ts — AccountingModule (module)
+ * 책임/재사용: 기존 provider/controller와 의존성 연결만 소유한다. 업무 규칙이나 별도 전역 상태를 추가하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Inv } from '../../entities';
+import { AccountingController } from './accounting.controller';
+import { AccountingService } from './accounting.service';
+import { InvoiceAdjustmentsService } from './invoice-adjustments.service';
+import { StudentWithdrawService } from './withdraw.service';
+import { DelinquencySuspensionsService } from './delinquency-suspensions.service';
+import { ProtectedAccountsService } from './protected-accounts.service';
+import { StudentRefundsService } from './student-refunds.service';
+import { HourlyRatesService } from './hourly-rates.service';
+import { BookSalesService } from './book-sales.service';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Inv])],
+  controllers: [AccountingController],
+  exports: [AccountingService],
+  providers: [
+    AccountingService, InvoiceAdjustmentsService, DelinquencySuspensionsService, ProtectedAccountsService, StudentRefundsService,
+    HourlyRatesService, BookSalesService,
+    StudentWithdrawService,
+  ],
+})
+export class AccountingModule {}

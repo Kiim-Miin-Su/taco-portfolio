@@ -1,0 +1,1772 @@
+/** @file-guide
+ * 목적: reports.service.ts — ReportsService (service)
+ * 책임/재사용: 기존 lib/도메인 방어·Perm 함수를 재사용한다. 쓰기는 트랜잭션/DB 제약, 읽기는 권한별 projection으로 최종 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import {
+  BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
+} from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { createHash } from 'node:crypto';
+import {
+  LATE_REPORT_TIERS, REPORT_ACTION_REQUIRED_CANDIDATE_DB, REPORT_FIELDS,
+  canExportReport, decodeReportPng, effectiveRepStateFromEnded, isWrittenDbState, reportBodyIssue,
+  needsReportActionDbState, reportDeliveryIssue, reportPlainText, reportPngFileName, reportReminderIssue,
+  reportReviewIssue, reportWriteIssue, tierFor,
+  type RepStateDb, type ReportBody, type ReportDeliveryIssue, type ReportPngIssue,
+  type ReportReminderIssue, type ReportReviewIssue, type ReportWriteAction, type ReportWriteIssue,
+} from '../../lib/rules';
+import { END_MIN, START_MIN, effectiveModeOf, kstAt, kstDateOf } from '../../lib/sql';
+import { roleLabel } from '../../lib/role-words';
+import { NOTI_TITLE } from '../../lib/noti';
+import { audit } from '../../lib/audit';
+import type {
+  ReportDeliveryCreateDto, ReportDeliveryQueueDto, ReportDetailDto, ReportQueryDto,
+  ReportMaterialCreateDto, ReportMaterialCreateResultDto,
+  ReportReminderCreateDto, ReportReminderResultDto, ReportReviewDto, ReportRowDto,
+  ReportMaterialDto, ReportSendGroupDto, ReportSendHistoryDto, ReportSendHistoryListDto, ReportSendSpan,
+  ReportStructuredBodyDto, ReportUpsertDto, UnwrittenDto,
+  WeeklyBundleDto, WeeklyBundleListDto, WeeklySummaryWriteDto,
+} from './reports.dto';
+import { REPORT_FILE_STORE, type ReportFileStore } from './report-file.store';
+import { REPORT_CANCELED_SQL, REPORT_DATE_SQL } from './report-sql';
+import { loadWeeklyBundles, weekOfMonday, weeklyGate, type WeeklyBundle } from './weekly-bundle';
+import { addDays } from '../../lib/kst';
+import { lockScheduleSeries } from '../schedule/schedule.state.repo';
+import type { FileRefDto } from '../files/files.dto';
+import { storedFileRef } from '../files/files.service';
+import { issueActiveSql } from '../../lib/book';
+import {
+  REPORT_DEVELOPMENT_AREAS, diagnosticReportAverages, reportFormKind, structuredReportPlainText,
+  type ReportFormKind,
+} from './report-structured';
+
+interface Row {
+  id: string;
+  ser_id: string;
+  date: string;
+  on_date: string;
+  start_min: number | null;
+  end_min: number | null;
+  mode: 'offline' | 'online';
+  end_min_utc: string | null;
+  sub_key: string | null;
+  kind_key: string;
+  teacher_id: string | null;
+  teacher_name: string | null;
+  state: RepStateDb;
+  reportable: boolean;
+  canceled: boolean;
+  ended: boolean;
+  students: Array<{ id: number; name: string; grade: string | null; deliver: boolean; late: boolean }> | null;
+}
+
+interface DetailRow extends Row {
+  body: unknown;
+  format_version: number;
+  row_version: string;
+  last_writer_id: string | null;
+  last_writer_name: string | null;
+  kinder_marker_version: number | null;
+  book_options: Array<{
+    issueId: number; issueVersion: number; libId: number; versId: number | null;
+    code: string; title: string; edition: string | null; studentIds: number[];
+  }> | null;
+  subject_name: string;
+  lang: string;
+  written_at: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reject_reason: string | null;
+}
+
+interface ReportMaterialRow {
+  issue_id: string;
+  issue_version: number;
+  student_id: string;
+  lib_id: string;
+  vers_id: string | null;
+  code: string;
+  title: string;
+  edition: string | null;
+}
+
+interface SendHistoryRow {
+  id: string;
+  source_send_id: string | null;
+  student_id: string;
+  student_name: string;
+  on_date: string;
+  rep_ids: unknown;
+  channel: string;
+  sent_at: string;
+  sent_by: string;
+  sent_by_name: string;
+  file_count: string;
+  total_count: string;
+  subject_names: string[] | null;
+  teacher_names: string[] | null;
+}
+
+/**
+ * 보낸 한 건의 **과목 · 강사** — `rs.rep_ids` 가 가리키는 리포트들에서 읽는다 (g5 48-03).
+ * 원문 줄 「기록지 · 학생 · 과목 · 강사 · 08-19 수업」. 과목이 없는 종류(회의 등)는 종류 이름.
+ * 강사는 그 회차의 강사, 없으면 리포트 작성 강사 — 목록(list)과 같은 COALESCE 순서.
+ */
+const SEND_LESSON_COLUMNS = `(SELECT COALESCE(array_agg(DISTINCT COALESCE(sb.name, k.name))
+                    FILTER (WHERE COALESCE(sb.name, k.name) IS NOT NULL), '{}')
+           FROM rep r JOIN ser s2 ON s2.id = r.ser_id
+           LEFT JOIN sub sb ON sb.key = s2.sub_key LEFT JOIN kind k ON k.key = s2.kind_key
+          WHERE r.id IN (SELECT (jsonb_array_elements_text(rs.rep_ids))::bigint)) AS subject_names,
+        (SELECT COALESCE(array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL), '{}')
+           FROM rep r LEFT JOIN ser_occ o ON o.ser_id = r.ser_id AND o.on_date = r.on_date
+           LEFT JOIN staff t ON t.id = COALESCE(o.teacher_id, r.teacher_id)
+          WHERE r.id IN (SELECT (jsonb_array_elements_text(rs.rep_ids))::bigint)) AS teacher_names`;
+
+/** 보낸 내역 묶음의 첫날(KST) — 주는 월요일(date_trunc week) · 달은 1일 (g5 48-02) */
+const SEND_SPAN_START: Record<ReportSendSpan, string> = {
+  day: kstDateOf('rs.sent_at'),
+  week: `date_trunc('week', ${kstDateOf('rs.sent_at')})::date`,
+  month: `date_trunc('month', ${kstDateOf('rs.sent_at')})::date`,
+};
+
+interface ReminderRow {
+  id: string;
+  to_id: string;
+  from_id: string | null;
+  request_teacher_id: string | null;
+  teacher_name: string;
+  category: string;
+  count: string;
+  created_at: string;
+}
+
+interface DeliveryFile {
+  repId: number;
+  fileName: string;
+  plainText: string;
+  bytes: Buffer;
+  /** PNG 바이트의 SHA-256 — 같은 requestKey 의 요청 동일성에 바이트를 넣는 열쇠 (CR-BE-03) */
+  sha256: string;
+}
+
+interface Queryer {
+  query<T = unknown>(sql: string, parameters?: unknown[]): Promise<T>;
+}
+
+interface RequestSendRow {
+  id: string;
+  student_id: string;
+  on_date: string;
+  rep_ids: unknown;
+  body: string;
+  source_send_id: string | null;
+}
+
+
+const WRITE_ERRORS: Record<ReportWriteIssue, { message: string; status: 'bad' | 'forbidden' | 'conflict' }> = {
+  REPORT_NOT_ALLOWED: { message: '리포트 대상 수업이 아닙니다', status: 'bad' },
+  REPORT_CANCELED: { message: '취소된 회차에는 리포트를 쓸 수 없습니다', status: 'bad' },
+  REPORT_NOT_ENDED: { message: '수업이 끝난 뒤에 리포트를 저장할 수 있습니다', status: 'bad' },
+  REPORT_FORBIDDEN: { message: '담당 강사 또는 전체 관리 권한이 필요합니다', status: 'forbidden' },
+  REPORT_LOCKED: { message: '제출 대기 또는 승인된 리포트는 고칠 수 없습니다', status: 'conflict' },
+};
+
+const REVIEW_ERRORS: Record<ReportReviewIssue, { message: string; status: 'bad' | 'forbidden' | 'conflict' }> = {
+  REPORT_REVIEW_FORBIDDEN: { message: '리포트 승인 권한이 필요합니다', status: 'forbidden' },
+  SELF_APPROVAL_FORBIDDEN: {
+    message: '자기가 쓴 리포트는 자기가 승인할 수 없습니다 — 쓰는 사람과 결재하는 사람은 다릅니다',
+    status: 'conflict',
+  },
+  REPORT_NOT_WAITING: { message: '승인 대기 중인 리포트만 검토할 수 있습니다', status: 'conflict' },
+  APPROVE_REASON_FORBIDDEN: { message: '승인할 때는 반려 사유를 보낼 수 없습니다', status: 'bad' },
+  REJECT_REASON_REQUIRED: { message: '반려 사유를 입력해야 합니다', status: 'bad' },
+};
+
+const DELIVERY_ERRORS: Record<ReportDeliveryIssue | ReportPngIssue, {
+  message: string; status: 'bad' | 'forbidden' | 'conflict';
+}> = {
+  REPORT_DELIVERY_FORBIDDEN: { message: '리포트 발송은 매니저 이상만 할 수 있습니다', status: 'forbidden' },
+  REPORT_DELIVERY_EMPTY: { message: '전달할 리포트가 없습니다', status: 'bad' },
+  REPORT_DELIVERY_INCOMPLETE: { message: '안 쓴 리포트가 있어 이 학생에게 발송할 수 없습니다', status: 'conflict' },
+  REPORT_DELIVERY_NOT_APPROVED: { message: '승인되지 않은 리포트가 있어 이 학생에게 발송할 수 없습니다', status: 'conflict' },
+  REPORT_DELIVERY_FILES_MISMATCH: { message: '학생의 리포트와 PNG 파일 집합이 일치하지 않습니다', status: 'bad' },
+  REPORT_DELIVERY_PNG_FORMAT: { message: '올바른 PNG 파일이 아닙니다', status: 'bad' },
+  REPORT_DELIVERY_PNG_SIZE: { message: 'PNG 파일은 한 장당 3MB 이하여야 합니다', status: 'bad' },
+};
+
+const REMINDER_ERRORS: Record<ReportReminderIssue, { message: string; status: 'forbidden' | 'conflict' }> = {
+  REPORT_REMINDER_FORBIDDEN: { message: '리포트 독촉은 매니저 이상만 할 수 있습니다', status: 'forbidden' },
+  REPORT_REMINDER_STALE: { message: '선택한 강사에게 현재 독촉할 리포트가 없습니다', status: 'conflict' },
+};
+
+@Injectable()
+export class ReportsService {
+  constructor(
+    @InjectDataSource() private readonly ds: DataSource,
+    @Inject(REPORT_FILE_STORE) private readonly files: ReportFileStore,
+  ) {}
+
+  private static sql(where: string, lock = false): string {
+    return `SELECT r.id, r.ser_id,
+                   to_char(${REPORT_DATE_SQL}, 'YYYY-MM-DD') AS date,
+                   to_char(r.on_date, 'YYYY-MM-DD') AS on_date,
+                   ${START_MIN} AS start_min, ${END_MIN} AS end_min,
+                   ${effectiveModeOf('x', 's')} AS mode,
+                   to_char(upper(o.span) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS end_min_utc,
+                   COALESCE(r.kind_key, s.kind_key) AS kind_key, s.sub_key,
+                   COALESCE(o.teacher_id, r.teacher_id) AS teacher_id, t.name AS teacher_name, r.state,
+                   k.rep AS reportable,
+                   ${REPORT_CANCELED_SQL} AS canceled,
+                   COALESCE(upper(o.span) <= now(), false) AS ended,
+                   COALESCE((
+                     SELECT json_agg(json_build_object(
+                       'id', st.id, 'name', st.name, 'grade', st.grade, 'deliver', rs.deliver,
+                       'late', EXISTS (
+                         SELECT 1 FROM att_late al
+                          WHERE al.att_id=a.id AND al.student_id=st.id)
+                     ) ORDER BY st.id)
+                     FROM rep_stu rs JOIN stu st ON st.id = rs.student_id WHERE rs.rep_id = r.id
+                   ), '[]'::json) AS students
+              FROM rep r
+              JOIN ser s ON s.id = r.ser_id
+              JOIN kind k ON k.key = COALESCE(r.kind_key, s.kind_key)
+              LEFT JOIN ser_occ o ON o.ser_id = r.ser_id AND o.on_date = r.on_date
+              LEFT JOIN exc x ON x.ser_id = r.ser_id AND x.on_date = r.on_date
+              LEFT JOIN att a ON a.ser_id = r.ser_id AND a.on_date = r.on_date
+              LEFT JOIN staff t ON t.id = COALESCE(o.teacher_id, r.teacher_id)
+             WHERE ${where}
+             ORDER BY date DESC, start_min DESC
+             ${lock ? 'FOR UPDATE OF r' : ''}`;
+  }
+
+  private static detailSql(where: string, lock: boolean): string {
+    return `SELECT r.id, r.ser_id,
+                   to_char(${REPORT_DATE_SQL}, 'YYYY-MM-DD') AS date,
+                   to_char(r.on_date, 'YYYY-MM-DD') AS on_date,
+                   ${START_MIN} AS start_min, ${END_MIN} AS end_min,
+                   ${effectiveModeOf('x', 's')} AS mode,
+                   to_char(upper(o.span) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS end_min_utc,
+                   COALESCE(r.kind_key, s.kind_key) AS kind_key, s.sub_key,
+                   COALESCE(o.teacher_id, r.teacher_id) AS teacher_id, t.name AS teacher_name, r.state,
+                   r.body, r.format_version, r.row_version, r.last_writer_id, lw.name AS last_writer_name,
+                   r.lang, COALESCE(sb.name, s.title, k.name) AS subject_name,
+                   k.rep AS reportable,
+                   ${REPORT_CANCELED_SQL} AS canceled,
+                   COALESCE(upper(o.span) <= now(), false) AS ended,
+                   to_char(r.written_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS written_at,
+                   to_char(r.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS submitted_at,
+                   to_char(r.reviewed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS reviewed_at,
+                   r.reject_reason,
+                   (SELECT marker.version
+                      FROM rep_stu marker_rs
+                      JOIN LATERAL (
+                        SELECT m.version,m.marked FROM stu_kinder_marker m
+                         WHERE m.student_id=marker_rs.student_id AND m.effective_from<=lower(o.span)
+                         ORDER BY m.effective_from DESC,m.version DESC LIMIT 1
+                      ) marker ON marker.marked
+                     WHERE marker_rs.rep_id=r.id ORDER BY marker.version DESC LIMIT 1) AS kinder_marker_version,
+                   COALESCE((
+                     SELECT json_agg(json_build_object(
+                       'issueId',i.id,'issueVersion',i.row_version,'libId',i.lib_id,'versId',i.vers_id,
+                       'code',l.code,'title',l.title,'edition',v.edition,'studentIds',json_build_array(i.student_id)
+                     ) ORDER BY l.title,i.id)
+                       FROM issue i JOIN lib l ON l.id=i.lib_id LEFT JOIN vers v ON v.id=i.vers_id
+                      WHERE i.student_id IN (SELECT rsb.student_id FROM rep_stu rsb WHERE rsb.rep_id=r.id)
+                        AND (i.source_rep_id IS NULL OR i.source_rep_id=r.id)
+                        AND ${issueActiveSql('i')}
+                   ), '[]'::json) AS book_options,
+                   COALESCE((
+                     SELECT json_agg(json_build_object(
+                       'id', st.id, 'name', st.name, 'grade', st.grade, 'deliver', rs.deliver,
+                       'late', EXISTS (
+                         SELECT 1 FROM att_late al
+                          WHERE al.att_id=a.id AND al.student_id=st.id)
+                     ) ORDER BY st.id)
+                     FROM rep_stu rs JOIN stu st ON st.id = rs.student_id WHERE rs.rep_id = r.id
+                   ), '[]'::json) AS students
+              FROM rep r
+              JOIN ser s ON s.id = r.ser_id
+              LEFT JOIN ser_occ o ON o.ser_id = r.ser_id AND o.on_date = r.on_date
+              LEFT JOIN exc x ON x.ser_id = r.ser_id AND x.on_date = r.on_date
+              LEFT JOIN att a ON a.ser_id = r.ser_id AND a.on_date = r.on_date
+              JOIN kind k ON k.key = COALESCE(r.kind_key, s.kind_key)
+              LEFT JOIN sub sb ON sb.key = s.sub_key
+              LEFT JOIN staff t ON t.id = COALESCE(o.teacher_id, r.teacher_id)
+              LEFT JOIN staff lw ON lw.id = r.last_writer_id
+             WHERE ${where}
+             ORDER BY date, start_min, r.id
+             ${lock ? 'FOR UPDATE OF r' : ''}`;
+  }
+
+  /** 판정은 rules.ts 한 곳에서만 — 화면도 이 결과를 읽기만 한다. */
+  private toRow(r: Row, now: Date): ReportRowDto {
+    const end = r.end_min_utc ? new Date(r.end_min_utc) : null;
+    const minutesSinceEnd = end ? Math.floor((now.getTime() - end.getTime()) / 60000) : -1;
+    const state = effectiveRepStateFromEnded(r.state, r.reportable && !r.canceled, r.ended);
+    const written = isWrittenDbState(state);
+    const penalty = written || minutesSinceEnd < 0 ? 0 : tierFor(minutesSinceEnd).amount;
+    return {
+      id: Number(r.id), serId: Number(r.ser_id), date: r.date, onDate: r.on_date, startMin: r.start_min,
+      endMin: r.end_min, mode: r.mode,
+      subKey: r.sub_key, kindKey: r.kind_key,
+      teacherId: r.teacher_id ? Number(r.teacher_id) : null, teacherName: r.teacher_name,
+      state, written, minutesSinceEnd, penalty,
+      students: (r.students ?? []).map((s) => ({
+        id: Number(s.id), name: s.name, grade: s.grade, deliver: Boolean(s.deliver), late: Boolean(s.late),
+      })),
+    };
+  }
+
+  /** 기존/외부 행이 있어도 화면에서는 정해진 세 키만 본다. DB 제약은 새 오염을 별도로 막는다. */
+  private body(raw: unknown): ReportBody {
+    const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+    return {
+      content: typeof value.content === 'string' ? value.content : '',
+      progress: typeof value.progress === 'string' ? value.progress : '',
+      homework: typeof value.homework === 'string' ? value.homework : '',
+    };
+  }
+
+  private structuredBody(raw: unknown, formatVersion: number): ReportStructuredBodyDto | null {
+    if (formatVersion !== 1 || !raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const kind = (raw as { kind?: unknown }).kind;
+    return typeof kind === 'string' && ['individual', 'group', 'kinder', 'mock', 'diagnostic'].includes(kind)
+      ? raw as ReportStructuredBodyDto
+      : null;
+  }
+
+  private formKind(r: DetailRow): ReportFormKind | null {
+    const stored = this.structuredBody(r.body, Number(r.format_version));
+    return stored?.kind ?? reportFormKind(r.kind_key, r.students?.length ?? 0, r.kinder_marker_version !== null);
+  }
+
+  private canEdit(r: DetailRow, actorId: number, canCrudAll: boolean): boolean {
+    return reportWriteIssue({
+      actorId,
+      teacherId: r.teacher_id ? Number(r.teacher_id) : null,
+      canCrudAll,
+      reportable: r.reportable,
+      canceled: r.canceled,
+      ended: r.ended,
+      state: r.state,
+    }) === null;
+  }
+
+  private toDetail(r: DetailRow, actorId: number, canCrudAll: boolean, canApprove = canCrudAll): ReportDetailDto {
+    const row = this.toRow(r, new Date());
+    const body = this.body(r.body);
+    const structuredBody = this.structuredBody(r.body, Number(r.format_version));
+    const canExport = canExportReport({
+      actorId,
+      teacherId: r.teacher_id ? Number(r.teacher_id) : null,
+      canCrudAll,
+      state: r.state,
+    });
+    return {
+      ...row,
+      body,
+      formatVersion: Number(r.format_version) === 1 ? 1 : 0,
+      version: Number(r.row_version),
+      formKind: this.formKind(r),
+      kinderMarkerVersion: r.kinder_marker_version === null ? null : Number(r.kinder_marker_version),
+      structuredBody,
+      bookOptions: (r.book_options ?? []).map((book) => ({
+        issueId: Number(book.issueId), issueVersion: Number(book.issueVersion), libId: Number(book.libId),
+        versId: book.versId === null ? null : Number(book.versId), code: String(book.code), title: String(book.title),
+        edition: book.edition === null ? null : String(book.edition), studentIds: book.studentIds.map(Number),
+      })),
+      fields: REPORT_FIELDS.map((field) => ({ ...field })),
+      canEdit: this.canEdit(r, actorId, canCrudAll),
+      // 자기가 쓴 리포트에는 승인 단추가 서지 않는다 — 쓰기 경로와 같은 판정을 쓴다(D-R39)
+      canReview: reportReviewIssue({
+        canApprove, state: r.state, decision: 'approve', teacherId: r.teacher_id, actorId,
+      }) === null,
+      canExport,
+      exportFiles: canExport ? row.students.map((student) => {
+        const fileName = reportPngFileName({
+          date: row.date,
+          studentName: student.name,
+          studentGrade: student.grade,
+          subjectName: r.subject_name,
+          startMin: row.startMin,
+        });
+        const plainText = structuredBody
+          ? structuredReportPlainText({
+            date: row.date, studentId: student.id, studentName: student.name, studentGrade: student.grade,
+            subjectName: r.subject_name, startMin: row.startMin, endMin: row.endMin, body: structuredBody,
+          })
+          : reportPlainText({
+            date: row.date,
+            studentName: student.name,
+            studentGrade: student.grade,
+            subjectName: r.subject_name,
+            startMin: row.startMin,
+            endMin: row.endMin,
+            body,
+          });
+        // 조회·상세·발송 검증이 같은 출력 버전을 공유한다. 클라이언트는 재계산하지 않는다.
+        const revision = createHash('sha256').update(JSON.stringify([fileName, plainText])).digest('hex');
+        return { studentId: student.id, fileName, plainText, revision };
+      }) : [],
+      canDeliver: canCrudAll,
+      subjectName: r.subject_name,
+      lang: r.lang,
+      writtenAt: r.written_at,
+      submittedAt: r.submitted_at,
+      firstSubmittedAt: r.submitted_at,
+      reviewedAt: r.reviewed_at,
+      rejectReason: r.reject_reason,
+      lastWriterId: r.last_writer_id ? Number(r.last_writer_id) : null,
+      lastWriterName: r.last_writer_name,
+    };
+  }
+
+  private async loadDetail(q: Queryer, serId: number, onDate: string, lock = false): Promise<DetailRow | null> {
+    const rows = await q.query<DetailRow[]>(
+      ReportsService.detailSql('r.ser_id = $1 AND r.on_date = $2', lock), [serId, onDate],
+    );
+    return rows[0] ?? null;
+  }
+
+  private assertReportVersion(row: DetailRow, expectedVersion: number | undefined, required: boolean): void {
+    if (required && expectedVersion === undefined) {
+      throw new BadRequestException({ code: 'REPORT_VERSION_REQUIRED', message: '최신 리포트 version을 함께 보내야 합니다' });
+    }
+    if (expectedVersion !== undefined && expectedVersion !== Number(row.row_version)) {
+      throw new ConflictException({
+        code: 'REPORT_VERSION_CONFLICT', message: '리포트가 다른 곳에서 바뀌었습니다. 최신 내용을 다시 확인해 주세요',
+        expectedVersion, actualVersion: Number(row.row_version),
+      });
+    }
+  }
+
+  private assertStudentSnapshot(actual: readonly number[], sent: readonly number[]): void {
+    const normalized = [...new Set(sent)].sort((a, b) => a - b);
+    const current = [...actual].sort((a, b) => a - b);
+    if (normalized.length !== sent.length || JSON.stringify(normalized) !== JSON.stringify(current)) {
+      throw new ConflictException({
+        code: 'REPORT_STUDENTS_CHANGED', message: '수업 학생 명단이 바뀌었습니다. 최신 리포트를 다시 열어 주세요',
+        studentIds: current,
+      });
+    }
+  }
+
+  private async reportMaterial(
+    q: Queryer,
+    value: ReportMaterialDto | null,
+    studentIds: readonly number[],
+    reportId: number,
+    required: boolean,
+    requireAmount: boolean,
+  ): Promise<ReportMaterialDto | null> {
+    if (!value) {
+      if (required) {
+        throw new BadRequestException({ code: 'REPORT_MATERIAL_REQUIRED', message: '교재와 쪽 범위를 입력해 주세요' });
+      }
+      return null;
+    }
+    if (value.toPage < value.fromPage) {
+      throw new BadRequestException({ code: 'REPORT_PAGE_RANGE_INVALID', message: '끝 쪽은 시작 쪽보다 앞설 수 없습니다' });
+    }
+    if (required && requireAmount && !value.amount?.trim()) {
+      throw new BadRequestException({ code: 'REPORT_HOMEWORK_AMOUNT_REQUIRED', message: '숙제 분량을 입력해 주세요' });
+    }
+    const [book] = await q.query<(ReportMaterialRow & { pages: number | null })[]>(
+      `SELECT i.id AS issue_id,i.row_version AS issue_version,i.student_id,i.lib_id,i.vers_id,
+              l.code,l.title,l.pages,v.edition
+         FROM issue i JOIN lib l ON l.id=i.lib_id LEFT JOIN vers v ON v.id=i.vers_id
+        WHERE i.id=$1 AND i.student_id=ANY($2::bigint[])
+          AND (i.source_rep_id IS NULL OR i.source_rep_id=$3) AND ${issueActiveSql('i')}
+        FOR SHARE OF i,l`,
+      [value.issueId, studentIds, reportId],
+    );
+    if (!book) {
+      throw new ConflictException({
+        code: 'REPORT_MATERIAL_CHANGED', message: '선택한 배부 교재가 현재 명단에서 사용 중이 아닙니다. 다시 선택해 주세요',
+      });
+    }
+    if (book.pages !== null && value.toPage > Number(book.pages)) {
+      throw new BadRequestException({
+        code: 'REPORT_PAGE_OUT_OF_RANGE', message: `교재 전체 ${book.pages}쪽 안에서 입력해 주세요`, pages: Number(book.pages),
+      });
+    }
+    return {
+      issueId: Number(book.issue_id), issueVersion: Number(book.issue_version), libId: Number(book.lib_id),
+      versId: book.vers_id === null ? null : Number(book.vers_id), code: book.code, title: book.title,
+      edition: book.edition, fromPage: value.fromPage, toPage: value.toPage,
+      amount: value.amount?.trim() || null,
+    };
+  }
+
+  private requiredText(value: string, min: number, code: string, message: string): void {
+    if (value.trim().length < min) throw new BadRequestException({ code, message });
+  }
+
+  private async structuredBodyForWrite(
+    q: Queryer,
+    row: DetailRow,
+    dto: ReportUpsertDto,
+    action: ReportWriteAction,
+  ): Promise<ReportStructuredBodyDto> {
+    if (dto.formatVersion !== 1 || !dto.structuredBody || !dto.language) {
+      throw new BadRequestException({
+        code: 'REPORT_STRUCTURED_INPUT_REQUIRED', message: '구조화 양식·언어·formatVersion을 함께 보내야 합니다',
+      });
+    }
+    if (dto.content !== undefined || dto.progress !== undefined || dto.homework !== undefined) {
+      throw new BadRequestException({ code: 'REPORT_FORMAT_MIXED', message: '기존 3칸 입력과 구조화 양식을 섞을 수 없습니다' });
+    }
+    this.assertReportVersion(row, dto.expectedVersion, true);
+    if (Number(row.format_version) === 0 && row.state !== 'none') {
+      throw new ConflictException({
+        code: 'REPORT_FORMAT_CONFLICT', message: '기존 양식으로 작성한 리포트는 그 양식을 유지합니다',
+      });
+    }
+    const expectedKind = this.formKind(row);
+    if (!expectedKind || dto.structuredBody.kind !== expectedKind) {
+      throw new ConflictException({
+        code: 'REPORT_FORM_CHANGED', message: '수업 종류나 Kinder 표시가 바뀌었습니다. 최신 양식을 다시 열어 주세요',
+        expectedKind,
+      });
+    }
+    const studentIds = (row.students ?? []).map((student) => Number(student.id));
+    const submitting = action === 'submit';
+    const source = dto.structuredBody;
+    if (source.kind === 'individual' || source.kind === 'group') {
+      await this.lockReportMaterials(q, [source.progress, source.homework]);
+      if (submitting) this.requiredText(source.content, 60, 'REPORT_CONTENT_REQUIRED', '수업 내용을 60자 이상 입력해 주세요');
+      const progress = await this.reportMaterial(q, source.progress, studentIds, Number(row.id), submitting, false);
+      const homework = await this.reportMaterial(q, source.homework, studentIds, Number(row.id), submitting, true);
+      if (source.kind === 'group') {
+        this.assertStudentSnapshot(studentIds, source.students.map((student) => student.studentId));
+        if (submitting) {
+          for (const student of source.students) {
+            this.requiredText(student.comment, 40, 'REPORT_STUDENT_COMMENT_REQUIRED', '학생별 의견을 40자 이상 입력해 주세요');
+          }
+        }
+        return { ...source, content: source.content.trim(), progress, homework,
+          students: source.students.map((student) => ({ ...student, comment: student.comment.trim() })) };
+      }
+      return { ...source, content: source.content.trim(), progress, homework };
+    }
+    if (source.kind === 'kinder' || source.kind === 'mock') {
+      for (const key of REPORT_DEVELOPMENT_AREAS) {
+        const item = source.development[key];
+        if (submitting && (!item.level || item.observation.trim().length < 30)) {
+          throw new BadRequestException({
+            code: 'REPORT_DEVELOPMENT_REQUIRED', message: '4영역 평가와 관찰을 각각 30자 이상 입력해 주세요', field: key,
+          });
+        }
+      }
+      if (submitting) this.requiredText(source.overall, 60, 'REPORT_OVERALL_REQUIRED', '종합 소견을 60자 이상 입력해 주세요');
+      return {
+        ...source,
+        development: {
+          language: { ...source.development.language, observation: source.development.language.observation.trim() },
+          math: { ...source.development.math, observation: source.development.math.observation.trim() },
+          emotional: { ...source.development.emotional, observation: source.development.emotional.observation.trim() },
+          physical: { ...source.development.physical, observation: source.development.physical.observation.trim() },
+        },
+        overall: source.overall.trim(),
+      };
+    }
+    this.assertStudentSnapshot(studentIds, source.students.map((student) => student.studentId));
+    return {
+      ...source,
+      students: source.students.map((student) => {
+        const scores = [
+          student.mathScore, student.englishScore, student.interview.fluency,
+          student.interview.vocabulary, student.interview.grammar,
+        ];
+        if (submitting && scores.some((score) => score === null)) {
+          throw new BadRequestException({ code: 'REPORT_SCORE_REQUIRED', message: 'Math·English·Interview 점수를 모두 입력해 주세요' });
+        }
+        if (submitting) {
+          this.requiredText(student.mathMistakes, 1, 'REPORT_MISTAKES_REQUIRED', '과목별 오답 내용을 입력해 주세요');
+          this.requiredText(student.englishMistakes, 1, 'REPORT_MISTAKES_REQUIRED', '과목별 오답 내용을 입력해 주세요');
+          this.requiredText(student.overall, 1, 'REPORT_OVERALL_REQUIRED', '종합 소견을 입력해 주세요');
+        }
+        const complete = scores.every((score): score is number => score !== null);
+        const averages = complete ? diagnosticReportAverages({
+          mathScore: student.mathScore!, englishScore: student.englishScore!,
+          interview: {
+            fluency: student.interview.fluency!, vocabulary: student.interview.vocabulary!, grammar: student.interview.grammar!,
+          },
+        }) : null;
+        return {
+          ...student,
+          mathMistakes: student.mathMistakes.trim(), englishMistakes: student.englishMistakes.trim(),
+          interview: { ...student.interview, average: averages?.interviewAverage ?? null },
+          totalAverage: averages?.totalAverage ?? null,
+          overall: student.overall.trim(),
+        };
+      }),
+    };
+  }
+
+  /**
+   * BOC-08D-01 권고안: 리포트는 모든 LIB를 id 순으로 잡은 뒤 ISSUE를 id 순으로 잡는다.
+   * 교재 총쪽수 수정·교재 종료·수동 진도와 같은 순서를 공유해 report 저장과 교재 writer가 교착되지 않게 한다.
+   * 정책 변경 시 BooksService의 LIB→ISSUE 순서와 동시성 시험·DBML·P-BOC08D01을 함께 고친다.
+   */
+  private async lockReportMaterials(q: Queryer, materials: readonly (ReportMaterialDto | null)[]): Promise<void> {
+    const issueIds = [...new Set(materials.filter((value): value is ReportMaterialDto => value !== null)
+      .map((value) => value.issueId))].sort((a, b) => a - b);
+    if (issueIds.length === 0) return;
+    const refs = await q.query<Array<{ id: string; lib_id: string }>>(
+      `SELECT id,lib_id FROM issue WHERE id=ANY($1::bigint[]) ORDER BY id`, [issueIds],
+    );
+    const libIds = [...new Set(refs.map((row) => Number(row.lib_id)))].sort((a, b) => a - b);
+    if (libIds.length) {
+      await q.query(`SELECT id FROM lib WHERE id=ANY($1::bigint[]) ORDER BY id FOR SHARE`, [libIds]);
+    }
+    await q.query(`SELECT id FROM issue WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, [issueIds]);
+  }
+
+  /**
+   * 구조화 REP의 표시 snapshot을 수업별 교재 진행 원장에 투영한다.
+   * 임시저장 재시도는 같은 REP×ISSUE 한 줄을 갱신하고, ISSUE.progress_page는 자동 저장으로 뒤로 가지 않는다.
+   * 과거 리포트 본문과 종료된 ISSUE의 원장 행은 수정하지 않는다.
+   */
+  private async syncReportBookProgress(
+    q: Queryer,
+    row: DetailRow,
+    body: ReportStructuredBodyDto,
+    actorId: number,
+  ): Promise<void> {
+    if (body.kind !== 'individual' && body.kind !== 'group') return;
+    const materials = [
+      { kind: 'progress' as const, value: body.progress },
+      { kind: 'homework' as const, value: body.homework },
+    ].filter((entry): entry is { kind: 'progress' | 'homework'; value: ReportMaterialDto } => entry.value !== null);
+    const issueIds = [...new Set(materials.map((entry) => entry.value.issueId))].sort((a, b) => a - b);
+    if (issueIds.length === 0) {
+      await q.query(`DELETE FROM rep_book_progress WHERE rep_id=$1`, [row.id]);
+      return;
+    }
+    const issues = await q.query<Array<{
+      id: string; lib_id: string; vers_id: string | null; student_id: string;
+      row_version: number; progress_page: number | null;
+    }>>(
+      `SELECT id,lib_id,vers_id,student_id,row_version,progress_page
+         FROM issue WHERE id=ANY($1::bigint[]) ORDER BY id`, [issueIds],
+    );
+    await q.query(`DELETE FROM rep_book_progress WHERE rep_id=$1 AND NOT (issue_id=ANY($2::bigint[]))`, [row.id, issueIds]);
+    const nextRepVersion = Number(row.row_version) + 1;
+    for (const issueId of issueIds) {
+      const issue = issues.find((candidate) => Number(candidate.id) === issueId);
+      if (!issue) {
+        throw new ConflictException({ code: 'REPORT_MATERIAL_CHANGED', message: '선택한 교재가 바뀌었습니다. 다시 선택해 주세요' });
+      }
+      const progress = materials.find((entry) => entry.kind === 'progress' && entry.value.issueId === issueId)?.value ?? null;
+      const homework = materials.find((entry) => entry.kind === 'homework' && entry.value.issueId === issueId)?.value ?? null;
+      await q.query(
+        `INSERT INTO rep_book_progress (
+           rep_id,issue_id,lib_id,vers_id,student_id,lesson_on,
+           progress_from_page,progress_to_page,homework_from_page,homework_to_page,homework_amount,
+           rep_version,issue_version,actor_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT (rep_id,issue_id) DO UPDATE SET
+           lib_id=EXCLUDED.lib_id,vers_id=EXCLUDED.vers_id,student_id=EXCLUDED.student_id,lesson_on=EXCLUDED.lesson_on,
+           progress_from_page=EXCLUDED.progress_from_page,progress_to_page=EXCLUDED.progress_to_page,
+           homework_from_page=EXCLUDED.homework_from_page,homework_to_page=EXCLUDED.homework_to_page,
+           homework_amount=EXCLUDED.homework_amount,rep_version=EXCLUDED.rep_version,
+           issue_version=EXCLUDED.issue_version,actor_id=EXCLUDED.actor_id`,
+        [
+          row.id, issueId, Number(issue.lib_id), issue.vers_id === null ? null : Number(issue.vers_id), Number(issue.student_id), row.on_date,
+          progress?.fromPage ?? null, progress?.toPage ?? null, homework?.fromPage ?? null, homework?.toPage ?? null,
+          homework?.amount ?? null, nextRepVersion, Number(issue.row_version), actorId,
+        ],
+      );
+      if (progress && (issue.progress_page === null || Number(issue.progress_page) < progress.toPage)) {
+        const before = issue.progress_page === null ? null : Number(issue.progress_page);
+        await q.query(`UPDATE issue SET progress_page=$2,row_version=row_version+1 WHERE id=$1`, [issueId, progress.toPage]);
+        await q.query(
+          `INSERT INTO log (actor_id,entity,entity_id,action,before,after)
+           VALUES ($1,'ISSUE',$2,'report_progress',$3::jsonb,$4::jsonb)`,
+          [actorId, issueId, JSON.stringify({ progressPage: before, repId: row.id }),
+            JSON.stringify({ progressPage: progress.toPage, repId: row.id, repVersion: nextRepVersion })],
+        );
+      }
+    }
+  }
+
+  private static kstYesterday(now = new Date()): string {
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  }
+
+  private async deliveryRows(q: Queryer, onDate: string, studentId?: number, lock = false): Promise<DetailRow[]> {
+    const where = `${REPORT_DATE_SQL} = $1 AND NOT ${REPORT_CANCELED_SQL}
+      AND EXISTS (SELECT 1 FROM rep_stu x WHERE x.rep_id = r.id AND x.deliver
+        ${studentId === undefined ? '' : 'AND x.student_id = $2'})`;
+    return q.query<DetailRow[]>(ReportsService.detailSql(where, lock),
+      studentId === undefined ? [onDate] : [onDate, studentId]);
+  }
+
+  private deliveryFiles(rows: DetailRow[], dto: ReportDeliveryCreateDto, actorId: number): DeliveryFile[] {
+    const expectedRepIds = rows.map((row) => Number(row.id));
+    const issue = reportDeliveryIssue({
+      canCrudAll: true,
+      states: rows.map((row) => row.state),
+      expectedRepIds,
+      actualRepIds: dto.files.map((file) => file.repId),
+    });
+    if (issue) this.throwDeliveryIssue(issue);
+
+    const inputByRepId = new Map(dto.files.map((file) => [file.repId, file]));
+    return rows.map((row) => {
+      const repId = Number(row.id);
+      const input = inputByRepId.get(repId)!;
+      const expected = this.toDetail(row, actorId, true).exportFiles
+        .find((file) => file.studentId === dto.studentId);
+      if (!expected || expected.fileName !== input.fileName || expected.revision !== input.revision) {
+        this.throwDeliveryIssue('REPORT_DELIVERY_FILES_MISMATCH');
+      }
+      const decoded = decodeReportPng(input.pngDataUrl);
+      if (decoded.issue) this.throwDeliveryIssue(decoded.issue);
+      return {
+        repId, fileName: expected.fileName, plainText: expected.plainText, bytes: decoded.bytes,
+        sha256: createHash('sha256').update(decoded.bytes).digest('hex'),
+      };
+    });
+  }
+
+  /**
+   * 발송 이력 한 줄.
+   *
+   * **`fileCount` 는 재발송이 실제로 세는 것과 같은 것을 센다**(S5) — `pdflog` 의 `report_png` 중
+   * **`file_url` 이 있는** 행이다. 전에는 화면의 「파일 N장 보관」이 `file_url` 없는 행까지 세어
+   * **N > 0 인데 재발송은 409** 가 났다. 두 수의 출처가 다르면 화면이 조용히 거짓을 말한다.
+   *
+   * 단추가 서는지도 그 수에서 나온다(D-R39) — 화면이 `fileCount` 를 다시 해석하지 않는다.
+   */
+  private static historyRow(row: SendHistoryRow, downloadFiles: FileRefDto[] = []): ReportSendHistoryDto {
+    const repIds = Array.isArray(row.rep_ids)
+      ? row.rep_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+      : [];
+    const fileCount = Number(row.file_count);
+    return {
+      id: Number(row.id), sourceSendId: row.source_send_id ? Number(row.source_send_id) : null,
+      studentId: Number(row.student_id), studentName: row.student_name,
+      onDate: row.on_date, repIds, channel: row.channel, fileCount,
+      downloadFiles,
+      canResend: fileCount > 0,
+      resendBlockedReason: fileCount > 0 ? null : '재발송할 보존 파일이 없습니다',
+      sentAt: row.sent_at, sentBy: Number(row.sent_by), sentByName: row.sent_by_name,
+      subjectNames: row.subject_names ?? [], teacherNames: row.teacher_names ?? [],
+    };
+  }
+
+  /**
+   * 발송에 붙은 현재 FILE 참조만 돌려준다. 예전 외부 Blob/seed URL은 FILE id로 추정하지 않고
+   * 빈 배열에 남긴다. 실제 바이트 열람은 `/files/:id` 중앙 ACL이 다시 판정한다.
+   */
+  private static async downloadFilesBySend(q: Queryer, sendIds: number[]): Promise<Map<number, FileRefDto[]>> {
+    const grouped = new Map<number, FileRefDto[]>();
+    if (sendIds.length === 0) return grouped;
+    const rows = await q.query<Array<Record<string, unknown>>>(
+      `SELECT p.ref_id AS send_id, f.id AS file_id, f.kind AS file_kind, f.name AS file_name,
+              f.mime AS file_mime, f.bytes AS file_bytes, u.name AS file_uploader_name,
+              to_char(f.uploaded_at AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD"T"HH24:MI:SS')||'+09:00' AS file_uploaded_at
+         FROM pdflog p
+         JOIN file f ON p.file_url = '/files/' || f.id::text AND f.kind = 'report-png'
+         LEFT JOIN staff u ON u.id = f.uploaded_by
+        WHERE p.kind='report_png' AND p.ref_id = ANY($1::bigint[])
+        ORDER BY p.id`,
+      [sendIds],
+    );
+    for (const row of rows) {
+      const ref = storedFileRef(row);
+      if (!ref) continue;
+      const sendId = Number(row.send_id);
+      if (!grouped.has(sendId)) grouped.set(sendId, []);
+      grouped.get(sendId)!.push(ref);
+    }
+    return grouped;
+  }
+
+  /** 묶음 이름 — 일 「MM-DD」 · 주 「MM-DD ~ MM-DD」(원문 §48) · 달 「YYYY년 M월」. 낱말은 여기 한 곳 */
+  private static sendGroupLabel(span: ReportSendSpan, from: string, to: string): string {
+    if (span === 'month') return `${from.slice(0, 4)}년 ${Number(from.slice(5, 7))}월`;
+    if (span === 'week') return `${from.slice(5)} ~ ${to.slice(5)}`;
+    return from.slice(5);
+  }
+
+  private async historyItem(q: Queryer, sendId: number): Promise<ReportSendHistoryDto | null> {
+    const rows = await q.query<SendHistoryRow[]>(
+      `SELECT rs.id, rs.source_send_id, rs.student_id, st.name AS student_name,
+              to_char(rs.on_date, 'YYYY-MM-DD') AS on_date,
+              rs.rep_ids, rs.channel,
+              to_char(rs.sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS sent_at,
+              rs.sent_by, sf.name AS sent_by_name,
+              (SELECT count(*) FROM pdflog p WHERE p.kind='report_png' AND p.ref_id=rs.id AND p.file_url IS NOT NULL)::text AS file_count,
+              ${SEND_LESSON_COLUMNS}
+         FROM rsend rs JOIN stu st ON st.id=rs.student_id JOIN staff sf ON sf.id=rs.sent_by
+        WHERE rs.id=$1`,
+      [sendId],
+    );
+    if (!rows[0]) return null;
+    const files = await ReportsService.downloadFilesBySend(q, [sendId]);
+    return ReportsService.historyRow(rows[0], files.get(sendId) ?? []);
+  }
+
+  private async requireHistoryItem(q: Queryer, sendId: number): Promise<ReportSendHistoryDto> {
+    const item = await this.historyItem(q, sendId);
+    if (!item) {
+      throw new NotFoundException({ code: 'REPORT_DELIVERY_NOT_FOUND', message: '발송 이력을 찾을 수 없습니다' });
+    }
+    return item;
+  }
+
+  private throwWriteIssue(issue: ReportWriteIssue): never {
+    const error = WRITE_ERRORS[issue];
+    const body = { code: issue, message: error.message };
+    if (error.status === 'forbidden') throw new ForbiddenException(body);
+    if (error.status === 'conflict') throw new ConflictException(body);
+    throw new BadRequestException(body);
+  }
+
+  private throwReviewIssue(issue: ReportReviewIssue): never {
+    const error = REVIEW_ERRORS[issue];
+    const body = { code: issue, message: error.message };
+    if (error.status === 'forbidden') throw new ForbiddenException(body);
+    if (error.status === 'conflict') throw new ConflictException(body);
+    throw new BadRequestException(body);
+  }
+
+  private throwDeliveryIssue(issue: ReportDeliveryIssue | ReportPngIssue): never {
+    const error = DELIVERY_ERRORS[issue];
+    const body = { code: issue, message: error.message };
+    if (error.status === 'forbidden') throw new ForbiddenException(body);
+    if (error.status === 'conflict') throw new ConflictException(body);
+    throw new BadRequestException(body);
+  }
+
+  private throwReminderIssue(issue: ReportReminderIssue): never {
+    const error = REMINDER_ERRORS[issue];
+    const body = { code: issue, message: error.message };
+    if (error.status === 'forbidden') throw new ForbiddenException(body);
+    throw new ConflictException(body);
+  }
+
+  private reminderRequestKeyConflict(): never {
+    throw new ConflictException({
+      code: 'REPORT_REMINDER_REQUEST_KEY_REUSED',
+      message: '같은 요청 키를 다른 독촉 대상에 사용할 수 없습니다',
+    });
+  }
+
+  private requireDeliveryPermission(canCrudAll: boolean): void {
+    const issue = reportDeliveryIssue({
+      canCrudAll, states: [], expectedRepIds: [], actualRepIds: [],
+    });
+    if (issue === 'REPORT_DELIVERY_FORBIDDEN') this.throwDeliveryIssue(issue);
+  }
+
+  async list(opts: Readonly<ReportQueryDto>): Promise<ReportRowDto[]> {
+    const p: unknown[] = [];
+    const c: string[] = ['1=1'];
+    if (opts.from) { p.push(opts.from); c.push(`${REPORT_DATE_SQL} >= $${p.length}`); }
+    if (opts.to) { p.push(opts.to); c.push(`${REPORT_DATE_SQL} <= $${p.length}`); }
+    if (opts.teacherId) { p.push(opts.teacherId); c.push(`COALESCE(o.teacher_id, r.teacher_id) = $${p.length}`); }
+    const rows = await this.ds.query<Row[]>(ReportsService.sql(c.join(' AND ')), p);
+    const now = new Date();
+    const items = rows.map((r) => this.toRow(r, now));
+    return opts.state ? items.filter((item) => item.state === opts.state) : items;
+  }
+
+  /**
+   * §47 스캔 후보를 실제 종료·취소 상태와 겹쳐 읽는다.
+   * lock은 부모 SER를 먼저 잠겄 후에만 사용해 일정 쓰기와 순서를 맞춘다.
+   */
+  private async actionRows(
+    q: Queryer, teacherId?: number, lock = false, serIds?: number[],
+  ): Promise<Row[]> {
+    const p: unknown[] = [REPORT_ACTION_REQUIRED_CANDIDATE_DB];
+    const c = [
+      `r.state = ANY($${p.length}::rep_state_t[])`,
+      `k.rep`,
+      `NOT COALESCE(o.canceled, false)`,
+      `COALESCE(a.result, 'completed') <> 'canceled'`,
+      `upper(o.span) < now()`,
+    ];
+    if (teacherId) { p.push(teacherId); c.push(`COALESCE(o.teacher_id, r.teacher_id) = $${p.length}`); }
+    // 부모 SER를 잠근 뒤 재검증할 때는 그 잠금 집합만 읽어, 잠그지 않은 신규 일정까지 섞지 않는다.
+    if (serIds) { p.push(serIds); c.push(`r.ser_id = ANY($${p.length}::bigint[])`); }
+    return q.query<Row[]>(ReportsService.sql(c.join(' AND '), lock), p);
+  }
+
+  private actionItems(rows: Row[]): ReportRowDto[] {
+    const now = new Date();
+    return rows.map((row) => this.toRow(row, now)).filter((item) => needsReportActionDbState(item.state));
+  }
+
+  /** §47 안 쓴 리포트 — 강사별로 몇 건 밀렸는지. */
+  async unwritten(teacherId?: number): Promise<UnwrittenDto> {
+    const items = this.actionItems(await this.actionRows(this.ds, teacherId));
+
+    const g = new Map<number, { name: string; items: ReportRowDto[] }>();
+    for (const it of items) {
+      if (!it.teacherId) continue;
+      const cur = g.get(it.teacherId) ?? { name: it.teacherName ?? '-', items: [] };
+      cur.items.push(it);
+      g.set(it.teacherId, cur);
+    }
+    const [t1, t4] = [LATE_REPORT_TIERS[1].fromMinutes, LATE_REPORT_TIERS[0].fromMinutes];
+    // 오른쪽 머리 「이름 · 역할 · 직함」 — 역할 낱말은 서버 한 벌(lib/role-words) (g5 47-07)
+    const staffRows = g.size === 0 ? [] : await this.ds.query<Array<{ id: string; role: string; title: string | null }>>(
+      `SELECT id, role, title FROM staff WHERE id = ANY($1::bigint[])`, [[...g.keys()]],
+    );
+    const staffOf = new Map(staffRows.map((row) => [Number(row.id), row]));
+    const byTeacher = [...g.entries()]
+      .map(([teacherId2, v]) => ({
+        teacherId: teacherId2,
+        teacherName: v.name,
+        roleLabel: roleLabel(staffOf.get(teacherId2)?.role ?? 'teacher'),
+        title: staffOf.get(teacherId2)?.title ?? null,
+        count: v.items.length,
+        oldestDate: v.items.map((x) => x.date).sort()[0] ?? null,
+        over1h: v.items.filter((x) => x.minutesSinceEnd >= t1).length,
+        over4h: v.items.filter((x) => x.minutesSinceEnd >= t4).length,
+        penalty: v.items.reduce((a, x) => a + x.penalty, 0),
+      }))
+      .sort((a, b) => b.count - a.count || a.teacherName.localeCompare(b.teacherName));
+
+    return {
+      byTeacher,
+      total: items.length,
+      penaltyTotal: items.reduce((a, x) => a + x.penalty, 0),
+      items,
+    };
+  }
+
+  private async reminderRows(q: Queryer, requestKey: string): Promise<ReminderRow[]> {
+    return q.query<ReminderRow[]>(
+      `SELECT n.id, n.to_id, n.from_id, n.request_teacher_id,
+              s.name AS teacher_name, n.category,
+              COALESCE(l.count, '0') AS count,
+              to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+         FROM noti n
+         JOIN staff s ON s.id=n.to_id
+         LEFT JOIN LATERAL (
+           SELECT after->>'count' AS count
+             FROM log
+            WHERE entity='NOTI' AND entity_id=n.id AND action='remind'
+            ORDER BY id DESC LIMIT 1
+         ) l ON true
+        WHERE n.request_key=$1
+        ORDER BY n.to_id`,
+      [requestKey],
+    );
+  }
+
+  private reminderResult(requestKey: string, rows: ReminderRow[]): ReportReminderResultDto {
+    return {
+      requestKey,
+      items: rows.map((row) => ({
+        teacherId: Number(row.to_id), teacherName: row.teacher_name,
+        count: Number(row.count), createdAt: row.created_at,
+      })),
+    };
+  }
+
+  /** §47 독촉은 외부 발송이 아니라 수신 강사의 NOTI 원장을 만든다. */
+  async reminders(
+    dto: ReportReminderCreateDto, actorId: number, canCrudAll: boolean,
+  ): Promise<ReportReminderResultDto> {
+    const permissionIssue = reportReminderIssue(canCrudAll, false, 0);
+    if (permissionIssue) this.throwReminderIssue(permissionIssue);
+
+    const q = this.ds.createQueryRunner();
+    try {
+      // 연결/BEGIN 실패도 finally의 runner 해제 경계를 반드시 지난다.
+      await q.connect();
+      await q.startTransaction();
+      // UNIQUE와 별개로 같은 requestKey 배치 전체를 직렬화해 서로 다른 수신자로 갈라지지 않게 한다.
+      await q.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [dto.requestKey]);
+      const prior = await this.reminderRows(q, dto.requestKey);
+      if (prior.length) {
+        const sameActor = prior.every((row) => Number(row.from_id) === actorId && row.category === 'report_due');
+        const requestedTeacherId = dto.teacherId ?? null;
+        const sameRequestScope = prior.every((row) => row.request_teacher_id === null
+          ? requestedTeacherId === null
+          : Number(row.request_teacher_id) === requestedTeacherId);
+        if (!sameActor || !sameRequestScope) this.reminderRequestKeyConflict();
+        await q.commitTransaction();
+        return this.reminderResult(dto.requestKey, prior);
+      }
+
+      const initial = this.actionItems(await this.actionRows(q, dto.teacherId));
+      const serIds = [...new Set(initial.map((item) => item.serId))];
+      await lockScheduleSeries(q, serIds);
+      const fresh = serIds.length
+        ? this.actionItems(await this.actionRows(q, dto.teacherId, true, serIds))
+        : [];
+      const staleIssue = reportReminderIssue(canCrudAll, dto.teacherId !== undefined, fresh.length);
+      if (staleIssue) this.throwReminderIssue(staleIssue);
+
+      // 전체 0명은 저장할 수신 원장이 없으므로 빈 성공이며, 같은 키 재시도도 최신 집합을 다시 센다.
+      const grouped = new Map<number, { teacherName: string; count: number }>();
+      for (const item of fresh) {
+        if (!item.teacherId) continue;
+        const current = grouped.get(item.teacherId) ?? { teacherName: item.teacherName ?? '-', count: 0 };
+        current.count += 1;
+        grouped.set(item.teacherId, current);
+      }
+
+      for (const [teacherId, summary] of [...grouped.entries()].sort(([a], [b]) => a - b)) {
+        const inserted = await q.query(
+          `INSERT INTO noti (
+             to_id, from_id, body, link, category, request_key, request_teacher_id, title
+           ) VALUES ($1, $2, $3, '/reports?section=unwritten', 'report_due', $4, $5, $6)
+           ON CONFLICT (request_key, to_id) WHERE request_key IS NOT NULL DO NOTHING
+           RETURNING id`,
+          [
+            teacherId, actorId, `안 쓴 리포트 ${summary.count}건을 확인해 주세요.`,
+            dto.requestKey, dto.teacherId ?? null, NOTI_TITLE.reportDue,
+          ],
+        ) as Array<{ id: string }>;
+        if (!inserted[0]) continue;
+        await q.query(
+          `INSERT INTO log (actor_id, entity, entity_id, action, after)
+           VALUES ($1, 'NOTI', $2, 'remind', $3::jsonb)`,
+          [actorId, Number(inserted[0].id), JSON.stringify({
+            requestKey: dto.requestKey, teacherId, count: summary.count,
+          })],
+        );
+      }
+
+      const saved = await this.reminderRows(q, dto.requestKey);
+      if (saved.length !== grouped.size) this.reminderRequestKeyConflict();
+      await q.commitTransaction();
+      return this.reminderResult(dto.requestKey, saved);
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+
+  /* ══ N-54 주간 묶음 (W11 · R2) ═══════════════════════════════════════════
+   * 판정 · 모으기는 weekly-bundle.ts 한 곳이다 — 보호자 발송(guardians.service)도 같은 함수를 부른다(D-R22 · D-R39).
+   */
+
+  private static weekLabel(weekOf: string): string {
+    return ReportsService.sendGroupLabel('week', weekOf, addDays(weekOf, 6));
+  }
+
+  private static toWeekly(bundle: WeeklyBundle, canWrite: boolean, label: string): WeeklyBundleDto {
+    const gate = weeklyGate(bundle, canWrite);
+    return {
+      studentId: bundle.studentId, studentName: bundle.studentName, grade: bundle.grade,
+      wrepId: bundle.wrepId, summary: bundle.summary, legacy: bundle.legacy,
+      lessons: bundle.lessons.map((lesson) => ({ ...lesson })),
+      lessonCount: bundle.lessons.length,
+      approvedCount: bundle.lessons.filter((lesson) => lesson.approved).length,
+      ...gate,
+      // 메일 제목 기본값 — 사실(학생 · 주)만 잇는다. 창에서 고칠 수 있고 본문과 달리 검증하지 않는다
+      subject: `${bundle.studentName} 학생 주간 리포트 · ${label}`,
+      sentAt: bundle.sentAt, attemptCount: bundle.attemptCount, lastAttemptAt: bundle.lastAttemptAt,
+    };
+  }
+
+  /** §47 「주간 트래킹」 — 그 주 학생별 묶음. 주를 안 주면 KST 어제가 든 주(월요일이면 막 끝난 지난주) */
+  async weekly(weekOfAny: string | undefined, canWrite: boolean): Promise<WeeklyBundleListDto> {
+    const weekOf = weekOfMonday(weekOfAny ?? ReportsService.kstYesterday());
+    const label = ReportsService.weekLabel(weekOf);
+    const bundles = (await loadWeeklyBundles(this.ds, weekOf, null))
+      .map((bundle) => ReportsService.toWeekly(bundle, canWrite, label));
+    return {
+      weekOf, weekTo: addDays(weekOf, 6), label,
+      total: bundles.length,
+      remaining: bundles.filter((bundle) => bundle.sentAt === null).length,
+      bundles,
+    };
+  }
+
+  /**
+   * 총평 쓰기 — `wrep.body = {summary, by, at}` 만(N-54 ②). 그 주 리포트가 없는 학생 · 이미 보낸 묶음 · 옛 기록은 막는다.
+   * 학생 줄을 먼저 잡아 같은 학생 · 같은 주의 첫 쓰기 둘이 줄을 서고, 있던 묶음은 행을 잠근다(보내기와 같은 순서).
+   */
+  async writeWeeklySummary(dto: WeeklySummaryWriteDto, actorId: number, canWrite: boolean): Promise<WeeklyBundleDto> {
+    const summary = dto.summary.trim();
+    if (!summary) throw new BadRequestException({ code: 'WEEKLY_SUMMARY_REQUIRED', message: '총평을 써 주세요' });
+    const weekOf = weekOfMonday(dto.weekOf);
+    const label = ReportsService.weekLabel(weekOf);
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      const [student] = await q.query(`SELECT id FROM stu WHERE id = $1 FOR NO KEY UPDATE`, [dto.studentId]) as Array<{ id: string }>;
+      if (!student) throw new NotFoundException({ code: 'STUDENT_NOT_FOUND', message: '학생을 찾을 수 없습니다' });
+      const [bundle] = await loadWeeklyBundles(q, weekOf, dto.studentId, true);
+      if (!bundle) throw new ConflictException({ code: 'WEEKLY_NO_LESSONS', message: '이 주에 이 학생의 리포트가 없습니다' });
+      const gate = weeklyGate(bundle, canWrite);
+      if (!gate.canWriteSummary) {
+        if (!canWrite) throw new ForbiddenException({ code: 'WEEKLY_FORBIDDEN', message: gate.summaryBlockedReason });
+        throw new ConflictException({
+          code: bundle.legacy ? 'WEEKLY_LEGACY' : 'WEEKLY_ALREADY_SENT', message: gate.summaryBlockedReason,
+        });
+      }
+      await q.query(
+        `INSERT INTO wrep (student_id, week_of, body)
+         VALUES ($1, $2, jsonb_build_object('summary', $3::text, 'by', $4::bigint, 'at', ${kstAt('now()')}))
+         ON CONFLICT (student_id, week_of) DO UPDATE SET body = EXCLUDED.body`,
+        [dto.studentId, weekOf, summary, actorId],
+      );
+      const [saved] = await loadWeeklyBundles(q, weekOf, dto.studentId);
+      await q.commitTransaction();
+      return ReportsService.toWeekly(saved, canWrite, label);
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+
+  /** 권고안(R118): 성공 요청 키는 권한 증명이 아니다. 상세·멱등 응답은 모두 현재 담당/권한을 확인한다. */
+  private assertDetailAccess(row: DetailRow, actorId: number, canCrudAll: boolean, canApprove: boolean): void {
+    const submittedForReview = row.state === 'wait' || row.state === 'ok' || row.state === 'rej';
+    if (actorId !== Number(row.teacher_id) && !canCrudAll && !(canApprove && submittedForReview)) {
+      this.throwWriteIssue('REPORT_FORBIDDEN');
+    }
+  }
+
+  async detail(
+    serId: number, onDate: string, actorId: number, canCrudAll: boolean, canApprove = canCrudAll,
+  ): Promise<ReportDetailDto> {
+    const row = await this.loadDetail(this.ds, serId, onDate);
+    if (!row) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+    this.assertDetailAccess(row, actorId, canCrudAll, canApprove);
+    return this.toDetail(row, actorId, canCrudAll, canApprove);
+  }
+
+  /**
+   * T11 권고안 채택: 이름·종류만 받고 코드, 생성자, 리포트 회차와 학생별 ISSUE는 서버가 한 번에 확정한다.
+   * 일반 교재는 같은 LIB 카탈로그에 들어가며, 보충·개인 자료도 생성 actor와 정확한 REP 문맥을 보존한다.
+   * 판·학년은 입력받지 않았으므로 임의 값을 만들지 않는다. 정책 변경 시 DTO/Front/migration/DBML/T11 문서를 함께 바꾼다.
+   */
+  async createMaterial(
+    serId: number,
+    onDate: string,
+    dto: ReportMaterialCreateDto,
+    actorId: number,
+    canCrudAll: boolean,
+    canApprove: boolean,
+  ): Promise<ReportMaterialCreateResultDto> {
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      await lockScheduleSeries(q, [serId]);
+      await q.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [`report-material:${dto.requestKey}`]);
+      const row = await this.loadDetail(q, serId, onDate, true);
+      if (!row) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+
+      const fingerprint = createHash('sha256').update(JSON.stringify({
+        serId, onDate, expectedVersion: dto.expectedVersion, kind: dto.kind, title: dto.title,
+      })).digest('hex');
+      const [replayed] = await q.query(
+        `SELECT actor_id,rep_id,fingerprint,selected_issue_id FROM report_material_req WHERE request_key=$1 FOR UPDATE`,
+        [dto.requestKey],
+      ) as Array<{
+        actor_id: string; rep_id: string; fingerprint: string; selected_issue_id: string;
+      }>;
+      if (replayed) {
+        if (Number(replayed.actor_id) !== actorId || Number(replayed.rep_id) !== Number(row.id)
+          || replayed.fingerprint !== fingerprint) {
+          throw new ConflictException({
+            code: 'REPORT_MATERIAL_REQUEST_KEY_REUSED',
+            message: '같은 요청 키를 다른 자료 등록에 사용할 수 없습니다',
+          });
+        }
+        this.assertDetailAccess(row, actorId, canCrudAll, canApprove);
+        await q.commitTransaction();
+        return { detail: this.toDetail(row, actorId, canCrudAll, canApprove), selectedIssueId: Number(replayed.selected_issue_id) };
+      }
+
+      const issue = reportWriteIssue({
+        actorId,
+        teacherId: row.teacher_id ? Number(row.teacher_id) : null,
+        canCrudAll,
+        reportable: row.reportable,
+        canceled: row.canceled,
+        ended: row.ended,
+        state: row.state,
+      });
+      if (issue) this.throwWriteIssue(issue);
+      this.assertReportVersion(row, dto.expectedVersion, true);
+      const formKind = this.formKind(row);
+      if (formKind !== 'individual' && formKind !== 'group') {
+        throw new BadRequestException({
+          code: 'REPORT_MATERIAL_FORM_UNSUPPORTED',
+          message: '일반 또는 그룹 리포트에서만 교재·자료를 추가할 수 있습니다',
+        });
+      }
+      if (!row.teacher_id || !row.sub_key || !row.students?.length) {
+        throw new ConflictException({
+          code: 'REPORT_MATERIAL_CONTEXT_MISSING',
+          message: '담당 강사·과목·학생이 확정된 리포트에서만 자료를 추가할 수 있습니다',
+        });
+      }
+
+      const [{ id: libIdRaw }] = await q.query(
+        `SELECT nextval(pg_get_serial_sequence('lib','id'))::text AS id`,
+      ) as Array<{ id: string }>;
+      const libId = Number(libIdRaw);
+      const code = `T11-${dto.kind === 'regular' ? 'R' : dto.kind === 'supplementary' ? 'S' : 'P'}-${libId}`;
+      try {
+        await q.query(
+          `INSERT INTO lib (id,code,title,sub_key,material_kind,created_by)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [libId, code, dto.title, row.sub_key, dto.kind, actorId],
+        );
+      } catch (error) {
+        const db = error as { code?: string; constraint?: string };
+        if (db.code === '23505' && ['lib_report_regular_name_unique', 'lib_report_scoped_name_unique'].includes(db.constraint ?? '')) {
+          throw new ConflictException({
+            code: 'REPORT_MATERIAL_DUPLICATE',
+            message: '같은 과목과 자료 종류에 이미 같은 이름이 있습니다',
+          });
+        }
+        throw error;
+      }
+
+      // 현 구조화 그룹 리포트의 진도·숙제는 공통 한 칸이다. 현재 명단의 첫 학생을 canonical ISSUE로 삼고
+      // source_rep_id로 회차 전체에 묶는다. 학생별 ISSUE를 임의로 늘리면 같은 이름 단추가 인원수만큼 생긴다.
+      const [created] = await q.query(
+        `INSERT INTO issue (
+           lib_id,vers_id,student_id,teacher_id,sub_key,source_rep_id,issued_on,state,
+           requested_by,approved_by,delivered_at,reason
+         ) VALUES ($1,NULL,$2,$3,$4,$5,$6,'ok',$7,$7,now(),'리포트 작성 중 추가')
+         RETURNING id::text`,
+        [libId, row.students[0].id, Number(row.teacher_id), row.sub_key, Number(row.id), row.date, actorId],
+      ) as Array<{ id: string }>;
+      const selectedIssueId = Number(created.id);
+      await q.query(
+        `INSERT INTO report_material_req (request_key,actor_id,rep_id,lib_id,selected_issue_id,fingerprint)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [dto.requestKey, actorId, row.id, libId, selectedIssueId, fingerprint],
+      );
+      await audit(q, 'report.material.create', {
+        actorId,
+        entityId: row.id,
+        before: null,
+        after: { libId, selectedIssueId, kind: dto.kind, targetTeacherId: Number(row.teacher_id) },
+      });
+      const saved = await this.loadDetail(q, serId, onDate);
+      if (!saved) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+      await q.commitTransaction();
+      return { detail: this.toDetail(saved, actorId, canCrudAll, canApprove), selectedIssueId };
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+
+  /** §48·§49 — KST 하루의 전달 대상과 D-R8 차단 사유를 학생 단위로 묶는다. */
+  async deliveryQueue(onDate: string | undefined, actorId: number, canCrudAll: boolean): Promise<ReportDeliveryQueueDto> {
+    this.requireDeliveryPermission(canCrudAll);
+    const date = onDate ?? ReportsService.kstYesterday();
+    const [rows, latest] = await Promise.all([
+      this.deliveryRows(this.ds, date),
+      this.ds.query<Array<{ student_id: string; id: string; sent_at: string }>>(
+        `SELECT DISTINCT ON (student_id) student_id, id,
+                to_char(sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS sent_at
+           FROM rsend WHERE on_date=$1
+          ORDER BY student_id, sent_at DESC, id DESC`,
+        [date],
+      ),
+    ]);
+    const lastByStudent = new Map(latest.map((item) => [Number(item.student_id), item]));
+    const grouped = new Map<number, {
+      student: ReportDetailDto['students'][number];
+      entries: Array<{ detail: ReportDetailDto; state: RepStateDb }>;
+    }>();
+    for (const row of rows) {
+      const detail = this.toDetail(row, actorId, true);
+      for (const student of detail.students) {
+        if (!student.deliver) continue;
+        const group = grouped.get(student.id) ?? { student, entries: [] };
+        group.entries.push({ detail, state: row.state });
+        grouped.set(student.id, group);
+      }
+    }
+    const students = [...grouped.values()].map(({ student, entries }) => {
+      const blockedCount = entries.filter((entry) => entry.state !== 'ok').length;
+      const last = lastByStudent.get(student.id);
+      return {
+        student,
+        reports: entries.map((entry) => entry.detail),
+        canSend: blockedCount === 0 && !last,
+        blockedCount,
+        lastSendId: last ? Number(last.id) : null,
+        lastSentAt: last?.sent_at ?? null,
+      };
+    });
+    return {
+      onDate: date,
+      total: students.length,
+      remaining: students.filter((student) => student.canSend).length,
+      blocked: students.filter((student) => student.blockedCount > 0).length,
+      students,
+    };
+  }
+
+  async deliveryHistory(
+    opts: { onDate?: string; repId?: number; span?: ReportSendSpan }, canCrudAll: boolean,
+  ): Promise<ReportSendHistoryListDto> {
+    this.requireDeliveryPermission(canCrudAll);
+    const p: unknown[] = [];
+    const where: string[] = ['1=1'];
+    if (opts.onDate) { p.push(opts.onDate); where.push(`rs.on_date=$${p.length}`); }
+    if (opts.repId) { p.push(JSON.stringify([opts.repId])); where.push(`rs.rep_ids @> $${p.length}::jsonb`); }
+    const rows = await this.ds.query<SendHistoryRow[]>(
+      `SELECT rs.id, rs.source_send_id, rs.student_id, st.name AS student_name,
+              to_char(rs.on_date, 'YYYY-MM-DD') AS on_date,
+              rs.rep_ids, rs.channel,
+              count(*) OVER()::text AS total_count,
+              to_char(rs.sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS sent_at,
+              rs.sent_by, sf.name AS sent_by_name,
+              (SELECT count(*) FROM pdflog x WHERE x.kind='report_png' AND x.ref_id=rs.id AND x.file_url IS NOT NULL)::text AS file_count,
+              ${SEND_LESSON_COLUMNS}
+         FROM rsend rs JOIN stu st ON st.id=rs.student_id JOIN staff sf ON sf.id=rs.sent_by
+        WHERE ${where.join(' AND ')}
+        ORDER BY rs.sent_at DESC, rs.id DESC LIMIT 100`,
+      p,
+    );
+    /*
+     * §48 묶음 — 건수 · 기록지 · 인원을 **100건 상한 밖까지** 센다. 화면이 items 로 다시 세면
+     * 잘린 묶음의 수가 틀린다 (D-R37). 눈금이 없으면 묶음은 비우고 머리 「기록지 N장」만 센다.
+     */
+    const span = opts.span ?? null;
+    const groupRows = await this.ds.query<Array<{
+      from: string; to: string; count: string; sheets: string; students: string; send_ids: string[];
+    }>>(
+      `WITH base AS (
+         SELECT rs.id, rs.student_id, rs.sent_at,
+                ${SEND_SPAN_START[span ?? 'day']} AS start,
+                (SELECT count(*) FROM pdflog x WHERE x.kind='report_png' AND x.ref_id=rs.id AND x.file_url IS NOT NULL) AS files
+           FROM rsend rs
+          WHERE ${where.join(' AND ')}
+       )
+       SELECT to_char(start,'YYYY-MM-DD') AS "from",
+              to_char(CASE $${p.length + 1}::text
+                        WHEN 'week' THEN start + 6
+                        WHEN 'month' THEN (start + interval '1 month' - interval '1 day')::date
+                        ELSE start END,'YYYY-MM-DD') AS "to",
+              count(*)::text AS count, COALESCE(sum(files),0)::text AS sheets,
+              count(DISTINCT student_id)::text AS students,
+              array_agg(id::text ORDER BY sent_at DESC, id DESC) AS send_ids
+         FROM base GROUP BY start ORDER BY start DESC`,
+      [...p, span ?? 'day'],
+    );
+    const groups: ReportSendGroupDto[] = span === null ? [] : groupRows.map((row) => ({
+      from: row.from, to: row.to, label: ReportsService.sendGroupLabel(span, row.from, row.to),
+      count: Number(row.count), sheets: Number(row.sheets), students: Number(row.students),
+      sendIds: row.send_ids.map(Number),
+    }));
+    const downloads = await ReportsService.downloadFilesBySend(this.ds, rows.map((row) => Number(row.id)));
+    return {
+      total: rows[0] ? Number(rows[0].total_count) : 0,
+      items: rows.map((row) => ReportsService.historyRow(row, downloads.get(Number(row.id)) ?? [])),
+      span,
+      groups,
+      sheets: groupRows.reduce((sum, row) => sum + Number(row.sheets), 0),
+    };
+  }
+
+  private async sendForRequest(q: Queryer, requestKey: string): Promise<RequestSendRow | null> {
+    const rows = await q.query<RequestSendRow[]>(
+      `SELECT id, student_id, to_char(on_date, 'YYYY-MM-DD') AS on_date, rep_ids, body, source_send_id
+         FROM rsend WHERE request_key=$1`,
+      [requestKey],
+    );
+    return rows[0] ?? null;
+  }
+
+  private requestKeyConflict(): never {
+    throw new ConflictException({
+      code: 'REPORT_DELIVERY_REQUEST_KEY_REUSED',
+      message: '같은 요청 키를 다른 발송 내용에 사용할 수 없습니다',
+    });
+  }
+
+  private assertDeliveryIdentity(
+    prior: RequestSendRow, studentId: number, onDate: string, repIds: number[],
+  ): void {
+    const savedRepIds = Array.isArray(prior.rep_ids) ? prior.rep_ids.map(Number) : [];
+    const sameRepIds = savedRepIds.length === repIds.length
+      && savedRepIds.every((id, index) => id === repIds[index]);
+    if (
+      Number(prior.student_id) !== studentId || prior.on_date !== onDate
+      || prior.source_send_id !== null || !sameRepIds
+    ) this.requestKeyConflict();
+  }
+
+  /**
+   * 같은 requestKey 의 재시도가 **같은 요청**인가 — 학생 · 날짜 · 리포트 집합 · 본문에 더해 **PNG 바이트**(장마다 SHA-256)까지 본다 (CR-BE-03).
+   * 같은 키 · 같은 바이트는 기존 결과로 수렴하고, 같은 키 · 다른 바이트는 409 `REPORT_DELIVERY_REQUEST_KEY_REUSED` 다.
+   * 지문이 없는 옛 장(NULL · N-25)은 그 장의 대조를 건너뛴다 — 되짚어 해시할 원본이 없다.
+   */
+  private async idempotentDelivery(
+    q: Queryer, requestKey: string, studentId: number, onDate: string, files: DeliveryFile[],
+  ): Promise<ReportSendHistoryDto | null> {
+    const prior = await this.sendForRequest(q, requestKey);
+    if (!prior) return null;
+    const askedRepIds = files.map((file) => file.repId);
+    this.assertDeliveryIdentity(prior, studentId, onDate, askedRepIds);
+    if (prior.body !== ReportsService.deliveryBody(files)) this.requestKeyConflict();
+    const stored = await q.query<Array<{ rep_id: string | null; sha256: string | null }>>(
+      `SELECT rep_id::text AS rep_id, sha256 FROM pdflog WHERE kind='report_png' AND ref_id=$1 AND rep_id IS NOT NULL ORDER BY id`,
+      [Number(prior.id)],
+    );
+    for (const file of files) {
+      const saved = stored.find((row) => Number(row.rep_id) === file.repId);
+      if (saved?.sha256 && saved.sha256 !== file.sha256) this.requestKeyConflict();
+    }
+    return this.requireHistoryItem(q, Number(prior.id));
+  }
+
+  private static deliveryBody(files: DeliveryFile[]): string {
+    return files.map((file) => file.plainText).join('\n\n────────\n\n');
+  }
+
+  private async idempotentResend(
+    q: Queryer, requestKey: string, sourceSendId: number,
+  ): Promise<ReportSendHistoryDto | null> {
+    const prior = await this.sendForRequest(q, requestKey);
+    if (!prior) return null;
+    if (Number(prior.source_send_id) !== sourceSendId) this.requestKeyConflict();
+    return this.requireHistoryItem(q, Number(prior.id));
+  }
+
+  /** PNG 보존과 RSEND/PDFLOG 기록. 실제 카카오·알림톡 전송은 명세서의 미구현 외부 경계다. */
+  async deliver(dto: ReportDeliveryCreateDto, actorId: number, canCrudAll: boolean): Promise<ReportSendHistoryDto> {
+    this.requireDeliveryPermission(canCrudAll);
+    const claimed = await this.sendForRequest(this.ds, dto.requestKey);
+    if (claimed) {
+      this.assertDeliveryIdentity(claimed, dto.studentId, dto.onDate, dto.files.map((file) => file.repId));
+    }
+    // 파일명·revision·PNG 형식까지 먼저 검증한다. 같은 requestKey라도 다른 출력 요청을
+    // 과거 201로 조용히 수렴시키지 않는다.
+    const rows = await this.deliveryRows(this.ds, dto.onDate, dto.studentId);
+    const prepared = this.deliveryFiles(rows, dto, actorId);
+    const prior = await this.idempotentDelivery(
+      this.ds, dto.requestKey, dto.studentId, dto.onDate, prepared,
+    );
+    if (prior) return prior;
+    const existing = await this.ds.query<Array<{ id: string }>>(
+      `SELECT id FROM rsend WHERE student_id=$1 AND on_date=$2 AND source_send_id IS NULL LIMIT 1`,
+      [dto.studentId, dto.onDate],
+    );
+    if (existing[0]) {
+      // 최초 requestKey 조회 직후 같은 요청의 선행 트랜잭션이 커밋될 수 있다.
+      // 날짜 중복으로 거절하기 전에 요청 내용을 다시 대조해 네트워크 재시도를 같은 결과로 수렴시킨다.
+      const completed = await this.idempotentDelivery(
+        this.ds, dto.requestKey, dto.studentId, dto.onDate, prepared,
+      );
+      if (completed) return completed;
+      throw new ConflictException({ code: 'REPORT_DELIVERY_ALREADY_SENT', message: '이미 발송했습니다. 이력에서 다시 보내세요' });
+    }
+
+    const urls: string[] = [];
+    try {
+      for (const file of prepared) {
+        urls.push(await this.files.put(`reports/${dto.onDate}/${dto.studentId}/${file.fileName}`, file.bytes));
+      }
+    } catch (error) {
+      await this.files.delete(urls).catch(() => undefined);
+      throw error;
+    }
+
+    const q = this.ds.createQueryRunner();
+    let committed = false;
+    let sendId = 0;
+    try {
+      // 업로드 뒤 연결/BEGIN 실패도 아래의 Blob 보상·runner 해제 경로를 반드시 거친다.
+      await q.connect();
+      await q.startTransaction();
+      // 일정/출결/리포트 쓰기와 같은 SER→REP 순서. 잠금 뒤 별도 SELECT로 현재 투영을 읽는다.
+      await lockScheduleSeries(q, [...new Set(rows.map((row) => Number(row.ser_id)))]);
+      const idempotent = await this.idempotentDelivery(
+        q, dto.requestKey, dto.studentId, dto.onDate, prepared,
+      );
+      if (idempotent) {
+        await q.rollbackTransaction();
+        await this.files.delete(urls).catch(() => undefined);
+        return idempotent;
+      }
+      const lockedRows = await this.deliveryRows(q, dto.onDate, dto.studentId, true);
+      const locked = this.deliveryFiles(lockedRows, dto, actorId);
+      // 종료 시각/본문은 파일명에 모두 포함되지 않는다. 업로드 전후 출력 원문도 같아야 한다.
+      if (locked.some((file, index) => file.repId !== prepared[index]?.repId
+        || file.fileName !== prepared[index]?.fileName || file.plainText !== prepared[index]?.plainText
+        || file.sha256 !== prepared[index]?.sha256)) {
+        this.throwDeliveryIssue('REPORT_DELIVERY_FILES_MISMATCH');
+      }
+      const sent = await q.query(
+        `INSERT INTO rsend (student_id, on_date, rep_ids, channel, body, sent_by, request_key, source_send_id)
+         VALUES ($1,$2,$3::jsonb,'blob',$4,$5,$6,NULL) RETURNING id`,
+        [
+          dto.studentId, dto.onDate, JSON.stringify(locked.map((file) => file.repId)),
+          ReportsService.deliveryBody(locked), actorId, dto.requestKey,
+        ],
+      ) as Array<{ id: string }>;
+      sendId = Number(sent[0].id);
+      // 7-3 ① F3 — 파일마다 어느 리포트인지 적는다(업로드 차례 = prepared 차례 = locked 차례 · 위에서 대조했다).
+      // 장마다 바이트 지문(sha256)을 함께 적는다 — 같은 키의 다음 요청이 바이트까지 대조할 열쇠다 (CR-BE-03).
+      await q.query(
+        `INSERT INTO pdflog (kind, ref_id, file_url, rep_id, sha256)
+         SELECT 'report_png', $1, f.url, f.rep_id, f.sha FROM unnest($2::text[], $3::bigint[], $4::text[]) AS f(url, rep_id, sha)`,
+        [sendId, urls, prepared.map((file) => file.repId), prepared.map((file) => file.sha256)],
+      );
+      await q.commitTransaction();
+      committed = true;
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      if (!committed) await this.files.delete(urls).catch(() => undefined);
+      const e = error as { code?: string; constraint?: string };
+      if (e.code === '23505') {
+        const raced = await this.idempotentDelivery(
+          this.ds, dto.requestKey, dto.studentId, dto.onDate, prepared,
+        );
+        if (raced) return raced;
+        if (e.constraint === 'rsend_student_date_first_uniq') {
+          throw new ConflictException({ code: 'REPORT_DELIVERY_ALREADY_SENT', message: '이미 발송했습니다. 이력에서 다시 보내세요' });
+        }
+      }
+      throw error;
+    } finally {
+      await q.release();
+    }
+    return this.requireHistoryItem(this.ds, sendId);
+  }
+
+  /** 이전 본문·private Blob URL을 그대로 가리키는 새 감사행을 만든다. */
+  async resend(sendId: number, requestKey: string, actorId: number, canCrudAll: boolean): Promise<ReportSendHistoryDto> {
+    this.requireDeliveryPermission(canCrudAll);
+    const prior = await this.idempotentResend(this.ds, requestKey, sendId);
+    if (prior) return prior;
+
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    let newId = 0;
+    try {
+      const sources = await q.query(
+        `SELECT id, student_id, to_char(on_date, 'YYYY-MM-DD') AS on_date, rep_ids, body
+           FROM rsend WHERE id=$1 FOR UPDATE`,
+        [sendId],
+      ) as Array<{ id: string; student_id: string; on_date: string; rep_ids: unknown; body: string }>;
+      const source = sources[0];
+      if (!source) throw new NotFoundException({ code: 'REPORT_DELIVERY_NOT_FOUND', message: '발송 이력을 찾을 수 없습니다' });
+      const blobs = await q.query(
+        `SELECT file_url FROM pdflog
+          WHERE kind='report_png' AND ref_id=$1 AND file_url IS NOT NULL ORDER BY id`,
+        [sendId],
+      ) as Array<{ file_url: string }>;
+      if (blobs.length === 0) {
+        throw new ConflictException({ code: 'REPORT_DELIVERY_FILES_MISSING', message: '재발송할 보존 파일이 없습니다' });
+      }
+      const inserted = await q.query(
+        `INSERT INTO rsend (student_id, on_date, rep_ids, channel, body, sent_by, request_key, source_send_id)
+         VALUES ($1,$2,$3::jsonb,'blob',$4,$5,$6,$7) RETURNING id`,
+        [
+          Number(source.student_id), source.on_date, JSON.stringify(source.rep_ids), source.body,
+          actorId, requestKey, Number(source.id),
+        ],
+      ) as Array<{ id: string }>;
+      newId = Number(inserted[0].id);
+      await q.query(
+        `INSERT INTO pdflog (kind, ref_id, file_url, rep_id, sha256)
+         SELECT 'report_png', $1, file_url, rep_id, sha256 FROM pdflog
+          WHERE kind='report_png' AND ref_id=$2 AND file_url IS NOT NULL`,
+        [newId, sendId],
+      );
+      await q.commitTransaction();
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      const e = error as { code?: string };
+      if (e.code === '23505') {
+        const raced = await this.idempotentResend(this.ds, requestKey, sendId);
+        if (raced) return raced;
+      }
+      throw error;
+    } finally {
+      await q.release();
+    }
+    return this.requireHistoryItem(this.ds, newId);
+  }
+
+  async write(
+    serId: number,
+    onDate: string,
+    dto: ReportUpsertDto,
+    action: ReportWriteAction,
+    actorId: number,
+    canCrudAll: boolean,
+    canApprove: boolean,
+  ): Promise<ReportDetailDto> {
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      // 일정·출결과 부모→REP 순서를 공유한다. 잠금 대기 후 별도 SELECT로 joined 상태를 읽는다.
+      await lockScheduleSeries(q, [serId]);
+      const row = await this.loadDetail(q, serId, onDate, true);
+      if (!row) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+
+      const issue = reportWriteIssue({
+        actorId,
+        teacherId: row.teacher_id ? Number(row.teacher_id) : null,
+        canCrudAll,
+        reportable: row.reportable,
+        canceled: row.canceled,
+        ended: row.ended,
+        state: row.state,
+      });
+      if (issue) this.throwWriteIssue(issue);
+
+      const structured = dto.formatVersion === 1;
+      let body: ReportBody | ReportStructuredBodyDto;
+      if (structured) {
+        body = await this.structuredBodyForWrite(q, row, dto, action);
+      } else {
+        if (dto.structuredBody !== undefined || dto.language !== undefined) {
+          throw new BadRequestException({ code: 'REPORT_FORMAT_MIXED', message: '기존 3칸 입력과 구조화 양식을 섞을 수 없습니다' });
+        }
+        if (Number(row.format_version) !== 0) {
+          throw new ConflictException({
+            code: 'REPORT_FORMAT_CONFLICT', message: '구조화 양식으로 시작한 리포트는 기존 3칸 양식으로 바꿀 수 없습니다',
+          });
+        }
+        this.assertReportVersion(row, dto.expectedVersion, false);
+        body = { content: dto.content ?? '', progress: dto.progress ?? '', homework: dto.homework ?? '' };
+        const emptyField = reportBodyIssue(body, action);
+        if (emptyField) {
+          const field = REPORT_FIELDS.find((item) => item.key === emptyField)!;
+          throw new BadRequestException({ code: 'REPORT_FIELD_REQUIRED', message: `${field.label}을(를) 채워야 제출됩니다` });
+        }
+      }
+
+      const nextState: RepStateDb = action === 'submit' ? 'wait' : 'draft';
+      await q.query(
+        `UPDATE rep
+            SET body = $2::jsonb,
+                state = $3::rep_state_t,
+                written_at = CASE WHEN $4::boolean THEN COALESCE(written_at, now()) ELSE written_at END,
+                submitted_at = CASE WHEN $4::boolean THEN COALESCE(submitted_at, now()) ELSE submitted_at END,
+                reviewed_at = NULL,
+                reviewer_id = NULL,
+                reject_reason = NULL,
+                format_version = $5::smallint,
+                lang = CASE WHEN $5::smallint=1 THEN $6 ELSE lang END,
+                row_version = row_version + 1,
+                last_writer_id = $7
+          WHERE id = $1`,
+        [row.id, JSON.stringify(body), nextState, action === 'submit', structured ? 1 : 0, dto.language ?? row.lang, actorId],
+      );
+      if (structured) {
+        await this.syncReportBookProgress(q, row, body as ReportStructuredBodyDto, actorId);
+      }
+      // N-73 — 다시 쓰면 결재 도장(reviewed_at · 반려 사유)이 지워진다. 무엇이 지워졌는지를 같은 트랜잭션에 남긴다.
+      // 본문은 싣지 않는다(학생 기록 원문 — 원장은 「누가 언제 상태를 바꿨나」만 답한다).
+      await audit(q, 'report.write', {
+        actorId,
+        entityId: row.id,
+        before: { state: row.state, reviewedAt: row.reviewed_at, rejectReason: row.reject_reason },
+        after: {
+          state: nextState, submitted: action === 'submit', formatVersion: structured ? 1 : 0,
+          version: Number(row.row_version) + 1, targetTeacherId: row.teacher_id,
+        },
+      });
+      const saved = await this.loadDetail(q, serId, onDate);
+      if (!saved) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+      await q.commitTransaction();
+      return this.toDetail(saved, actorId, canCrudAll, canApprove);
+    } catch (error) {
+      await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+
+  async review(
+    serId: number,
+    onDate: string,
+    dto: ReportReviewDto,
+    actorId: number,
+    canCrudAll: boolean,
+    canApprove: boolean,
+  ): Promise<ReportDetailDto> {
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      // 승인 규칙은 그대로이며 최신 담당자·응답·알림 수신자를 같은 일정 snapshot에서 읽는다.
+      await lockScheduleSeries(q, [serId]);
+      const row = await this.loadDetail(q, serId, onDate, true);
+      if (!row) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+
+      const issue = reportReviewIssue({
+        canApprove, state: row.state, decision: dto.decision, reason: dto.reason,
+        // 자기 결재 금지 — 쓴 사람은 잠근 행에서 읽는다(요청이 보낸 값을 믿지 않는다)
+        teacherId: row.teacher_id, actorId,
+      });
+      if (issue) this.throwReviewIssue(issue);
+      // 권한·상태를 먼저 막아 권한 없는 actor에게 현재 version을 충돌 응답으로 노출하지 않는다.
+      this.assertReportVersion(row, dto.expectedVersion, true);
+
+      const state: RepStateDb = dto.decision === 'approve' ? 'ok' : 'rej';
+      const rejectReason = dto.decision === 'reject' ? dto.reason!.trim() : null;
+      await q.query(
+        `UPDATE rep
+            SET state = $2::rep_state_t, reviewed_at = now(), reviewer_id = $3, reject_reason = $4,
+                row_version = row_version + 1
+          WHERE id = $1`,
+        [row.id, state, actorId, rejectReason],
+      );
+      await q.query(
+        `INSERT INTO log (actor_id, entity, entity_id, action, before, after)
+         VALUES ($1, 'REP', $2, $3, $4::jsonb, $5::jsonb)`,
+        [actorId, row.id, dto.decision, JSON.stringify({ state: row.state }), JSON.stringify({ state, rejectReason })],
+      );
+      if (row.teacher_id) {
+        await q.query(
+          `INSERT INTO noti (to_id, from_id, body, link, category, title)
+           VALUES ($1, $2, $3, '/reports', 'report', $4)`,
+          [
+            Number(row.teacher_id), actorId,
+            dto.decision === 'approve'
+              ? `${row.on_date} 리포트가 승인되었습니다.`
+              : `${row.on_date} 리포트가 반려되었습니다: ${rejectReason}`,
+            dto.decision === 'approve' ? NOTI_TITLE.reportApproved : NOTI_TITLE.reportRejected,
+          ],
+        );
+      }
+
+      const saved = await this.loadDetail(q, serId, onDate);
+      if (!saved) throw new NotFoundException({ code: 'REPORT_NOT_FOUND', message: '리포트를 찾을 수 없습니다' });
+      await q.commitTransaction();
+      return this.toDetail(saved, actorId, canCrudAll, canApprove);
+    } catch (error) {
+      await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+}

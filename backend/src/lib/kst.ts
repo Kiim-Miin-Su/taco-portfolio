@@ -1,0 +1,92 @@
+/** @file-guide
+ * 목적: kst.ts — KST, ISO_DATE_PATTERN, isIsoDate, todayKst, nowMinKst 등 (util)
+ * 책임/재사용: 현재 lib 계층의 순수 계산/표시 방어를 우선 재사용한다. UI·네트워크·DB 부수효과와 서버 업무 권위를 섞지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * KST — **시간대가 정의되는 단 하나의 자리** (D-R12).
+ *
+ * SQL 쪽 조각은 `lib/sql.ts` 에 있고, 그 파일도 여기서 `KST` 를 가져다 쓴다.
+ * 자바스크립트로 「오늘」을 구하는 일은 여기 있다.
+ *
+ * 왜 모았는가 — 배포 직전 리뷰에서 `new Date(Date.now() + 9*3600*1000)` 이
+ * 백엔드 다섯 곳 · 프런트 두 곳에 흩어져 있는 것이 나왔다. 자정 언저리에서
+ * 한 곳만 고치면 서랍과 운영 탭이 같은 할 일을 두고 「지났다 / 안 지났다」로 갈린다.
+ */
+export const KST = 'Asia/Seoul';
+
+/** API 날짜 형식. 시간대가 붙은 시각과 날짜 전용 값을 혼용하지 않는다. */
+export const ISO_DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$';
+const ISO_DATE = new RegExp(ISO_DATE_PATTERN);
+
+/** PostgreSQL date로 저장할 실제 AD 날짜인지 검사한다(윤년 포함, JS 자동 보정 거절). */
+export function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_DATE.test(value) || value.startsWith('0000-')) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/** 자정부터 9시간 밀어 UTC 로 읽으면 그날의 KST 날짜가 된다 */
+const KST_MS = 9 * 3600 * 1000;
+
+/** 오늘 (KST) — `2026-08-30` */
+export const todayKst = (now: number = Date.now()): string =>
+  new Date(now + KST_MS).toISOString().slice(0, 10);
+
+/** 서버가 공개하는 강사 월기록의 유일한 달 — KST 현재월의 직전 달. */
+export const previousMonthKst = (now: number = Date.now()): string => {
+  const [year, month] = todayKst(now).split('-').map(Number);
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
+};
+
+/** 지금 몇 분 (KST 자정 기준) — 캘린더의 빨간 현재 시각 줄이 쓴다 */
+export const nowMinKst = (now: number = Date.now()): number => {
+  const d = new Date(now + KST_MS);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+};
+
+/**
+ * 지금 몇 시 (KST) — §21 의 「지금 가능」이 묻는 그 시각.
+ *
+ * `nowMinKst` 를 나눠 쓴다. 분과 시를 따로 구하면 자정 언저리에서 **한 곳만** 날이 바뀐다.
+ */
+export const nowHourKst = (now: number = Date.now()): number => Math.floor(nowMinKst(now) / 60);
+
+/** `2026-08-30` 에서 n일 — 음수면 과거 */
+export const addDays = (iso: string, n: number): string =>
+  new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+/**
+ * 기한이 며칠 지났는가. 안 지났으면 0.
+ * **끝난 일에는 쓰지 않는다** — 완료한 할 일은 늦었든 아니든 0으로 보여 준다.
+ */
+/**
+ * 기한까지 며칠 남았는가 — **부호가 있다.** 오늘이면 0, 지났으면 음수.
+ *
+ * `overdueDays` 는 안 지났으면 전부 0 이라 「D-2」를 만들 수 없다. 화면이 날짜 둘을 빼지
+ * 않게 하려면(D-R37) 남은 날을 그대로 주는 자리가 필요하다 (C56 · §62).
+ */
+export const daysUntil = (dueOn: string, today = todayKst()): number =>
+  Math.round(
+    (new Date(`${dueOn}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / 86400000,
+  );
+
+export const overdueDays = (dueOn: string | null | undefined, today = todayKst()): number => {
+  if (!dueOn) return 0;
+  const d = (new Date(`${today}T00:00:00Z`).getTime() - new Date(`${dueOn}T00:00:00Z`).getTime()) / 86400000;
+  return d > 0 ? Math.floor(d) : 0;
+};
+
+/**
+ * 그 날짜의 **KST 00:00** 순간(ms) — `2026-08-21` → 2026-08-20T15:00:00Z (N-89 · W11).
+ * 안내가 걸린 회차가 없을 때 「기한 날 00:00」을 기준 시각으로 쓴다. 날짜 모양이 아니면 NaN.
+ */
+export const kstMidnightMs = (iso: string): number =>
+  (isIsoDate(iso) ? new Date(`${iso}T00:00:00Z`).getTime() - KST_MS : Number.NaN);
+
+/**
+ * 그 순간까지 **남은 분** — 지났으면 음수 (N-89 · W11). `overdueDays` 가 날 단위라 「6시간 · 3시간」을 말하지 못해
+ * 시간 단위 셈을 여기 둔다. 내림이다 — 5시간 59분 남았으면 「5시간 남음」, 시작을 30초 넘겼으면 -1(이미 지났다).
+ */
+export const minutesUntil = (atMs: number, now: number = Date.now()): number => Math.floor((atMs - now) / 60000);

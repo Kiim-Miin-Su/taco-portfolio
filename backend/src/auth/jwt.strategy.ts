@@ -1,0 +1,32 @@
+/** @file-guide
+ * 목적: jwt.strategy.ts — JwtStrategy (auth)
+ * 책임/재사용: 공용 인증/권한 경계만 소유한다. 토큰·쿠키 원문을 노출하지 않고 만료/익명/권한 회수 경계를 회귀로 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { isRole } from '../common/perm';
+import { AuthService, isJwtSubject, type JwtPayload } from './auth.service';
+// 기존 내부 import 경로 호환. 토큰 형상/식별자 검증의 소유자는 AuthService 한 곳이다.
+export { isJwtSubject, type JwtPayload } from './auth.service';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(private readonly auth: AuthService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET ?? 'dev-only-change-me',
+    });
+  }
+
+  validate(payload: JwtPayload) {
+    // 토큰에 담긴 역할이 우리가 아는 넷 중 하나가 아니면 통과시키지 않는다.
+    // 예전 토큰(head · adm · coord)이 남아 있을 수 있다 — 조용히 흘려보내면 가드가 오판한다.
+    if (!isRole(payload.role) || !isJwtSubject(payload.sub)) throw new UnauthorizedException('다시 로그인해 주세요');
+    // 현재 자격 버전을 넘긴다. cv가 없는 옛 토큰만 발급 시각으로 보수적으로 판정한다(R118-06).
+    return this.auth.currentUser(payload.sub, payload.iat, payload.cv);
+  }
+}

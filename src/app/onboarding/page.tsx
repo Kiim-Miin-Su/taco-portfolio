@@ -116,6 +116,9 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-bg px-4 py-6 sm:grid sm:place-items-center sm:p-6">
       <form onSubmit={complete} className="mx-auto w-full max-w-[420px] rounded-2xl border border-line bg-card p-5 sm:p-6">
+        <p role="note" className="mx-auto mb-4 max-w-[440px] rounded-xl border border-line bg-inset p-3 text-[13px]">
+        공개 체험 전용입니다. 합성 연락처를 입력해 주세요. 실제 문자·이메일은 발송하지 않으며 체험용 코드를 화면에 표시합니다.
+        </p>
         <Logo size={30} />
         <h1 className="mt-3 text-[17px] font-bold text-fg">첫 설정</h1>
         <p className="mt-1 text-[13px] leading-relaxed text-fg-2">

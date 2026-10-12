@@ -1,0 +1,12 @@
+{
+  "sourceRepository": "https://github.com/Kiim-Miin-Su/taco-office-back",
+  "commit": "b74cab357e5bd4ee9f23cb935363481af223eebc",
+  "copiedVia": "git archive HEAD selected committed paths",
+  "excluded": [
+    "environment files",
+    ".vercel",
+    ".git",
+    "uncommitted files"
+  ],
+  "purpose": "PGlite-only compatibility spike; no production connection"
+}

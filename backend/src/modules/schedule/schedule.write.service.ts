@@ -1,0 +1,1329 @@
+/** @file-guide
+ * 목적: schedule.write.service.ts — ScheduleWriteService (service)
+ * 책임/재사용: 기존 lib/도메인 방어·Perm 함수를 재사용한다. 쓰기는 트랜잭션/DB 제약, 읽기는 권한별 projection으로 최종 검증한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 스케줄 쓰기 — **네 단계뿐이다.**
+ *
+ *   load    DB → State
+ *   reduce  lib/recurrence.ts 의 순수 함수 (여기서 3범위가 갈린다)
+ *   persist State 차이를 SQL 로
+ *   project occ() 결과를 ser_occ 로 → EXCLUDE 가 최종 판정
+ *
+ * 규칙은 이 파일에 **한 줄도 없다.** 3범위 판정을 여기서 다시 쓰면
+ * `recurrence.spec.ts` 85 어서션이 지키지 않는 두 번째 구현이 생긴다.
+ *
+ * 네 단계는 한 트랜잭션이다 (D-R43 ① 경계). 겹치면 EXCLUDE 가 23P01 을 던지고
+ * 트랜잭션이 통째로 되돌아간다 — 절반만 저장된 시간표가 남지 않는다.
+ */
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
+import {
+  applyCreate, applyDelete, applyEdit, applyPaste, applyRoster, copyMany, formatRule, occ,
+  lessonTimeIssue, parseRule, parseRuleInput, pasteIssue, rosterAt, rosterScopes, ruleHits, scheduleTimeIssue,
+  type Patch as OccurrencePatch, type Scope, type State,
+} from '../../lib/recurrence';
+import {
+  rosterPricing, GUIDE_DONE_DB, cancelPolicyIssue, CANCEL_POLICY_MESSAGE, CANCEL_TREAT_LABEL,
+  ATTENDANCE_CANCEL_REASON_LABEL, PARENT_NOTICE_CANCEL_REASONS, REPORT_UNWRITTEN_CANDIDATE_DB,
+  type AttendanceCancelReason, type CancelTreat,
+} from '../../lib/rules';
+import { isIsoDate } from '../../lib/kst';
+import { NOTI_TITLE } from '../../lib/noti';
+import { CANCEL_NOTICE_LIKE, DAY_CANCEL_NOTICE_PREFIX, LESSON_CANCEL_NOTICE_PREFIX, cancelNoticeTitle } from '../../lib/cancel-notice';
+import { START_MIN, END_MIN, endMinOf, kstAt, kstDateOf, serStuOn, startMinOf, stuPausedOn } from '../../lib/sql';
+import type { AuditKey } from '../../lib/audit';
+import { assertClosedOccUnchanged, closedMonths, closedOccSnapshot, monthOf } from '../../lib/month-close';
+import { assertKinderRosterWrite, lockKinderRosterPolicyWrite } from '../../lib/kinder-roster.db';
+import { assertNoSuspendedScheduleExpansion, lockDelinquencyScheduleWrite } from '../../lib/delinquency-suspension.db';
+import { loadState, persist } from './schedule.state.repo';
+import { issueScheduleUndoStep, readScheduleUndo, sameScheduleState } from './schedule.undo';
+import { assertScheduleReferences, assertZaccAssignable } from './schedule.references';
+import { auditScheduleWrite } from './schedule.audit';
+import { horizon, project } from './schedule.project';
+import type {
+  DayCancelDto, DayCancelParentNoticeDto, DayCancelResultDto,
+  OccurrenceCreateDto, OccurrenceDeleteDto, OccurrenceMoveDto, OccurrencePasteDto, OccurrencePatchDto,
+  RosterPatchDto, RosterResultDto, StudentOverlapDto, UnavWarnDto, WriteResultDto,
+} from './schedule.dto';
+
+/**
+ * 휴강의 사유·처리 — DTO 의 두 칸을 정책으로 판정한다 (C92 · lib/rules 한 곳).
+ * 둘 다 비우면 옛 방식(취소만) 이고, 하나만 오면 400 이다 — 반쪽 기록은 「이월인지 차감인지」를 나중에 못 읽는다.
+ */
+function cancelArgs(dto: { cancelKind?: AttendanceCancelReason; cancelTreat?: CancelTreat; memo?: string }) {
+  if (dto.cancelKind === undefined && dto.cancelTreat === undefined) return undefined;
+  const issue = cancelPolicyIssue({ kind: dto.cancelKind ?? null, treat: dto.cancelTreat ?? 'carry' });
+  if (issue) throw new BadRequestException({ code: issue, message: CANCEL_POLICY_MESSAGE[issue] });
+  return { kind: dto.cancelKind as string, treat: (dto.cancelTreat ?? 'carry') as string, memo: dto.memo?.trim() || null };
+}
+
+/** 생성과 수정은 같은 방식/강의실 계약을 잠금 전에 확인한다 (N-56). */
+function assertModeRoom(dto: { mode?: string; roomId?: number | null }): void {
+  if (dto.mode === 'online' && dto.roomId !== undefined && dto.roomId !== null) {
+    throw new BadRequestException({ code: 'MODE_ROOM_ONLINE', message: '온라인 수업에는 강의실을 두지 않습니다' });
+  }
+}
+
+/** 같은 SER 잠금 뒤 읽은 규칙 날짜 명단으로만 학생 개인 표의 붙여넣기·이동 전제조건을 판정한다. */
+function requireCurrentStudent(
+  before: State, source: { serId: number; onDate: string }, studentId: number,
+  code: 'PASTE_STUDENT_CHANGED' | 'MOVE_STUDENT_CHANGED',
+): void {
+  if (!rosterAt(before, source.serId, source.onDate).includes(studentId)) {
+    throw new ConflictException({
+      code,
+      message: '원본 회차의 학생 명단이 바뀌었습니다. 다시 읽고 학생 표를 확인해 주세요',
+    });
+  }
+}
+
+/**
+ * 휴강 알림 두 건 (테스트 시나리오 M-125) — 같은 트랜잭션에서 남긴다 (D-R43).
+ *   ① 「{과목} 결강 — {학생들} → 스케줄」   그 회차의 강사와 관리자 전원(본인 제외)
+ *   ② 「{과목} 이월 1회 발생 — {학생들} → 회계」   이월일 때만, 회계를 보는 대표에게 — 다음 달 청구에서 빠진다는 문구를 함께
+ * **회차마다 한 건**이다 — 학생마다 남기면 네 명 반의 휴강 하나가 수신함에 넉 줄로 서고, 「알림 2건」이 여덟이 된다.
+ * 낱말은 서버가 만든다 (D-R18). 화면은 body 를 그대로 보여 준다.
+ */
+/**
+ * 그 규칙에 **지우면 사라지는 사실**이 붙어 있는가 — 열한 표를 한 번에 훑는다.
+ *
+ * 두 곳이 같은 목록을 본다: `remove()` 는 「지울까 마감할까」를 정하는 데 쓰고(참조가 있으면
+ * SER 를 남기고 `to_date` 만 당긴다 — 지난 회차의 근거가 사라지면 안 된다),
+ * `undo()` 는 **되돌리기가 지우게 될 규칙**을 미리 걸러 **409 로 설명한다**.
+ * 목록이 두 벌이면 한쪽만 표가 늘어난 것을 모른 채 낡는다 (D-R22).
+ *
+ * FK 는 전부 즉시 NO ACTION 이라 막는 것은 지금도 DB 다 — 이 함수는 **설명하는 쪽**이다
+ * (C84-b 가 겹침에서 한 것과 같다: 막는 것은 EXCLUDE, 누구와 부딪혔는지는 조회).
+ */
+export const SCHEDULE_REF_TABLES = [
+  'att', 'rep', 'autorep', 'chreq', 'guide', 'pnoti', 'payout_line', 'cons_sess', 'note', 'diag', 'zassign',
+] as const;
+
+async function referencedSeries(q: QueryRunner, serIds: number[]): Promise<number[]> {
+  if (!serIds.length) return [];
+  const union = SCHEDULE_REF_TABLES
+    .map((t) => `SELECT DISTINCT ser_id FROM ${t} WHERE ser_id = ANY($1::bigint[])`)
+    .join(' UNION ');
+  const rows = (await q.query(union, [serIds])) as Array<{ ser_id: string }>;
+  return [...new Set(rows.map((r) => Number(r.ser_id)))].sort((a, b) => a - b);
+}
+
+/**
+ * 일정 투영이 새 규칙에 만든 빈 REP 예약행은 그 일정 쓰기의 파생물이다. 이 행까지 외부 참조로 세면
+ * reportable 수업의 split/create는 발급 직후에도 undo가 항상 409가 된다. BO-12C 권고안에 따라
+ * 작성·제출·진도·PDF가 전혀 없는 예약행만 제거하고, 사람이 손댄 리포트는 기존 UNDO_HAS_REFS로 막는다.
+ */
+async function deleteDisposableProjectedReports(q: QueryRunner, serIds: number[]): Promise<void> {
+  if (!serIds.length) return;
+  const removable = `
+    SELECT r.id FROM rep r
+     WHERE r.ser_id=ANY($1::bigint[])
+       AND r.state=ANY($2::rep_state_t[]) AND r.state<>'draft'::rep_state_t
+       AND r.body='{}'::jsonb
+       AND r.written_at IS NULL AND r.submitted_at IS NULL AND r.reviewed_at IS NULL
+       AND r.reviewer_id IS NULL AND r.reject_reason IS NULL
+       AND NOT EXISTS (SELECT 1 FROM rep_stu rs WHERE rs.rep_id=r.id AND (rs.comment IS NOT NULL OR NOT rs.deliver))
+       AND NOT EXISTS (SELECT 1 FROM rep_book_progress rbp WHERE rbp.rep_id=r.id)
+       AND NOT EXISTS (SELECT 1 FROM pdflog p WHERE p.rep_id=r.id)`;
+  await q.query(`WITH removable AS (${removable}) DELETE FROM rep_stu rs USING removable x WHERE rs.rep_id=x.id`, [
+    serIds, REPORT_UNWRITTEN_CANDIDATE_DB,
+  ]);
+  await q.query(`DELETE FROM rep r WHERE r.id IN (${removable})`, [serIds, REPORT_UNWRITTEN_CANDIDATE_DB]);
+}
+
+async function notifyCancel(
+  q: QueryRunner, actorId: number | undefined, serId: number, onDate: string, fresh: State, treat: string,
+  makeup?: { date: string; startMin: number },
+): Promise<void> {
+  const ser = fresh.SER.find((s) => s.id === serId);
+  if (!ser) return;
+  const exc = fresh.EXC.find((e) => e.serId === serId && e.onDate === onDate);
+  const teacherId = exc?.teacherSet ? exc.teacherId : ser.teacherId;
+  const studentIds = rosterAt(fresh, serId, onDate);
+  const [head] = await q.query(
+    `SELECT COALESCE(sb.name, k.name) AS subject,
+            (SELECT string_agg(st.name, ' · ' ORDER BY st.name) FROM stu st WHERE st.id = ANY($2::bigint[])) AS students
+       FROM ser s
+       JOIN kind k ON k.key = s.kind_key
+       LEFT JOIN sub sb ON sb.key = s.sub_key
+      WHERE s.id = $1`,
+    [serId, studentIds],
+  ) as Array<{ subject: string; students: string | null }>;
+  if (!head) return;
+  const who = head.students ?? '학생 없음';
+  const month = onDate.slice(0, 7);
+  const treatLabel = CANCEL_TREAT_LABEL[treat as CancelTreat] ?? '이월';
+  // 보강 이관이면 「언제 보강인지」까지 한 문장에 — 강사·관리자가 새 회차를 따로 찾지 않게 (C-34)
+  const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const treatText = makeup ? `${treatLabel} → ${makeup.date} ${hhmm(makeup.startMin)}` : treatLabel;
+  await q.query(
+    `INSERT INTO noti (to_id, from_id, body, link, category, title)
+     SELECT id, $1, $2, $3, 'schedule', $5 FROM staff
+      WHERE active AND (id = $4 OR role <> 'teacher') AND ($1::bigint IS NULL OR id <> $1)`,
+    [actorId ?? null, `${head.subject} 결강 — ${who} (${onDate} · ${treatText})`, `/schedule?date=${onDate}`, teacherId ?? -1, NOTI_TITLE.absence],
+  );
+  if (treat === 'carry') {
+    await q.query(
+      `INSERT INTO noti (to_id, from_id, body, link, category, title)
+       SELECT id, $1, $2, $3, 'schedule', $4 FROM staff
+        WHERE active AND role = 'ceo' AND ($1::bigint IS NULL OR id <> $1)`,
+      [actorId ?? null, `${head.subject} 이월 1회 발생 — ${who} · 다음 달 청구에서 빠집니다 (${onDate})`, `/accounting?tab=tuition&month=${month}`, NOTI_TITLE.carryOver],
+    );
+  }
+}
+
+/**
+ * N-133 전일 휴원은 학생마다 보호자 안내 **준비행**을 같은 일정 transaction에 남긴다.
+ * 실제 외부 발송은 DQ3의 복수 보호자·채널 선택을 거친다. 공급자를 이 transaction 안에서
+ * 자동 호출하면 사용자의 수신자 선택을 건너뛰고, rollback 뒤 이미 나간 메시지를 회수할 수도 없다.
+ */
+async function prepareDayCancelParentNotices(
+  q: QueryRunner,
+  date: string,
+  createSerIds: number[],
+  readSerIds: number[],
+  kind: AttendanceCancelReason,
+  memo: string | null,
+): Promise<DayCancelParentNoticeDto[]> {
+  if (!readSerIds.length) return [];
+  const reason = ATTENDANCE_CANCEL_REASON_LABEL[kind];
+  const body = [
+    DAY_CANCEL_NOTICE_PREFIX,
+    `${date} 학원 전체 휴원 안내 (${reason})`,
+    '이날 수업은 모두 휴강하며 수업료는 차감하지 않고 이월합니다.',
+    // C-33 「보강 안내가 만들어진다」 — 그날 전체는 보강을 한꺼번에 잡지 않는다(MAKEUP_NOT_BULK · 회차마다 날짜가 다르다).
+    // 그래서 이 안내가 보강의 길을 말한다. 날짜를 약속하지 않는다 — 보강은 회차마다 휴강 창에서 잡고 그 안내(C-34)가 따로 선다
+    '보강이 필요한 수업은 담당 선생님과 날짜를 정해 따로 안내드립니다.',
+    memo ? `사유: ${memo}` : null,
+  ].filter((line): line is string => line !== null).join('\n');
+  const activeRoster = `SELECT ss.student_id, min(o.ser_id)::bigint AS ser_id
+      FROM ser_occ o
+      JOIN ser_stu ss ON ss.ser_id=o.ser_id AND ${serStuOn('ss', '$2::date')}
+      LEFT JOIN exc x ON x.ser_id=o.ser_id AND x.on_date=o.on_date
+     WHERE o.ser_id=ANY($1::bigint[]) AND o.on_date=$2::date
+       AND NOT ${stuPausedOn('ss.student_id', '$2::date')}
+       AND NOT EXISTS (SELECT 1 FROM exc_stu_out xo WHERE xo.exc_id=x.id AND xo.student_id=ss.student_id)
+     GROUP BY ss.student_id`;
+  if (createSerIds.length) {
+    await q.query(
+      `WITH affected AS (${activeRoster})
+       INSERT INTO pnoti (ser_id,on_date,audience,student_id,channel,body)
+       SELECT a.ser_id,$2::date,'parent',a.student_id,'app',$3
+         FROM affected a
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pnoti p
+           WHERE p.on_date=$2::date AND p.audience='parent' AND p.student_id=a.student_id AND p.body=$3
+        )`,
+      [createSerIds, date, body],
+    );
+  }
+  const rows = await q.query(
+    `WITH affected AS (${activeRoster})
+     SELECT DISTINCT ON (p.student_id) p.id,p.student_id,st.name AS student_name,p.body,${kstAt('p.sent_at')} AS sent_at
+       FROM affected a
+       JOIN pnoti p ON p.student_id=a.student_id AND p.on_date=$2::date AND p.audience='parent' AND p.body=$3
+       JOIN stu st ON st.id=p.student_id
+      ORDER BY p.student_id,p.id DESC`,
+    [readSerIds, date, body],
+  ) as Array<{ id: string; student_id: string; student_name: string; body: string; sent_at: string | null }>;
+  return rows.map((row) => ({
+    id: Number(row.id),
+    studentId: Number(row.student_id),
+    studentName: row.student_name,
+    body: row.body,
+    title: cancelNoticeTitle(row.body),
+    sentAt: row.sent_at,
+  }));
+}
+
+/**
+ * C-32 「학원 사정 휴강 → 학부모 안내가 생성된다」 — 한 회차를 학원 사정으로 접으면 그 회차 명단 학생마다
+ * 학부모 안내 **준비행**을 같은 트랜잭션에 남긴다(D-R43). 전일 휴원(N-133)과 같은 이유로 여기서 외부 발송은 하지 않는다 —
+ * 보호자 · 채널 선택은 공용 발송 창(DQ3)의 일이고, rollback 뒤 이미 나간 메시지는 회수할 수 없다.
+ *
+ * 다른 사유(학생 결석 · 강사 결강 · 공휴일 · 기타)는 남기지 않는다 — 원문 C-32 가 말하는 것은 학원 사정뿐이다(D-R44).
+ * 같은 회차 · 같은 학생에 이 머리말의 줄이 이미 있으면 새로 만들지 않는다(다시 보낸 요청 · 재시도).
+ * 명단 판정은 전일 휴원과 같다 — 그날 유효한 명단 · 휴원 중 아님 · 그날만 빠짐 아님.
+ */
+async function prepareLessonCancelParentNotices(
+  q: QueryRunner,
+  serId: number,
+  onDate: string,
+  treat: string,
+  memo: string | null,
+  makeup?: { date: string; startMin: number },
+): Promise<void> {
+  const [head] = await q.query(
+    `SELECT COALESCE(sb.name, k.name) AS subject, ${START_MIN} AS start_min
+       FROM ser_occ o
+       JOIN ser s ON s.id = o.ser_id
+       JOIN kind k ON k.key = s.kind_key
+       LEFT JOIN sub sb ON sb.key = s.sub_key
+      WHERE o.ser_id = $1 AND o.on_date = $2::date`,
+    [serId, onDate],
+  ) as Array<{ subject: string; start_min: number | string }>;
+  if (!head) return;
+  const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const body = [
+    LESSON_CANCEL_NOTICE_PREFIX,
+    `${onDate} ${head.subject} ${hhmm(Number(head.start_min))} 수업 휴강 안내`,
+    '학원 사정으로 이 수업을 휴강합니다.',
+    makeup
+      ? `보강 ${makeup.date} ${hhmm(makeup.startMin)} 에 진행합니다.`
+      : treat === 'carry' ? '수업료는 차감하지 않고 이월합니다.' : null,
+    memo ? `사유: ${memo}` : null,
+  ].filter((line): line is string => line !== null).join('\n');
+  await q.query(
+    `INSERT INTO pnoti (ser_id,on_date,audience,student_id,channel,body)
+     SELECT $1,$2::date,'parent',ss.student_id,'app',$3
+       FROM ser_occ o
+       JOIN ser_stu ss ON ss.ser_id=o.ser_id AND ${serStuOn('ss', '$2::date')}
+       LEFT JOIN exc x ON x.ser_id=o.ser_id AND x.on_date=o.on_date
+      WHERE o.ser_id=$1 AND o.on_date=$2::date
+        AND NOT ${stuPausedOn('ss.student_id', '$2::date')}
+        AND NOT EXISTS (SELECT 1 FROM exc_stu_out xo WHERE xo.exc_id=x.id AND xo.student_id=ss.student_id)
+        AND NOT EXISTS (
+          SELECT 1 FROM pnoti p
+           WHERE p.ser_id=$1 AND p.on_date=$2::date AND p.audience='parent'
+             AND p.student_id=ss.student_id AND p.body LIKE $4
+        )`,
+    [serId, onDate, body, `${LESSON_CANCEL_NOTICE_PREFIX}%`],
+  );
+}
+
+/**
+ * 휴강했던 회차가 이 쓰기로 **되살아나면**(복원 — 휴강 블록을 끌어 옮기거나 시각 · 강사 · 강의실을 고치면 `applyEdit` 가 휴강을 푼다)
+ * 그 회차의 학원 사정 휴강 안내(C-32 · 회차 단위 준비행)를 정리한다 — SCHEDULE-EDGES 가 찾은 자리다.
+ *   · 아직 보내지 않았으면 같은 트랜잭션에서 걷는다 — 되살아난 수업에 「휴강 안내」가 남아 있으면 그대로 학부모에게 나갈 수 있다.
+ *   · 이미 보냈으면 409 `CANCEL_NOTICE_SENT` — 보낸 말은 회수할 수 없다. 되돌리기(undo)의 `UNDO_HAS_DELIVERY` 와 같은 판정이다.
+ * 규칙이 갈라질 때(향후 · 모두) 휴강 예외는 새 규칙으로 옮겨 갈 수 있다 — 같은 날짜의 휴강이 새 규칙에 있으면 되살아난 것이 아니다.
+ * 전일 휴원 안내(N-133)는 학생 · 날짜 단위라 한 회차를 되살려도 그날 휴원이 끝난 것이 아니다 — 여기서 건드리지 않는다.
+ */
+async function settleRestoredCancelNotices(q: QueryRunner, before: State, after: State): Promise<void> {
+  const beforeIds = new Set(before.SER.map((row) => row.id));
+  const restored = before.EXC
+    .filter((e) => e.canceled)
+    .filter((e) => !after.EXC.some((x) => x.canceled && x.onDate === e.onDate && (x.serId === e.serId || !beforeIds.has(x.serId))))
+    .map((e) => `${e.serId}:${e.onDate}`);
+  if (!restored.length) return;
+  const keyOf = `(ser_id::text || ':' || to_char(on_date,'YYYY-MM-DD'))`;
+  const sent = await q.query(
+    `SELECT id FROM pnoti WHERE audience = 'parent' AND sent_at IS NOT NULL AND body LIKE $2 AND ${keyOf} = ANY($1::text[]) LIMIT 1`,
+    [restored, `${LESSON_CANCEL_NOTICE_PREFIX}%`],
+  ) as Array<{ id: string }>;
+  if (sent.length) {
+    throw new ConflictException({
+      code: 'CANCEL_NOTICE_SENT',
+      message: '학부모에게 휴강 안내가 이미 나가 이 회차를 되살릴 수 없습니다 — 새 일정과 정정 안내로 처리해 주세요',
+    });
+  }
+  await q.query(
+    `DELETE FROM pnoti WHERE audience = 'parent' AND sent_at IS NULL AND body LIKE $2 AND ${keyOf} = ANY($1::text[])`,
+    [restored, `${LESSON_CANCEL_NOTICE_PREFIX}%`],
+  );
+}
+
+/**
+ * **학생을 넣으면 알림 세 건** (테스트 시나리오 M-124 · 원본 §16).
+ *
+ * M 영역 머리글이 이 함수의 이유다 — 「학생을 한 명 넣으면 안내와 교재가 필요해지는데,
+ * **이걸 담당자가 기억해야 한다면 시스템이 아닙니다.**」 지금까지 `roster()` 는
+ * `needGuide`/`needBook` 을 **응답에만** 실었고, 화면은 그것을 **모달이 닫히면 사라지는 창**
+ * 하나로 보여 줬다. 보여 주는 쪽만 있고 **남기는 쪽이 없었다.**
+ *
+ * 판정을 다시 하지 않는다 — 같은 트랜잭션이 이미 센 `needGuide`/`needBook` 을 그대로 받는다
+ * (D-R22 · D-R37). 화면이 본 목록과 수신함에 남는 줄이 **같은 배열**이어야 한다.
+ *
+ * **넣은 사람을 빼지 않는다.** `notifyCancel` 은 「남에게 알리는 일」이라 `id <> actor` 로
+ * 자기를 빼지만, 안내·교재는 **넣은 사람이 해야 할 일**이고 원문이 「① 넣기 ② 수신함 확인 →
+ * 3건」이라 적는다.
+ *
+ * 필요 없는 줄은 보내지 않는다 — 이미 안내가 있는 학생에게 「안내가 필요합니다」는 **거짓말**이다.
+ */
+async function notifyRosterAdd(
+  q: QueryRunner, actorId: number | undefined, serId: number, onDate: string, fresh: State,
+  studentId: number, needGuide: boolean, needBook: boolean,
+): Promise<void> {
+  const ser = fresh.SER.find((s) => s.id === serId);
+  if (!ser) return;
+  const exc = fresh.EXC.find((e) => e.serId === serId && e.onDate === onDate);
+  const teacherId = exc?.teacherSet ? exc.teacherId : ser.teacherId;
+  const [head] = await q.query(
+    `SELECT st.name AS student, COALESCE(sb.name, k.name) AS subject
+       FROM stu st
+       CROSS JOIN ser s
+       JOIN kind k ON k.key = s.kind_key
+       LEFT JOIN sub sb ON sb.key = s.sub_key
+      WHERE st.id = $2 AND s.id = $1`,
+    [serId, studentId],
+  ) as Array<{ student: string; subject: string }>;
+  if (!head) return;
+  // ⓐ 들어왔다 — 그 수업 강사와 관리자급 전원 (`notifyCancel` 과 같은 술어)
+  await q.query(
+    `INSERT INTO noti (to_id, from_id, body, link, category, title)
+     SELECT id, $1, $2, $3, 'schedule', $5 FROM staff
+      WHERE active AND (id = $4 OR role <> 'teacher')`,
+    [actorId ?? null, `${head.student} 학생이 ${head.subject} 수업에 들어왔습니다`,
+     `/schedule?date=${onDate}`, teacherId ?? -1, NOTI_TITLE.rosterAdded],
+  );
+  // ⓑ·ⓒ 준비할 일 — 쓰는 사람은 관리자다 (§43 안내 · §38 교재는 관리자 화면이다)
+  if (needGuide) {
+    await q.query(
+      `INSERT INTO noti (to_id, from_id, body, link, category, title)
+       SELECT id, $1, $2, '/guides', 'request', $3 FROM staff WHERE active AND role <> 'teacher'`,
+      [actorId ?? null, `${head.student} 수업 안내가 필요합니다`, NOTI_TITLE.guideNeeded],
+    );
+  }
+  if (needBook) {
+    // 링크·분류는 C91 등록 확정이 쓰는 것과 같은 선택이다 — 같은 일에 두 자리가 생기지 않게
+    await q.query(
+      `INSERT INTO noti (to_id, from_id, body, link, category, title)
+       SELECT id, $1, $2, '/books', 'request', $3 FROM staff WHERE active AND role <> 'teacher'`,
+      [actorId ?? null, `${head.student} 교재 배정이 필요합니다`, NOTI_TITLE.bookNeeded],
+    );
+  }
+}
+
+/**
+ * 강사 불가 시간과 겹친 회차 — **막지 않고 알린다** (원본 §15·§16).
+ *
+ * UNAV 는 DB 제약이 아니다. 급할 때 관리자가 그 위에 잡는 일이 실제로 있고, 그것까지 막으면
+ * 제품이 현장을 이긴다. 다만 **지금까지는 말조차 하지 않았다** — 관리자 화면 어디에도
+ * UNAV 가 없어 **적어 낸 강사만 알고 잡는 사람은 몰랐다.**
+ *
+ * 쓰기가 끝난 트랜잭션 안에서 한 번 훑는다 — 왕복을 더하지 않는다. 지난 날은 고칠 수 없으니
+ * 오늘부터 보고, 취소된 회차는 자리를 비우는 쪽이라 세지 않는다. 열 줄에서 끊는다(경고는
+ * 읽히지 않으면 없는 것과 같다).
+ */
+async function unavailableOverlaps(q: QueryRunner, serIds: number[]): Promise<UnavWarnDto[]> {
+  if (serIds.length === 0) return [];
+  const rows = (await q.query(
+    `SELECT o.ser_id, to_char(${kstDateOf('lower(o.span)')}, 'YYYY-MM-DD') AS date, u.staff_id, st.name AS teacher_name,
+            u.start_min, u.end_min, u.reason
+       FROM ser_occ o
+       JOIN unav u ON u.staff_id = o.teacher_id
+                  AND u.on_date = ${kstDateOf('lower(o.span)')}
+                  AND u.start_min < ${END_MIN}
+                  AND u.end_min > ${START_MIN}
+       JOIN staff st ON st.id = u.staff_id
+      WHERE o.ser_id = ANY($1)
+        AND NOT o.canceled
+        AND ${kstDateOf('lower(o.span)')} >= (now() AT TIME ZONE 'Asia/Seoul')::date
+      ORDER BY 2, u.start_min
+      LIMIT 10`,
+    [serIds],
+  )) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    serId: Number(r.ser_id),
+    date: String(r.date),
+    teacherId: Number(r.staff_id),
+    teacherName: String(r.teacher_name),
+    startMin: Number(r.start_min),
+    endMin: Number(r.end_min),
+    reason: String(r.reason),
+  }));
+}
+
+/**
+ * 같은 학생이 같은 시각에 **다른 수업에도** 있는 회차 — **막지 않고 알린다** (N-58 · W11).
+ *
+ * 불가 시간 알림과 같은 자리 · 같은 모양이다: 쓰기가 끝난 트랜잭션 안에서 한 번 훑고, 오늘부터 보고,
+ * 취소된 회차는 세지 않고, 열 줄에서 끊는다. 겹침의 정의는 EXCLUDE 와 같은 `span &&` 다.
+ * 명단은 **그날의 명단**이다 — 그날만 빠진 학생(exc_stu_out) · 휴원 중(stu_pause) · 수강 종료 뒤(serStuOn)는 세지 않는다.
+ * 이번 쓰기가 만든 두 수업끼리 겹치면 한 번만 적는다. `studentId` 를 주면 그 학생만 본다(명단 넣기).
+ */
+async function studentOverlaps(q: QueryRunner, serIds: number[], studentId?: number): Promise<StudentOverlapDto[]> {
+  if (serIds.length === 0) return [];
+  const rows = (await q.query(
+    `WITH mine AS (
+       SELECT o.ser_id, o.span, ss.student_id
+         FROM ser_occ o
+         JOIN ser_stu ss ON ss.ser_id = o.ser_id AND ${serStuOn('ss', 'o.on_date')}
+         LEFT JOIN exc e ON e.ser_id = o.ser_id AND e.on_date = o.on_date
+        WHERE o.ser_id = ANY($1) AND NOT o.canceled
+          AND ${kstDateOf('lower(o.span)')} >= (now() AT TIME ZONE 'Asia/Seoul')::date
+          AND ($2::bigint IS NULL OR ss.student_id = $2)
+          AND NOT EXISTS (SELECT 1 FROM exc_stu_out xo WHERE xo.exc_id = e.id AND xo.student_id = ss.student_id)
+          AND NOT ${stuPausedOn('ss.student_id', 'o.on_date')}
+     )
+     SELECT m.ser_id, to_char(${kstDateOf('lower(m.span)')}, 'YYYY-MM-DD') AS date,
+            m.student_id, st.name AS student_name,
+            o2.ser_id AS other_ser_id, COALESCE(sb.name, NULLIF(s2.title, ''), k2.name) AS other_title,
+            ${startMinOf('o2')} AS other_start_min, ${endMinOf('o2')} AS other_end_min
+       FROM mine m
+       JOIN ser_occ o2 ON o2.span && m.span AND o2.ser_id <> m.ser_id AND NOT o2.canceled
+       JOIN ser_stu ss2 ON ss2.ser_id = o2.ser_id AND ss2.student_id = m.student_id AND ${serStuOn('ss2', 'o2.on_date')}
+       LEFT JOIN exc e2 ON e2.ser_id = o2.ser_id AND e2.on_date = o2.on_date
+       JOIN stu st ON st.id = m.student_id
+       JOIN ser s2 ON s2.id = o2.ser_id
+       JOIN kind k2 ON k2.key = s2.kind_key
+       LEFT JOIN sub sb ON sb.key = s2.sub_key
+      WHERE NOT EXISTS (SELECT 1 FROM exc_stu_out xo2 WHERE xo2.exc_id = e2.id AND xo2.student_id = m.student_id)
+        AND NOT (o2.ser_id = ANY($1) AND o2.ser_id < m.ser_id)
+      ORDER BY lower(m.span), st.name, lower(o2.span), o2.ser_id
+      LIMIT 10`,
+    [serIds, studentId ?? null],
+  )) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    serId: Number(r.ser_id),
+    date: String(r.date),
+    studentId: Number(r.student_id),
+    studentName: String(r.student_name),
+    otherSerId: Number(r.other_ser_id),
+    otherTitle: String(r.other_title),
+    otherStartMin: Number(r.other_start_min),
+    otherEndMin: Number(r.other_end_min),
+  }));
+}
+
+/** 네 단계를 감싸는 자리의 선택지 — 쓰기마다 다른 것만 적는다 */
+interface TxOptions<T extends WriteResultDto> {
+  /** 같은 트랜잭션에서 결과를 채우는 일 (알림 · 명단 가격 · 변경 요청 종결) */
+  enrich?: (q: QueryRunner, fresh: State, base: WriteResultDto) => Promise<T>;
+  actorId?: number;
+  /** false 면 되돌리기 토큰을 주지 않는다 */
+  undoable?: boolean;
+  /**
+   * 바깥 트랜잭션 안에서 부를 때 (C91 등록 확정 — STU·ENR·SER·INV·ISSUE·GUIDE·NOTI 가 한 트랜잭션).
+   * 주어지면 여기서 열지도 닫지도 않는다 — 실패는 그대로 던져 바깥이 통째로 되돌린다.
+   */
+  outer?: QueryRunner;
+  /** 학생 겹침 알림(N-58)을 실을 쓰기인가 — 만들기 · 수정 · 이동 · 붙여넣기 · 명단 넣기. 숫자면 그 학생만 본다 */
+  overlaps?: boolean | { studentId: number };
+  /**
+   * BO-09E-01: marker writer와 반드시 직렬화해야 하는 명단 생성·복사·교체·추가/제거 경로.
+   * 시간/자원만 바꾸는 기존 동시 PATCH까지 전역 배타로 묶으면 서로 다른 필드 병합이 막히므로,
+   * 그 경로는 공통 최종상태 검사와 지연 DB 제약을 쓰되 이 선행 잠금은 잡지 않는다.
+   */
+  kinderRosterMutation?: boolean;
+}
+
+@Injectable()
+export class ScheduleWriteService {
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+
+  /** 잠금 후 원래 회차 키를 확인한다. 이동 날짜/취소 여부로 판정하면 복원 가능한 회차도 막힌다. */
+  private requireOccurrence(state: State, serId: number, onDate: string) {
+    const ser = state.SER.find((s) => s.id === serId);
+    if (!ser) throw new NotFoundException({ code: 'NOT_FOUND', message: `수업 ${serId} 이(가) 없습니다` });
+    if (!ruleHits(ser, onDate)) {
+      throw new NotFoundException({
+        code: 'OCCURRENCE_NOT_FOUND',
+        message: `${onDate} 회차가 없습니다. 최신 목록에서 수업을 다시 선택해 주세요`,
+      });
+    }
+    return ser;
+  }
+
+  /**
+   * 네 단계를 한 트랜잭션으로 감싸는 자리. 모든 쓰기가 이것을 통과한다.
+   * @param auditKey 감사 원장에 남길 쓰기 이름 (N-73 · lib/audit 의 표) — 규칙마다 한 줄, 같은 트랜잭션
+   */
+  private async tx<T extends WriteResultDto = WriteResultDto>(
+    auditKey: AuditKey,
+    serIds: number[],
+    reduce: (before: State, q: QueryRunner) =>
+      { after: State; log: string[]; effScope: string } |
+      Promise<{ after: State; log: string[]; effScope: string }>,
+    opts: TxOptions<T> = {},
+  ): Promise<T> {
+    if (opts.outer) return this.txBody(opts.outer, auditKey, serIds, reduce, opts);
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      const result = await this.txBody(q, auditKey, serIds, reduce, opts);
+      await q.commitTransaction();
+      return result;
+    } catch (e) {
+      await q.rollbackTransaction();
+      throw e;
+    } finally {
+      await q.release();
+    }
+  }
+
+  private async txBody<T extends WriteResultDto = WriteResultDto>(
+    q: QueryRunner,
+    auditKey: AuditKey,
+    serIds: number[],
+    reduce: (before: State, q: QueryRunner) =>
+      { after: State; log: string[]; effScope: string } |
+      Promise<{ after: State; log: string[]; effScope: string }>,
+    opts: TxOptions<T>,
+  ): Promise<T> {
+    const { enrich, actorId, undoable = true, overlaps, kinderRosterMutation = false } = opts;
+    {
+      // BO-09E-01 권고안: 실제 명단 mutation은 월 마감 공유 → Kinder 배타 → 기존 업무 행 순서다.
+      // 시간/자원 PATCH는 기존 병합 동시성을 유지하고 commit 시 지연 DB 제약으로 최종상태를 다시 검사한다.
+      if (kinderRosterMutation) await lockKinderRosterPolicyWrite(q);
+      // D-R43: 같은 SER의 모든 쓰기를 최초 snapshot 전에 직렬화한다. 자식만 바꾸는
+      // 명단/회차 예외도 이 잠금을 공유하며 persist/project/commit까지 유지한다.
+      const before = await loadState(q, serIds, { forWrite: true });
+      const { after, log, effScope } = await reduce(before, q);
+
+      // BOC-11C 권고안: schedule과 정지 전이를 한 순서로 세운 뒤, 기존 일정 축소/취소는 허용하고
+      // 새 생성·복사·이동·복원·명단 확장만 409로 막는다. 정책 변경 시 기능 정본과 DB trigger도 같이 바꾼다.
+      await lockDelinquencyScheduleWrite(q);
+      await assertNoSuspendedScheduleExpansion(q, before, after);
+
+      const timeIssue = scheduleTimeIssue(after);
+      if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+
+      await assertScheduleReferences(q, after);
+      await assertKinderRosterWrite(q, after);
+      // 되살아나는 휴강 회차의 안내 — 보낸 뒤면 409, 아니면 같은 트랜잭션에서 걷는다 (C-32 · SCHEDULE-EDGES)
+      await settleRestoredCancelNotices(q, before, after);
+      /*
+       * 월 마감 (C92-d · L-123) — 「마감 후에도 자유롭게 고쳐지면 실패」.
+       * 날짜 하나로는 못 막는다: 규칙 전체를 고치면(scope=all · 시각 변경) 투영이 지난 달 회차까지 다시 쓴다.
+       * 그래서 마감 달에 놓인 회차·예외의 모양을 persist/project 앞뒤로 찍어 **달라졌으면** 통째로 되돌린다.
+       * 새 규칙이 마감 달에 회차를 만드는 것도 같은 비교가 잡는다 (뒤 스냅숏에만 줄이 생긴다).
+       */
+      const closed = await closedMonths(q);
+      const closedBefore = await closedOccSnapshot(q, before.SER.map((row) => row.id), closed);
+      const touched = await persist(q, before, after);
+      // 새로 생긴 규칙은 persist 가 진짜 id 를 붙여 돌려준다. 그 id 로 다시 읽어야
+      // 투영이 임시 id 가 아니라 실제 행을 편다.
+      const fresh = await loadState(q, touched);
+      const projected = await project(q, fresh, touched, horizon());
+
+      const snapshotIds = [...new Set([...before.SER.map((row) => row.id), ...touched])];
+      if (closed.length) {
+        const closedAfter = await closedOccSnapshot(q, snapshotIds, closed);
+        assertClosedOccUnchanged({
+          before: closedBefore, after: closedAfter, closed,
+          fallbackMonth: monthOf(after.SER[0]?.fromDate ?? closed[0]!),
+        });
+      }
+      // 되돌리기 스냅숏과 감사 줄은 **같은 뒤 상태**를 본다 — 한 번 읽는다
+      const afterSnapshot = actorId ? await loadState(q, snapshotIds) : null;
+      // 토큰과 만료를 한 번에 — 「되돌리기 ▾」 목록이 지난 단계를 서버 값으로 뺀다 (g1 S5)
+      const step = actorId && undoable && afterSnapshot ? issueScheduleUndoStep(actorId, before, afterSnapshot) : null;
+      // N-73 — 규칙마다 한 줄 · 같은 트랜잭션 (겹침 409 로 되돌아가면 줄도 사라진다)
+      if (afterSnapshot) await auditScheduleWrite(q, auditKey, actorId, before, afterSnapshot);
+
+      const base = {
+        effScope, log, projected, serIds: touched,
+        undoToken: step?.token ?? null,
+        undoExpiresAt: step?.expiresAt ?? null,
+        unavailable: await unavailableOverlaps(q, touched),
+        studentOverlaps: overlaps
+          ? await studentOverlaps(q, touched, typeof overlaps === 'object' ? overlaps.studentId : undefined)
+          : [],
+      };
+      const result = enrich ? await enrich(q, fresh, base) : base as T;
+      return result;
+    }
+  }
+
+  async create(dto: OccurrenceCreateDto, actorId?: number, outer?: QueryRunner): Promise<WriteResultDto> {
+    assertModeRoom(dto);
+    if (!isIsoDate(dto.fromDate) || (dto.toDate != null && !isIsoDate(dto.toDate))) {
+      throw new BadRequestException({ code: 'BAD_RANGE', message: '시작일·종료일은 실제 YYYY-MM-DD 날짜여야 합니다' });
+    }
+    if (dto.toDate != null && dto.toDate < dto.fromDate) {
+      throw new BadRequestException({ code: 'BAD_RANGE', message: '종료일이 시작일보다 앞설 수 없습니다' });
+    }
+    // 쓰기 문법 전체를 확인한 뒤 한 번 정규화한다. 과거 저장값용 관대한 parser에 새 입력을 맡기지 않는다.
+    const parsed = parseRuleInput(dto.rrule);
+    if (!parsed) {
+      throw new BadRequestException({
+        code: 'BAD_RRULE',
+        message: `읽을 수 없는 반복 규칙입니다: ${dto.rrule} (ONCE | DAILY[/n] | WEEKLY:MO,WE[/n])`,
+      });
+    }
+    const rrule = formatRule(parsed);
+    const timeIssue = lessonTimeIssue(dto.startMin, dto.endMin);
+    if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+
+    return this.tx('schedule.create', [], () => {
+      const empty: State = { SER: [], SER_STU: [], EXC: [] };
+      const a = applyCreate(empty, {
+        draft: {
+          kind: dto.kindKey, sub: dto.subKey ?? null, mode: dto.mode,
+          title: dto.title ?? '', teacherId: dto.teacherId ?? null, roomId: dto.roomId ?? null,
+          startMin: dto.startMin, endMin: dto.endMin, rrule,
+          date: dto.fromDate, toDate: dto.toDate ?? null,
+          students: dto.studentIds ?? [],
+        },
+      });
+      return { after: a, log: a.__log, effScope: a.__effScope };
+    }, { actorId, outer, overlaps: true, kinderRosterMutation: true });
+  }
+
+  /**
+   * Ctrl+드래그와 C/X/V의 단일 저장 경로. 클라이언트가 보낸 표시용 내용을 믿지 않고
+   * 원본 참조를 occ()로 다시 풀어 copyMany() → applyPaste() 순서로만 새 SER를 만든다.
+   */
+  async paste(dto: OccurrencePasteDto, actorId?: number): Promise<WriteResultDto> {
+    if (dto.studentReplacement && (dto.studentReplacement.fromStudentId === dto.studentReplacement.toStudentId ||
+        dto.requiredStudentId !== undefined || dto.cut === true)) {
+      throw new BadRequestException({
+        code: 'BAD_STUDENT_REPLACEMENT',
+        message: '학생 간 복사는 출발 학생과 대상 학생이 달라야 하며, 잘라내기나 같은 학생 명단 확인을 함께 요청할 수 없습니다',
+      });
+    }
+    const sourceIds = [...new Set(dto.sources.map((s) => s.serId))];
+    return this.tx('schedule.paste', sourceIds, (before) => {
+      const seen = new Set<string>();
+      const sources = dto.sources.map((ref) => {
+        const key = `${ref.serId}|${ref.onDate}`;
+        if (seen.has(key)) {
+          throw new BadRequestException({ code: 'BAD_PASTE', message: '같은 원본 회차가 두 번 들어 있습니다' });
+        }
+        seen.add(key);
+        const source = occ(ref.date, before).find((o) => o.serId === ref.serId && o.onDate === ref.onDate);
+        if (!source) {
+          throw new NotFoundException({
+            code: 'SOURCE_NOT_FOUND',
+            message: `복사 원본 ${ref.serId} (${ref.onDate}) 회차를 찾을 수 없습니다`,
+          });
+        }
+        return source;
+      });
+
+      const requiredStudentId = dto.studentReplacement?.fromStudentId ?? dto.requiredStudentId;
+      if (requiredStudentId !== undefined) {
+        sources.forEach((source) => requireCurrentStudent(before, source, requiredStudentId, 'PASTE_STUDENT_CHANGED'));
+      }
+
+      const copied = copyMany(before, sources, dto.studentReplacement);
+      const issue = pasteIssue(copied, dto.targetDate, dto.targetStartMin, dto.scope as Scope);
+      if (issue) throw new BadRequestException({ code: 'BAD_PASTE', message: issue });
+
+      let current = before;
+      const log: string[] = [];
+      if (dto.cut) {
+        for (const source of sources) {
+          const deleted = applyDelete(current, {
+            serId: source.serId, onDate: source.onDate, scope: 'this',
+          });
+          current = deleted;
+          log.push(...deleted.__log);
+        }
+      }
+
+      const pasted = applyPaste(current, {
+        items: copied,
+        targetDate: dto.targetDate,
+        targetMin: dto.targetStartMin,
+        patch: {
+          teacherId: dto.teacherId === undefined ? undefined : dto.teacherId,
+          roomId: dto.roomId === undefined ? undefined : dto.roomId,
+        },
+        scope: dto.scope as Scope,
+      });
+      return { after: pasted, log: [...log, ...pasted.__log], effScope: pasted.__effScope };
+    }, { actorId, overlaps: true, kinderRosterMutation: true });
+  }
+
+  /** C-7 — 여러 PATCH를 클라이언트에서 반복하지 않고 한 load/reduce/persist/project로 묶는다. */
+  async moveMany(dto: OccurrenceMoveDto, actorId?: number): Promise<WriteResultDto> {
+    const sourceIds = [...new Set(dto.items.map((x) => x.source.serId))];
+    return this.tx('schedule.move', sourceIds, (before) => {
+      const refs = new Set<string>();
+      const recurringIds = new Set<number>();
+      let current = before;
+      const log: string[] = [];
+
+      for (const item of dto.items) {
+        const ref = item.source;
+        const key = `${ref.serId}|${ref.onDate}`;
+        if (refs.has(key)) {
+          throw new BadRequestException({ code: 'BAD_MOVE', message: '같은 원본 회차가 두 번 들어 있습니다' });
+        }
+        refs.add(key);
+        if (dto.scope !== 'this' && recurringIds.has(ref.serId)) {
+          throw new BadRequestException({
+            code: 'BAD_MOVE',
+            message: '같은 반복 규칙의 여러 회차에는 향후·모두 이동을 동시에 적용할 수 없습니다',
+          });
+        }
+        recurringIds.add(ref.serId);
+        const source = occ(ref.date, before).find((o) => o.serId === ref.serId && o.onDate === ref.onDate);
+        if (!source) {
+          throw new NotFoundException({
+            code: 'SOURCE_NOT_FOUND',
+            message: `이동 원본 ${ref.serId} (${ref.onDate}) 회차를 찾을 수 없습니다`,
+          });
+        }
+        if (dto.requiredStudentId !== undefined) {
+          requireCurrentStudent(before, source, dto.requiredStudentId, 'MOVE_STUDENT_CHANGED');
+        }
+        const timeIssue = lessonTimeIssue(item.startMin, item.endMin);
+        if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+        const moved = applyEdit(current, {
+          serId: ref.serId,
+          onDate: ref.onDate,
+          scope: dto.scope as Scope,
+          patch: {
+            date: item.date,
+            startMin: item.startMin,
+            endMin: item.endMin,
+            teacherId: item.teacherId === undefined ? undefined : item.teacherId,
+            roomId: item.roomId === undefined ? undefined : item.roomId,
+            __onDate: ref.onDate,
+          },
+        });
+        current = moved;
+        log.push(...moved.__log);
+      }
+      return { after: current, log, effScope: dto.scope };
+    }, { actorId, overlaps: true });
+  }
+
+  /**
+   * @param inside 이 쓰기와 **같은 트랜잭션에서 함께 커밋할 일**.
+   *   변경 요청 반영(C42)이 쓴다 — 시간표를 바꾸는 것과 요청을 닫는 것이 나뉘면
+   *   「시간표는 바뀌었는데 요청은 아직 대기」가 생기고 다시 누르면 두 번 반영된다.
+   *   겹침으로 롤백되면 요청 상태도 함께 되돌아간다.
+   */
+  async patch(
+    serId: number, dto: OccurrencePatchDto, inside?: (q: QueryRunner) => Promise<void>, actorId?: number,
+    /** 바깥 트랜잭션 — 강사 교체 마법사(C93)가 여러 규칙을 한 트랜잭션에서 고친다. `create` 의 `outer` 와 같다 */
+    outer?: QueryRunner,
+  ): Promise<WriteResultDto> {
+    let normalizedRrule: string | undefined;
+    if (dto.rrule !== undefined) {
+      const parsed = parseRuleInput(dto.rrule);
+      if (!parsed) {
+        throw new BadRequestException({
+          code: 'BAD_RRULE',
+          message: `읽을 수 없는 반복 규칙입니다: ${dto.rrule} (ONCE | DAILY[/n] | WEEKLY:MO,WE[/n])`,
+        });
+      }
+      normalizedRrule = formatRule(parsed);
+    }
+    if (dto.toDate !== undefined && dto.toDate !== null && !isIsoDate(dto.toDate)) {
+      throw new BadRequestException({ code: 'BAD_RANGE', message: '반복 종료일은 실제 YYYY-MM-DD 날짜여야 합니다' });
+    }
+    // 방식 전환 입력 방어 (N-56) — 서로 맞지 않는 조합은 잠금 전에 거절한다
+    if (dto.zaccId !== undefined && dto.mode !== 'online') {
+      throw new BadRequestException({
+        code: 'MODE_ZOOM_NEEDS_ONLINE',
+        message: '줌 계정은 온라인으로 바꿀 때 함께 보냅니다 — 이미 온라인인 수업의 계정은 줌 계정 화면에서 바꿉니다',
+      });
+    }
+    assertModeRoom(dto);
+    /*
+     * N-142 「같은 시간에 두 사람이 수정 — 나중 저장이 반영된다 · 충돌 시 안내」 — 막지 않는다. 같은 SER 쓰기는 부모 잠금으로
+     * 줄을 서므로(D-R43) **잠금을 잡은 뒤** 읽으면, 내가 읽은 뒤(readVersion) 먼저 커밋한 남의 쓰기가 전부 보인다.
+     * 그 마지막 한 줄을 결과에 싣는다 — 화면이 「○○님이 고친 내용을 덮어썼습니다」라 알린다. 같은 사람의 다른 탭은 세지 않는다.
+     */
+    let overwrote: WriteResultDto['overwrote'] = null;
+    return this.tx('schedule.patch', [serId], async (before, q) => {
+      const ser = this.requireOccurrence(before, serId, dto.onDate);
+      if (dto.requiredStudentId !== undefined) {
+        requireCurrentStudent(before, { serId, onDate: dto.onDate }, dto.requiredStudentId, 'MOVE_STUDENT_CHANGED');
+      }
+      if (dto.readVersion !== undefined && actorId !== undefined) {
+        const [other] = (await q.query(
+          `SELECT st.name, ${kstAt('l.at')} AS at
+             FROM log l LEFT JOIN staff st ON st.id = l.actor_id
+            WHERE l.id > $1 AND l.entity = 'SER' AND l.entity_id = $2 AND l.actor_id <> $3
+            ORDER BY l.id DESC LIMIT 1`,
+          [dto.readVersion, serId, actorId],
+        )) as Array<{ name: string | null; at: string }>;
+        if (other) overwrote = { byName: other.name ?? null, at: other.at };
+      }
+      const hasSeriesPatch = dto.kindKey !== undefined || dto.subKey !== undefined || dto.title !== undefined ||
+        dto.rrule !== undefined || dto.toDate !== undefined;
+      if (hasSeriesPatch && dto.scope === 'this' && parseRule(ser.rrule).freq !== 'ONCE') {
+        throw new BadRequestException({
+          code: 'SERIES_SCOPE_REQUIRED',
+          message: '종류·과목·제목·반복 규칙은 반복 시리즈 값입니다. 향후 또는 모두를 골라 주세요',
+        });
+      }
+      const structuralSeriesPatch = dto.kindKey !== undefined || dto.rrule !== undefined;
+      if (structuralSeriesPatch) {
+        const from = dto.scope === 'future' && dto.onDate > ser.fromDate ? dto.onDate : null;
+        const [reportRef] = (await q.query(
+          `SELECT id FROM rep WHERE ser_id=$1 AND ($2::date IS NULL OR on_date >= $2::date) LIMIT 1`,
+          [serId, from],
+        )) as Array<{ id: string }>;
+        if (reportRef) {
+          throw new ConflictException({
+            code: 'SERIES_HAS_REPORTS',
+            message: '이미 리포트가 연결된 수업의 종류·반복 규칙은 바꿀 수 없습니다. 제목·과목·기간은 그대로 수정할 수 있습니다',
+          });
+        }
+        if (dto.rrule !== undefined) {
+          const [exceptionRef] = (await q.query(
+            `SELECT id FROM exc WHERE ser_id=$1 AND ($2::date IS NULL OR on_date >= $2::date) LIMIT 1`,
+            [serId, from],
+          )) as Array<{ id: string }>;
+          if (exceptionRef) {
+            throw new ConflictException({
+              code: 'SERIES_HAS_EXCEPTIONS',
+              message: '휴강·이동·메모가 있는 수업의 반복 규칙은 바꿀 수 없습니다. 회차 예외를 먼저 정리해 주세요',
+            });
+          }
+        }
+      }
+      const patch: OccurrencePatch = { __onDate: dto.onDate };
+      if (dto.startMin !== undefined) patch.startMin = dto.startMin;
+      if (dto.endMin !== undefined) patch.endMin = dto.endMin;
+      if (dto.teacherId !== undefined) patch.teacherId = dto.teacherId;
+      if (dto.roomId !== undefined) patch.roomId = dto.roomId;
+      if (dto.date !== undefined) patch.date = dto.date;
+      if (dto.kindKey !== undefined) patch.kind = dto.kindKey;
+      if (dto.subKey !== undefined) patch.sub = dto.subKey;
+      if (dto.title !== undefined) patch.title = dto.title;
+      if (normalizedRrule !== undefined) patch.rrule = normalizedRrule;
+      if (dto.toDate !== undefined) patch.toDate = dto.toDate;
+      if (dto.mode !== undefined) patch.mode = dto.mode;
+      if (dto.zaccId !== undefined) patch.zaccId = dto.zaccId;
+      if (dto.memo !== undefined) patch.memo = dto.memo;
+      // 새로 붙이는 계정만 본다 — 없는 계정 404 · 꺼 둔 계정 409 (줌 계정 화면의 배정과 같은 판정)
+      if (dto.zaccId !== undefined && dto.zaccId !== null) await assertZaccAssignable(q, dto.zaccId);
+
+      if (Object.keys(patch).length === 1) {
+        throw new BadRequestException({ code: 'EMPTY_PATCH', message: '바꿀 값을 하나 이상 보내야 합니다' });
+      }
+      if (dto.scope !== 'this' &&
+          (dto.startMin === null || dto.endMin === null || dto.date === null)) {
+        throw new BadRequestException({
+          code: 'BAD_NULL_SCOPE',
+          message: '시간·날짜 예외를 규칙값으로 되돌리는 것은 이번 회차에서만 가능합니다',
+        });
+      }
+
+      const exc = before.EXC.find((e) => e.serId === serId && e.onDate === dto.onDate);
+      const baseStart = dto.scope === 'this' ? (exc?.startMin ?? ser.startMin) : ser.startMin;
+      const baseEnd = dto.scope === 'this' ? (exc?.endMin ?? ser.endMin) : ser.endMin;
+      const startMin = patch.startMin === undefined ? baseStart : (patch.startMin ?? ser.startMin);
+      const endMin = patch.endMin === undefined ? baseEnd : (patch.endMin ?? ser.endMin);
+      const timeIssue = lessonTimeIssue(startMin, endMin);
+      if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+
+      const a = applyEdit(before, {
+        serId,
+        onDate: dto.onDate,
+        scope: (hasSeriesPatch && dto.scope === 'this' ? 'all' : dto.scope) as Scope,
+        patch,
+      });
+      const invalidRange = a.SER.find((row) => row.toDate !== null && row.toDate < row.fromDate);
+      if (invalidRange) {
+        throw new BadRequestException({ code: 'BAD_RANGE', message: '반복 종료일이 시작일보다 앞설 수 없습니다' });
+      }
+      return { after: a, log: a.__log, effScope: a.__effScope };
+    }, {
+      enrich: async (q, fresh, base) => {
+        const inner = this.withInside(inside);
+        const r = inner ? await inner(q, fresh, base) : base;
+        return { ...r, overwrote };
+      },
+      actorId, outer, overlaps: true,
+    });
+  }
+
+  /** `inside` 를 `tx` 의 커밋 직전 자리(enrich)에 끼운다. 결과는 바꾸지 않는다. */
+  private withInside(inside?: (q: QueryRunner) => Promise<void>) {
+    if (!inside) return undefined;
+    return async (q: QueryRunner, _fresh: State, base: WriteResultDto): Promise<WriteResultDto> => {
+      await inside(q);
+      return base;
+    };
+  }
+
+  /** @param inside `patch` 와 같다 — 같은 트랜잭션에서 함께 커밋할 일 (C42) */
+  async remove(
+    serId: number, dto: OccurrenceDeleteDto, inside?: (q: QueryRunner) => Promise<void>, actorId?: number,
+    /** 바깥 트랜잭션 — 변경 요청 승인이 source version 검사부터 요청 종결까지 한 연결로 묶는다. */
+    outer?: QueryRunner,
+  ): Promise<WriteResultDto> {
+    // 사유·처리는 휴강(이번만)에만 붙는다. 향후·모두는 수업 종료라 정책이 없다 (C92)
+    const cancel = dto.scope === 'this' ? cancelArgs(dto) : undefined;
+    if (dto.scope !== 'this' && (dto.cancelKind !== undefined || dto.cancelTreat !== undefined || dto.makeup !== undefined)) {
+      throw new BadRequestException({
+        code: 'CANCEL_SCOPE', message: '휴강 사유·처리는 이번 회차에만 붙습니다 — 향후·모두는 수업 종료입니다',
+      });
+    }
+    // 보강 이관은 보강 회차가 있어야 성립한다 — 날짜 없는 「보강 이관」은 세지도 않고 잡지도 않은 회차가 된다 (C-34)
+    if (cancel?.treat === 'makeup' && !dto.makeup) {
+      throw new BadRequestException({ code: 'MAKEUP_REQUIRED', message: '보강 이관은 보강 날짜와 시각이 필요합니다' });
+    }
+    if (dto.makeup && cancel?.treat !== 'makeup') {
+      throw new BadRequestException({ code: 'MAKEUP_NOT_MAKEUP', message: '보강 날짜는 처리가 「보강 이관」일 때만 보냅니다' });
+    }
+    const makeup = dto.makeup;
+    if (makeup) {
+      if (!isIsoDate(makeup.date)) throw new BadRequestException({ code: 'BAD_RANGE', message: '보강 날짜는 실제 YYYY-MM-DD 날짜여야 합니다' });
+      const timeIssue = lessonTimeIssue(makeup.startMin, makeup.endMin);
+      if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+      if (makeup.date === dto.onDate) {
+        throw new BadRequestException({ code: 'MAKEUP_SAME_DAY', message: '보강은 같은 날이 아닙니다 — 시각만 바꾸려면 회차를 옮기세요' });
+      }
+    }
+    const after = cancel
+      ? async (q: QueryRunner, fresh: State, base: WriteResultDto): Promise<WriteResultDto> => {
+        await notifyCancel(q, actorId, serId, dto.onDate, fresh, cancel.treat, makeup ? { date: makeup.date, startMin: makeup.startMin } : undefined);
+        if (PARENT_NOTICE_CANCEL_REASONS.includes(cancel.kind as AttendanceCancelReason)) {
+          await prepareLessonCancelParentNotices(
+            q, serId, dto.onDate, cancel.treat, cancel.memo, makeup ? { date: makeup.date, startMin: makeup.startMin } : undefined,
+          );
+        }
+        if (inside) await inside(q);
+        return base;
+      }
+      : this.withInside(inside);
+    return this.tx('schedule.delete', [serId], async (before, q) => {
+      this.requireOccurrence(before, serId, dto.onDate);
+      // ATT를 포함한 이력 원장은 SER_OCC와 달리 재투영해 지울 수 없다. 전 회차 삭제 요청이어도
+      // 사실 참조가 하나라도 있으면 SER를 보존하고 기간만 마감해야 감사 근거가 함께 남는다.
+      const referenced = await referencedSeries(q, [serId]);
+      const a = applyDelete(before, {
+        serId,
+        onDate: dto.onDate,
+        scope: dto.scope as Scope,
+        hasRefs: referenced.length > 0,
+        cancel,
+        makeup: makeup
+          ? { date: makeup.date, startMin: makeup.startMin, endMin: makeup.endMin, teacherId: makeup.teacherId, roomId: makeup.roomId }
+          : undefined,
+      });
+      return { after: a, log: a.__log, effScope: a.__effScope };
+      // N-138 「실수로 지운 일정 되돌리기」 — 토큰을 준다. C87 이 「삭제는 경계」로 닫아 둔 것은
+      // 이 다섯째 인자 하나였다(스냅숏도 발급기도 이미 있었다). 되살릴 때 번호를 지키는 길은
+      // `undo()` 가 `restoreSerIds` 로 연다.
+    }, { enrich: after, actorId, outer });
+  }
+
+  /**
+   * 그날 전체 휴강 (테스트 시나리오 C-33 공휴일 · N-133 태풍·감염병) — 한 트랜잭션이다.
+   * 「일부만 처리되면 실패」가 판정이라, 회차 하나가 막히면 전부 되돌아간다.
+   * 이미 휴강인 회차는 건너뛰고 세어서 돌려준다 — 두 번 접지 않는다.
+   */
+  async dayCancel(dto: DayCancelDto, actorId?: number): Promise<DayCancelResultDto> {
+    const cancel = cancelArgs(dto);
+    if (!cancel) throw new BadRequestException({ code: 'CANCEL_REASON_REQUIRED', message: CANCEL_POLICY_MESSAGE.CANCEL_REASON_REQUIRED });
+    // 회차마다 보강 날짜가 다르다 — 그날 전체는 이월(또는 차감)만 받고 보강은 회차의 휴강 창에서 잡는다 (C-33 · C-34)
+    if (cancel.treat === 'makeup') {
+      throw new BadRequestException({ code: 'MAKEUP_NOT_BULK', message: '그날 전체 휴강은 보강 이관을 받지 않습니다 — 보강은 회차마다 잡습니다' });
+    }
+    // N-133 전체 휴원은 학생 한 명의 결석이 아니다. 사유를 student_absent 로 조작해도 차감으로 접을 수 없다.
+    if (cancel.treat === 'deduct') {
+      throw new BadRequestException({ code: 'DAY_CANCEL_DEDUCT_FORBIDDEN', message: '그날 전체 휴강은 차감할 수 없습니다 — 모든 학생에게 이월합니다' });
+    }
+    const q = this.ds.createQueryRunner();
+    await q.connect();
+    await q.startTransaction();
+    try {
+      await lockKinderRosterPolicyWrite(q);
+      /*
+       * 전일 휴원은 드문 전역 작업이다. 관련 원본/투영 표를 잠깐 table lock으로 닫아, 대상 조회와
+       * commit 사이에 새 SER가 생기거나 다른 날 회차가 이 날로 들어오는 phantom을 막는다.
+       * 이미 시작한 쓰기가 있으면 끝날 때까지 기다린 뒤 최신 집합을 읽고, 뒤 쓰기는 휴원이 끝난 뒤 진행한다.
+       */
+      await q.query('LOCK TABLE ser,ser_stu,exc,exc_stu_out,stu_pause,ser_occ IN SHARE ROW EXCLUSIVE MODE');
+      const serIds = ((await q.query(
+        `SELECT s.id AS ser_id
+           FROM ser s
+           JOIN (SELECT DISTINCT ser_id FROM ser_occ WHERE ${kstDateOf('lower(span)')} = $1::date) target
+             ON target.ser_id = s.id
+          ORDER BY s.id
+          FOR NO KEY UPDATE OF s`, [dto.date],
+      )) as Array<{ ser_id: string }>).map((r) => Number(r.ser_id));
+      if (!serIds.length) {
+        throw new NotFoundException({ code: 'NO_OCCURRENCES', message: `${dto.date} 에는 회차가 없습니다` });
+      }
+      let count = 0;
+      let skipped = 0;
+      const targets: Array<{ serId: number; onDate: string }> = [];
+      const result = await this.tx<DayCancelResultDto>('schedule.day_cancel', serIds, (before) => {
+        let current = before;
+        const log: string[] = [];
+        // occ() 는 표시용이라 휴강을 그리지 않는다 — 이미 접힌 회차는 투영(project)과 같은 판정으로 센다:
+        // 규칙에 맞는 날인데 그 날짜의 EXC 가 취소인 것
+        skipped = before.SER.filter((s) => ruleHits(s, dto.date)
+          && before.EXC.some((e) => e.serId === s.id && e.onDate === dto.date && e.canceled)).length;
+        for (const o of occ(dto.date, before)) {
+          if (o.canceled) { skipped += 1; continue; }
+          const a = applyDelete(current, { serId: o.serId, onDate: o.onDate, scope: 'this', cancel });
+          current = a;
+          log.push(...a.__log);
+          targets.push({ serId: o.serId, onDate: o.onDate });
+          count += 1;
+        }
+        return { after: current, log, effScope: 'this' };
+      }, {
+        enrich: async (runner, fresh, base) => {
+          for (const t of targets) await notifyCancel(runner, actorId, t.serId, t.onDate, fresh, cancel.treat);
+          const parentNotices = await prepareDayCancelParentNotices(
+            runner,
+            dto.date,
+            [...new Set(targets.map((target) => target.serId))],
+            serIds,
+            dto.cancelKind,
+            cancel.memo,
+          );
+          return { ...base, count, skipped, parentNotices };
+          // 그날 전체도 **한 토큰**이다 — `tx` 가 그날의 모든 SER 를 한 스냅숏에 담으므로
+          // 되돌리기 한 번이 그날을 통째로 되살린다 (N-138 · 건너뛴 회차는 애초에 안 건드렸다)
+        },
+        actorId,
+        outer: q,
+      });
+      await q.commitTransaction();
+      return result;
+    } catch (error) {
+      if (q.isTransactionActive) await q.rollbackTransaction();
+      throw error;
+    } finally {
+      await q.release();
+    }
+  }
+
+  /** §12 · §79 — 학생 넣고 빼기. 「그날만 빼기」가 D-R21 이다. */
+  async roster(serId: number, dto: RosterPatchDto, actorId?: number): Promise<RosterResultDto> {
+    return this.tx<RosterResultDto>('schedule.roster', [serId], async (before, q) => {
+      this.requireOccurrence(before, serId, dto.onDate);
+      const student = await q.query('SELECT id FROM stu WHERE id=$1', [dto.studentId]) as Array<{ id: string }>;
+      if (!student.length) {
+        throw new NotFoundException({ code: 'STUDENT_NOT_FOUND', message: `학생 ${dto.studentId} 이(가) 없습니다` });
+      }
+      const allowed = rosterScopes(before, serId, dto.studentId, dto.onDate);
+      if (!allowed.includes(dto.op)) {
+        throw new BadRequestException({
+          code: 'BAD_ROSTER_OP',
+          message: `현재 명단에는 ${dto.op} 작업을 적용할 수 없습니다`,
+        });
+      }
+      // B-20: 정원 판정은 화면의 오래된 count가 아니라, 이 쓰기 트랜잭션이 잠근 최신 명단으로 한다.
+      // 첫 요청은 409로 확인 문구를 돌려주고 사용자가 확인한 재요청만 초과 등록한다.
+      if (dto.op === 'add' && dto.confirmOverCapacity !== true) {
+        const meta = await q.query(
+          `SELECT k.cap
+             FROM ser s JOIN kind k ON k.key=s.kind_key
+            WHERE s.id=$1`,
+          [serId],
+        ) as Array<{ cap: number }>;
+        if (!meta.length) {
+          throw new BadRequestException({ code: 'KIND_NOT_FOUND', message: '수업 종류와 정원을 찾을 수 없습니다' });
+        }
+        const count = rosterAt(before, serId, dto.onDate).length;
+        if (count >= meta[0].cap) {
+          throw new ConflictException({
+            code: 'ROSTER_CAP_CONFIRM_REQUIRED',
+            message: `정원 ${meta[0].cap}명이 찼습니다. 그래도 넣을까요?`,
+          });
+        }
+      }
+      const a = applyRoster(before, {
+        serId, onDate: dto.onDate, studentId: dto.studentId, op: dto.op,
+      });
+      return { after: a, log: a.__log, effScope: a.__effScope };
+    }, { actorId, kinderRosterMutation: true, overlaps: dto.op === 'add' ? { studentId: dto.studentId } : false, enrich: async (q, fresh, base) => {
+      const ids = rosterAt(fresh, serId, dto.onDate);
+      const meta = await q.query(
+        `SELECT k.cap, s.kind_key, s.sub_key
+           FROM ser s JOIN kind k ON k.key=s.kind_key
+          WHERE s.id=$1`,
+        [serId],
+      ) as Array<{ cap: number; kind_key: string; sub_key: string | null }>;
+      if (!meta.length) {
+        throw new BadRequestException({ code: 'KIND_NOT_FOUND', message: '수업 종류와 정원을 찾을 수 없습니다' });
+      }
+      const rows = await q.query(
+        `SELECT st.id::text AS id, st.name,
+                NOT EXISTS (
+                  SELECT 1 FROM guide g
+                   WHERE g.ser_id=$1 AND g.student_id=st.id
+                     AND g.state::text = ANY($3::text[])
+                ) AS need_guide,
+                NOT EXISTS (
+                  SELECT 1 FROM issue i JOIN lib l ON l.id=i.lib_id
+                   WHERE i.student_id=st.id AND i.state='ok'
+                     AND (s.sub_key IS NULL OR l.sub_key IS NULL OR l.sub_key=s.sub_key)
+                ) AS need_book
+           FROM stu st CROSS JOIN ser s
+          WHERE s.id=$1 AND st.id = ANY($2::bigint[])
+          ORDER BY st.name`,
+        [serId, ids, [...GUIDE_DONE_DB]],
+      ) as Array<{ id: string; name: string; need_guide: boolean; need_book: boolean }>;
+      if (rows.length !== ids.length) {
+        throw new BadRequestException({ code: 'INVALID_ROSTER', message: '명단에 존재하지 않는 학생이 있습니다' });
+      }
+      // N-17 (§4-17 ①): 명단 변경 직후 가격 재계산 (D-R22). 산식은 lib/rules 한 곳 — 화면은 값만 그린다.
+      const tiers = await q.query(
+        `SELECT DISTINCT ON (heads) heads, unit_price
+           FROM rate
+          WHERE kind_key = $1 AND sub_key IS NOT DISTINCT FROM $2 AND from_date <= $3
+          ORDER BY heads, from_date DESC, id DESC`,
+        [meta[0].kind_key, meta[0].sub_key, dto.onDate],
+      ) as Array<{ heads: number; unit_price: number }>;
+      const overrides = ids.length ? await q.query(
+        `SELECT DISTINCT ON (st.id) st.id, r.unit_price
+           FROM stu st
+           LEFT JOIN sturate r
+             ON r.student_id = st.id AND (r.kind_key IS NULL OR r.kind_key = $2) AND r.from_date <= $3
+          WHERE st.id = ANY($1::bigint[])
+          ORDER BY st.id, r.from_date DESC NULLS LAST, r.id DESC`,
+        [ids, meta[0].kind_key, dto.onDate],
+      ) as Array<{ id: string; unit_price: number | null }> : [];
+      const pricing = rosterPricing(
+        tiers.map((r) => ({ heads: Number(r.heads), unitPrice: Number(r.unit_price) })),
+        overrides.map((r) => (r.unit_price === null || r.unit_price === undefined ? null : Number(r.unit_price))),
+      );
+      const needGuide = rows.filter((r) => r.need_guide).map((r) => r.name);
+      const needBook = rows.filter((r) => r.need_book).map((r) => r.name);
+      // M-124 — 넣었을 때만. 빼기(dropOnce·dropAll)와 되돌리기(undoOnce)는 준비할 일이 생기지 않는다.
+      // 등록 확정(C91)은 제 알림 세트를 갖고 `create()` 로 명단을 넣으므로 여기서 겹치지 않는다.
+      if (dto.op === 'add') {
+        const added = rows.find((r) => r.id === String(dto.studentId));
+        await notifyRosterAdd(
+          q, actorId, serId, dto.onDate, fresh, dto.studentId,
+          added?.need_guide === true, added?.need_book === true,
+        );
+      }
+      return {
+        ...base,
+        count: ids.length,
+        cap: Number(meta[0].cap),
+        needGuide,
+        needBook,
+        priced: pricing !== null,
+        unitPrice: pricing ? pricing.unitPrice : null,
+        total: pricing ? pricing.total : null,
+        tierHeads: pricing ? pricing.tierHeads : null,
+        overrideCount: pricing ? pricing.overrideCount : 0,
+      };
+    } });
+  }
+
+  /**
+   * Ctrl/⌘+Z — 토큰이 가리키는 행만 잠그고, 발급 직후 상태와 현재 상태가 같을 때만 복원한다.
+   * 화면 캐시를 되감는 기능이 아니다. DB 복원과 재투영이 한 트랜잭션으로 끝나야 한다.
+   */
+  async undo(
+    actorId: number,
+    token: string,
+    inside?: (q: QueryRunner) => Promise<void>,
+    /** 강사 교체처럼 여러 일정 쓰기와 후속 자산을 하나로 되돌릴 때 쓰는 최상위 transaction. */
+    outer?: QueryRunner,
+  ): Promise<WriteResultDto> {
+    const payload = readScheduleUndo(token, actorId);
+    if (!payload) {
+      throw new BadRequestException({ code: 'BAD_UNDO_TOKEN', message: '되돌리기 시간이 지났거나 토큰이 올바르지 않습니다' });
+    }
+    const ids = [...new Set([...payload.before.SER, ...payload.after.SER].map((row) => row.id))];
+    const q = outer ?? this.ds.createQueryRunner();
+    const ownsTransaction = outer === undefined;
+    if (ownsTransaction) {
+      await q.connect();
+      await q.startTransaction();
+    }
+    try {
+      await lockKinderRosterPolicyWrite(q);
+      const current = await loadState(q, ids, { forWrite: true });
+      if (!sameScheduleState(current, payload.after)) {
+        throw new ConflictException({
+          code: 'UNDO_STALE',
+          message: '그 뒤 같은 수업이 다시 바뀌어 이전 작업을 안전하게 되돌릴 수 없습니다',
+        });
+      }
+      const timeIssue = scheduleTimeIssue(payload.before);
+      if (timeIssue) throw new BadRequestException({ code: 'BAD_RANGE', message: timeIssue });
+      await assertScheduleReferences(q, payload.before);
+      await assertKinderRosterWrite(q, payload.before);
+      await lockDelinquencyScheduleWrite(q);
+      await assertNoSuspendedScheduleExpansion(q, current, payload.before);
+      /*
+       * 되돌리기가 **지우게 될** 규칙 — 되돌릴 `create`, 휴강의 보강 회차가 여기 든다.
+       * 그 사이 누가 출결·리포트를 적었으면 즉시 NO ACTION FK 가 막아 **500** 이 난다.
+       * 막는 것은 그대로 DB 이고 여기서는 **설명한다** (C84-b 가 겹침에서 한 것과 같다).
+       * `remove()` 와 **같은 목록**을 본다 — 두 벌이면 표가 늘 때 한쪽만 낡는다 (D-R22).
+       */
+      const keepIds = new Set(payload.before.SER.map((row) => row.id));
+      const willDelete = current.SER.map((row) => row.id).filter((id) => !keepIds.has(id));
+      await deleteDisposableProjectedReports(q, willDelete);
+      const blocked = await referencedSeries(q, willDelete);
+      if (blocked.length) {
+        throw new ConflictException({
+          code: 'UNDO_HAS_REFS',
+          message: '그 뒤 출결·리포트·안내가 붙어 이전 작업을 안전하게 되돌릴 수 없습니다',
+        });
+      }
+      /*
+       * 휴강 undo(전일 휴원 · 한 회차 학원 사정 휴강 · C-32)는 아직 보내지 않은 보호자 준비행도 함께 걷는다.
+       * 실제 발송 뒤에는 메시지를 회수할 수 없으므로 조용히 일정만 되살리지 않고 409로 막는다.
+       * 머리말 목록은 lib/cancel-notice 한 곳이다 — 쓰는 곳과 걷는 곳이 같은 목록을 본다.
+       */
+      const beforeCanceled = new Set(payload.before.EXC.filter((row) => row.canceled).map((row) => `${row.serId}:${row.onDate}`));
+      const restoredCancelKeys = payload.after.EXC
+        .filter((row) => row.canceled && !beforeCanceled.has(`${row.serId}:${row.onDate}`))
+        .map((row) => `${row.serId}:${row.onDate}`);
+      if (restoredCancelKeys.length) {
+        const delivered = await q.query(
+          `SELECT id FROM pnoti
+            WHERE sent_at IS NOT NULL AND body LIKE ANY($2::text[])
+              AND (ser_id::text || ':' || to_char(on_date,'YYYY-MM-DD'))=ANY($1::text[])
+            LIMIT 1`,
+          [restoredCancelKeys, CANCEL_NOTICE_LIKE],
+        ) as Array<{ id: string }>;
+        if (delivered.length) {
+          throw new ConflictException({
+            code: 'UNDO_HAS_DELIVERY',
+            message: '학부모 안내가 이미 발송되어 휴강을 되돌릴 수 없습니다 — 새 일정과 정정 안내로 처리해 주세요',
+          });
+        }
+        await q.query(
+          `DELETE FROM pnoti
+            WHERE sent_at IS NULL AND body LIKE ANY($2::text[])
+              AND (ser_id::text || ':' || to_char(on_date,'YYYY-MM-DD'))=ANY($1::text[])`,
+          [restoredCancelKeys, CANCEL_NOTICE_LIKE],
+        );
+      }
+      /*
+       * 지워진 규칙은 **번호를 지키며** 되살린다 — `before` 에 있는데 지금 DB 에 없는 것이 그것이다.
+       * 새 번호를 받으면 되살아난 것이 아니라 닮은 규칙이 하나 생긴 것이고, 그 사이 사람이
+       * 들고 있던 링크·선택은 전부 엉뚱한 곳을 가리킨다 (N-138 「연결된 데이터도 함께」).
+       */
+      const present = new Set(current.SER.map((row) => row.id));
+      const restoreSerIds = new Set([...keepIds].filter((id) => !present.has(id)));
+      /*
+       * 월 마감 (C92-d · L-123 · A′3) — 되돌리기도 스케줄 쓰기다. `txBody` 와 **같은 판정**: 마감 달에 놓인 회차·예외의
+       * 모양을 persist/project 앞뒤로 찍어 달라졌으면 409 MONTH_CLOSED 로 통째로 되돌린다. 전에는 쓴 뒤 그 달이 마감되면
+       * 10분 안의 되돌리기(일정 · 결재 반영)가 마감 달 회차를 바꿨다.
+       */
+      const closed = await closedMonths(q);
+      const closedBefore = await closedOccSnapshot(q, ids, closed);
+      const touched = await persist(q, current, payload.before, { restoreSerIds });
+      const fresh = await loadState(q, touched);
+      const projected = await project(q, fresh, touched, horizon());
+      if (closed.length) {
+        assertClosedOccUnchanged({
+          before: closedBefore,
+          after: await closedOccSnapshot(q, [...new Set([...ids, ...touched])], closed),
+          closed,
+          fallbackMonth: monthOf(payload.before.SER[0]?.fromDate ?? closed[0]!),
+        });
+      }
+      // N-73 — 누가 언제 되살렸는지. 규칙마다 한 줄, 되돌리기와 같은 트랜잭션
+      await auditScheduleWrite(q, 'schedule.undo', actorId, current, await loadState(q, ids));
+      if (inside) await inside(q); // N-84 결재 되돌리기 — 변경 요청을 pending 으로 · 같은 트랜잭션 (P 영역 · 두 줄)
+      const result: WriteResultDto = {
+        effScope: 'undo',
+        log: ['직전 일정 쓰기를 되돌렸습니다'],
+        projected,
+        serIds: touched,
+        undoToken: null,
+        undoExpiresAt: null,
+        unavailable: await unavailableOverlaps(q, touched),
+        studentOverlaps: [],
+      };
+      if (ownsTransaction) await q.commitTransaction();
+      return result;
+    } catch (error) {
+      if (ownsTransaction && q.isTransactionActive) await q.rollbackTransaction();
+      throw error;
+    } finally {
+      if (ownsTransaction) await q.release();
+    }
+  }
+}

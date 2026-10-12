@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/health": {
+    "/api/v1/health": {
         parameters: {
             query?: never;
             header?: never;
@@ -21,7 +21,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/login": {
+    "/api/v1/auth/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -38,7 +38,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/refresh": {
+    "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -55,7 +55,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/logout": {
+    "/api/v1/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,7 +72,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/me": {
+    "/api/v1/auth/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -92,7 +92,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/onboarding": {
+    "/api/v1/auth/onboarding": {
         parameters: {
             query?: never;
             header?: never;
@@ -112,7 +112,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/onboarding/codes": {
+    "/api/v1/auth/onboarding/codes": {
         parameters: {
             query?: never;
             header?: never;
@@ -132,7 +132,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/onboarding/complete": {
+    "/api/v1/auth/onboarding/complete": {
         parameters: {
             query?: never;
             header?: never;
@@ -152,7 +152,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/password-reset": {
+    "/api/v1/auth/password-reset": {
         parameters: {
             query?: never;
             header?: never;
@@ -172,7 +172,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/password-reset/codes": {
+    "/api/v1/auth/password-reset/codes": {
         parameters: {
             query?: never;
             header?: never;
@@ -192,7 +192,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/password-reset/complete": {
+    "/api/v1/auth/password-reset/complete": {
         parameters: {
             query?: never;
             header?: never;
@@ -212,7 +212,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/meta": {
+    "/api/v1/meta": {
         parameters: {
             query?: never;
             header?: never;
@@ -232,7 +232,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/occurrences": {
+    "/api/v1/schedule/occurrences": {
         parameters: {
             query?: never;
             header?: never;
@@ -252,7 +252,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/holidays": {
+    "/api/v1/schedule/holidays": {
         parameters: {
             query?: never;
             header?: never;
@@ -272,7 +272,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/unavailable": {
+    "/api/v1/schedule/unavailable": {
         parameters: {
             query?: never;
             header?: never;
@@ -292,7 +292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/day-cancel/notices": {
+    "/api/v1/schedule/day-cancel/notices": {
         parameters: {
             query?: never;
             header?: never;
@@ -309,7 +309,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/series-counts": {
+    "/api/v1/schedule/series-counts": {
         parameters: {
             query?: never;
             header?: never;
@@ -329,7 +329,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/students/{studentId}/books": {
+    "/api/v1/schedule/students/{studentId}/books": {
         parameters: {
             query?: never;
             header?: never;
@@ -349,7 +349,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/teachers/{teacherId}/guides": {
+    "/api/v1/schedule/teachers/{teacherId}/guides": {
         parameters: {
             query?: never;
             header?: never;
@@ -369,7 +369,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/tracking": {
+    "/api/v1/schedule/tracking": {
         parameters: {
             query?: never;
             header?: never;
@@ -389,7 +389,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/tracking/notes": {
+    "/api/v1/schedule/tracking/notes": {
         parameters: {
             query?: never;
             header?: never;
@@ -409,7 +409,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/conflicts": {
+    "/api/v1/schedule/conflicts": {
         parameters: {
             query?: never;
             header?: never;
@@ -429,7 +429,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/horizon": {
+    "/api/v1/schedule/horizon": {
         parameters: {
             query?: never;
             header?: never;
@@ -446,7 +446,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/{serId}/{onDate}/attendance": {
+    "/api/v1/schedule/{serId}/{onDate}/attendance": {
         parameters: {
             query?: never;
             header?: never;
@@ -470,7 +470,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule": {
+    "/api/v1/schedule": {
         parameters: {
             query?: never;
             header?: never;
@@ -487,7 +487,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/paste": {
+    "/api/v1/schedule/paste": {
         parameters: {
             query?: never;
             header?: never;
@@ -504,7 +504,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/move": {
+    "/api/v1/schedule/move": {
         parameters: {
             query?: never;
             header?: never;
@@ -521,7 +521,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/day-cancel": {
+    "/api/v1/schedule/day-cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -541,7 +541,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/students/{studentId}/pause": {
+    "/api/v1/schedule/students/{studentId}/pause": {
         parameters: {
             query?: never;
             header?: never;
@@ -561,7 +561,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/students/{studentId}/pause/{pauseId}/resume": {
+    "/api/v1/schedule/students/{studentId}/pause/{pauseId}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -581,7 +581,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/undo": {
+    "/api/v1/schedule/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -601,7 +601,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/schedule/{serId}": {
+    "/api/v1/schedule/{serId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -625,7 +625,7 @@ export interface paths {
         patch: operations["ScheduleController_patch"];
         trace?: never;
     };
-    "/schedule/{serId}/roster": {
+    "/api/v1/schedule/{serId}/roster": {
         parameters: {
             query?: never;
             header?: never;
@@ -642,7 +642,7 @@ export interface paths {
         patch: operations["ScheduleController_roster"];
         trace?: never;
     };
-    "/reports": {
+    "/api/v1/reports": {
         parameters: {
             query?: never;
             header?: never;
@@ -662,7 +662,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/unwritten": {
+    "/api/v1/reports/unwritten": {
         parameters: {
             query?: never;
             header?: never;
@@ -679,7 +679,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/reminders": {
+    "/api/v1/reports/reminders": {
         parameters: {
             query?: never;
             header?: never;
@@ -699,7 +699,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/deliveries": {
+    "/api/v1/reports/deliveries": {
         parameters: {
             query?: never;
             header?: never;
@@ -723,7 +723,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/deliveries/history": {
+    "/api/v1/reports/deliveries/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -740,7 +740,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/deliveries/{sendId}/resend": {
+    "/api/v1/reports/deliveries/{sendId}/resend": {
         parameters: {
             query?: never;
             header?: never;
@@ -760,7 +760,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/weekly": {
+    "/api/v1/reports/weekly": {
         parameters: {
             query?: never;
             header?: never;
@@ -784,7 +784,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/{serId}/{onDate}": {
+    "/api/v1/reports/{serId}/{onDate}": {
         parameters: {
             query?: never;
             header?: never;
@@ -801,7 +801,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/{serId}/{onDate}/materials": {
+    "/api/v1/reports/{serId}/{onDate}/materials": {
         parameters: {
             query?: never;
             header?: never;
@@ -821,7 +821,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/{serId}/{onDate}/draft": {
+    "/api/v1/reports/{serId}/{onDate}/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -841,7 +841,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/{serId}/{onDate}/submit": {
+    "/api/v1/reports/{serId}/{onDate}/submit": {
         parameters: {
             query?: never;
             header?: never;
@@ -861,7 +861,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/reports/{serId}/{onDate}/review": {
+    "/api/v1/reports/{serId}/{onDate}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -881,7 +881,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/files": {
+    "/api/v1/files": {
         parameters: {
             query?: never;
             header?: never;
@@ -901,7 +901,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/files/{id}": {
+    "/api/v1/files/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -918,7 +918,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/book-sales": {
+    "/api/v1/accounting/book-sales": {
         parameters: {
             query?: never;
             header?: never;
@@ -939,7 +939,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/book-sales/{id}": {
+    "/api/v1/accounting/book-sales/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -956,7 +956,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/book-sales/{id}/cancel": {
+    "/api/v1/accounting/book-sales/{id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -973,7 +973,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting": {
+    "/api/v1/accounting": {
         parameters: {
             query?: never;
             header?: never;
@@ -990,7 +990,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/student-cumulative": {
+    "/api/v1/accounting/student-cumulative": {
         parameters: {
             query?: never;
             header?: never;
@@ -1010,7 +1010,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions": {
+    "/api/v1/accounting/delinquency-suspensions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1030,7 +1030,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions/policy": {
+    "/api/v1/accounting/delinquency-suspensions/policy": {
         parameters: {
             query?: never;
             header?: never;
@@ -1047,7 +1047,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions/{studentId}/remind": {
+    "/api/v1/accounting/delinquency-suspensions/{studentId}/remind": {
         parameters: {
             query?: never;
             header?: never;
@@ -1064,7 +1064,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions/remind-batch": {
+    "/api/v1/accounting/delinquency-suspensions/remind-batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -1081,7 +1081,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions/{studentId}/suspend": {
+    "/api/v1/accounting/delinquency-suspensions/{studentId}/suspend": {
         parameters: {
             query?: never;
             header?: never;
@@ -1098,7 +1098,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/delinquency-suspensions/{studentId}/release": {
+    "/api/v1/accounting/delinquency-suspensions/{studentId}/release": {
         parameters: {
             query?: never;
             header?: never;
@@ -1115,7 +1115,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/adjustments": {
+    "/api/v1/accounting/adjustments": {
         parameters: {
             query?: never;
             header?: never;
@@ -1136,7 +1136,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/adjustments/{id}/approve": {
+    "/api/v1/accounting/adjustments/{id}/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -1153,7 +1153,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/adjustments/{id}/reject": {
+    "/api/v1/accounting/adjustments/{id}/reject": {
         parameters: {
             query?: never;
             header?: never;
@@ -1170,7 +1170,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/adjustments/{id}/cancel": {
+    "/api/v1/accounting/adjustments/{id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1187,7 +1187,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/adjustments/{id}/undo": {
+    "/api/v1/accounting/adjustments/{id}/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -1204,7 +1204,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payment-evidence": {
+    "/api/v1/accounting/payment-evidence": {
         parameters: {
             query?: never;
             header?: never;
@@ -1224,7 +1224,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payment-evidence/{payId}": {
+    "/api/v1/accounting/payment-evidence/{payId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1241,7 +1241,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payment-evidence/issue-batch": {
+    "/api/v1/accounting/payment-evidence/issue-batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -1258,7 +1258,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payment-evidence/{payId}/issue": {
+    "/api/v1/accounting/payment-evidence/{payId}/issue": {
         parameters: {
             query?: never;
             header?: never;
@@ -1275,7 +1275,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payment-evidence/{payId}/cancel": {
+    "/api/v1/accounting/payment-evidence/{payId}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1292,7 +1292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/protected-accounts": {
+    "/api/v1/accounting/protected-accounts": {
         parameters: {
             query?: never;
             header?: never;
@@ -1313,7 +1313,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/protected-accounts/{accountId}/delete": {
+    "/api/v1/accounting/protected-accounts/{accountId}/delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -1330,7 +1330,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/protected-accounts/{accountId}/reveal": {
+    "/api/v1/accounting/protected-accounts/{accountId}/reveal": {
         parameters: {
             query?: never;
             header?: never;
@@ -1347,7 +1347,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/student-refunds": {
+    "/api/v1/accounting/student-refunds": {
         parameters: {
             query?: never;
             header?: never;
@@ -1367,7 +1367,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/student-refunds/{adjustmentId}/pay": {
+    "/api/v1/accounting/student-refunds/{adjustmentId}/pay": {
         parameters: {
             query?: never;
             header?: never;
@@ -1384,7 +1384,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/student-refunds/{adjustmentId}/cancel": {
+    "/api/v1/accounting/student-refunds/{adjustmentId}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1401,7 +1401,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/tuition": {
+    "/api/v1/accounting/tuition": {
         parameters: {
             query?: never;
             header?: never;
@@ -1421,7 +1421,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payout-ledger": {
+    "/api/v1/accounting/payout-ledger": {
         parameters: {
             query?: never;
             header?: never;
@@ -1441,7 +1441,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payout-ledger/pay-batch": {
+    "/api/v1/accounting/payout-ledger/pay-batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -1458,7 +1458,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payout-ledger/{payoutId}/pay": {
+    "/api/v1/accounting/payout-ledger/{payoutId}/pay": {
         parameters: {
             query?: never;
             header?: never;
@@ -1475,7 +1475,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payout-ledger/{payoutId}/cancel": {
+    "/api/v1/accounting/payout-ledger/{payoutId}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1492,7 +1492,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payouts": {
+    "/api/v1/accounting/payouts": {
         parameters: {
             query?: never;
             header?: never;
@@ -1512,7 +1512,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payouts/{staffId}": {
+    "/api/v1/accounting/payouts/{staffId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1532,7 +1532,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/cashflow": {
+    "/api/v1/accounting/cashflow": {
         parameters: {
             query?: never;
             header?: never;
@@ -1552,7 +1552,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payouts/{month}/confirm": {
+    "/api/v1/accounting/payouts/{month}/confirm": {
         parameters: {
             query?: never;
             header?: never;
@@ -1572,7 +1572,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/bonus-rules": {
+    "/api/v1/accounting/bonus-rules": {
         parameters: {
             query?: never;
             header?: never;
@@ -1596,7 +1596,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/privacy": {
+    "/api/v1/accounting/privacy": {
         parameters: {
             query?: never;
             header?: never;
@@ -1620,7 +1620,7 @@ export interface paths {
         patch: operations["AccountingController_setAcctPrivacy"];
         trace?: never;
     };
-    "/accounting/withdrawals/preview": {
+    "/api/v1/accounting/withdrawals/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -1640,7 +1640,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/withdrawals": {
+    "/api/v1/accounting/withdrawals": {
         parameters: {
             query?: never;
             header?: never;
@@ -1660,7 +1660,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/tuition/close": {
+    "/api/v1/accounting/tuition/close": {
         parameters: {
             query?: never;
             header?: never;
@@ -1680,7 +1680,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/tuition/reopen": {
+    "/api/v1/accounting/tuition/reopen": {
         parameters: {
             query?: never;
             header?: never;
@@ -1700,7 +1700,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/board": {
+    "/api/v1/accounting/board": {
         parameters: {
             query?: never;
             header?: never;
@@ -1720,7 +1720,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/other-income": {
+    "/api/v1/accounting/other-income": {
         parameters: {
             query?: never;
             header?: never;
@@ -1740,7 +1740,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/tuition/carry": {
+    "/api/v1/accounting/tuition/carry": {
         parameters: {
             query?: never;
             header?: never;
@@ -1760,7 +1760,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/invoices/draft": {
+    "/api/v1/accounting/invoices/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -1780,7 +1780,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/invoices": {
+    "/api/v1/accounting/invoices": {
         parameters: {
             query?: never;
             header?: never;
@@ -1800,7 +1800,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/invoices/batch": {
+    "/api/v1/accounting/invoices/batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -1820,7 +1820,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/invoices/{id}/deliver": {
+    "/api/v1/accounting/invoices/{id}/deliver": {
         parameters: {
             query?: never;
             header?: never;
@@ -1837,7 +1837,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/invoices/{id}/void": {
+    "/api/v1/accounting/invoices/{id}/void": {
         parameters: {
             query?: never;
             header?: never;
@@ -1857,7 +1857,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payments": {
+    "/api/v1/accounting/payments": {
         parameters: {
             query?: never;
             header?: never;
@@ -1877,7 +1877,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payments/manual": {
+    "/api/v1/accounting/payments/manual": {
         parameters: {
             query?: never;
             header?: never;
@@ -1897,7 +1897,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/payments/{id}": {
+    "/api/v1/accounting/payments/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1917,7 +1917,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/expenses/{id}/review": {
+    "/api/v1/accounting/expenses/{id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -1937,7 +1937,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/rates": {
+    "/api/v1/accounting/rates": {
         parameters: {
             query?: never;
             header?: never;
@@ -1961,7 +1961,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/hourly-rates": {
+    "/api/v1/accounting/hourly-rates": {
         parameters: {
             query?: never;
             header?: never;
@@ -1981,7 +1981,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/hourly-rates/{id}": {
+    "/api/v1/accounting/hourly-rates/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2005,7 +2005,7 @@ export interface paths {
         patch: operations["AccountingController_replaceHourlyRate"];
         trace?: never;
     };
-    "/accounting/wages": {
+    "/api/v1/accounting/wages": {
         parameters: {
             query?: never;
             header?: never;
@@ -2029,7 +2029,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/sturates": {
+    "/api/v1/accounting/sturates": {
         parameters: {
             query?: never;
             header?: never;
@@ -2049,7 +2049,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/expenses": {
+    "/api/v1/accounting/expenses": {
         parameters: {
             query?: never;
             header?: never;
@@ -2069,7 +2069,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/accounting/expenses/mine": {
+    "/api/v1/accounting/expenses/mine": {
         parameters: {
             query?: never;
             header?: never;
@@ -2089,7 +2089,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops": {
+    "/api/v1/ops": {
         parameters: {
             query?: never;
             header?: never;
@@ -2109,7 +2109,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings": {
+    "/api/v1/ops/meetings": {
         parameters: {
             query?: never;
             header?: never;
@@ -2129,7 +2129,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/plans": {
+    "/api/v1/ops/plans": {
         parameters: {
             query?: never;
             header?: never;
@@ -2149,7 +2149,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads": {
+    "/api/v1/ops/leads": {
         parameters: {
             query?: never;
             header?: never;
@@ -2169,7 +2169,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}": {
+    "/api/v1/ops/leads/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2189,7 +2189,7 @@ export interface paths {
         patch: operations["OpsController_patchLead"];
         trace?: never;
     };
-    "/ops/leads/{id}/stage": {
+    "/api/v1/ops/leads/{id}/stage": {
         parameters: {
             query?: never;
             header?: never;
@@ -2209,7 +2209,7 @@ export interface paths {
         patch: operations["OpsController_moveLeadStage"];
         trace?: never;
     };
-    "/ops/leads/{id}/touches": {
+    "/api/v1/ops/leads/{id}/touches": {
         parameters: {
             query?: never;
             header?: never;
@@ -2229,7 +2229,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/fail": {
+    "/api/v1/ops/leads/{id}/fail": {
         parameters: {
             query?: never;
             header?: never;
@@ -2249,7 +2249,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/resume": {
+    "/api/v1/ops/leads/{id}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -2269,7 +2269,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/enroll/preview": {
+    "/api/v1/ops/leads/{id}/enroll/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -2289,7 +2289,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/enroll": {
+    "/api/v1/ops/leads/{id}/enroll": {
         parameters: {
             query?: never;
             header?: never;
@@ -2309,7 +2309,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/complaints": {
+    "/api/v1/ops/complaints": {
         parameters: {
             query?: never;
             header?: never;
@@ -2329,7 +2329,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/complaints/{id}": {
+    "/api/v1/ops/complaints/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2349,7 +2349,7 @@ export interface paths {
         patch: operations["OpsController_patchComplaint"];
         trace?: never;
     };
-    "/ops/teacher-change/preview": {
+    "/api/v1/ops/teacher-change/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -2369,7 +2369,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/teacher-change": {
+    "/api/v1/ops/teacher-change": {
         parameters: {
             query?: never;
             header?: never;
@@ -2389,7 +2389,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/teacher-change/{requestKey}/undo": {
+    "/api/v1/ops/teacher-change/{requestKey}/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -2409,7 +2409,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/marketing-overview": {
+    "/api/v1/ops/marketing-overview": {
         parameters: {
             query?: never;
             header?: never;
@@ -2429,7 +2429,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/marketing": {
+    "/api/v1/ops/marketing": {
         parameters: {
             query?: never;
             header?: never;
@@ -2449,7 +2449,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/marketing/{id}": {
+    "/api/v1/ops/marketing/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2469,7 +2469,7 @@ export interface paths {
         patch: operations["OpsController_patchMarketing"];
         trace?: never;
     };
-    "/ops/marketing/{id}/comments": {
+    "/api/v1/ops/marketing/{id}/comments": {
         parameters: {
             query?: never;
             header?: never;
@@ -2489,7 +2489,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/marketing/{id}/replies": {
+    "/api/v1/ops/marketing/{id}/replies": {
         parameters: {
             query?: never;
             header?: never;
@@ -2509,7 +2509,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/marketing/feedback/{id}": {
+    "/api/v1/ops/marketing/feedback/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2526,7 +2526,7 @@ export interface paths {
         patch: operations["OpsController_editPost"];
         trace?: never;
     };
-    "/ops/plans/{id}": {
+    "/api/v1/ops/plans/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2550,7 +2550,7 @@ export interface paths {
         patch: operations["OpsController_patchPlan"];
         trace?: never;
     };
-    "/ops/plans/{id}/owner": {
+    "/api/v1/ops/plans/{id}/owner": {
         parameters: {
             query?: never;
             header?: never;
@@ -2570,7 +2570,7 @@ export interface paths {
         patch: operations["OpsController_patchPlanOwner"];
         trace?: never;
     };
-    "/ops/suggestions/{id}/reply": {
+    "/api/v1/ops/suggestions/{id}/reply": {
         parameters: {
             query?: never;
             header?: never;
@@ -2590,7 +2590,7 @@ export interface paths {
         patch: operations["OpsController_replySuggestion"];
         trace?: never;
     };
-    "/ops/plans/{id}/stage": {
+    "/api/v1/ops/plans/{id}/stage": {
         parameters: {
             query?: never;
             header?: never;
@@ -2610,7 +2610,7 @@ export interface paths {
         patch: operations["OpsController_movePlanStage"];
         trace?: never;
     };
-    "/ops/plans/{id}/due": {
+    "/api/v1/ops/plans/{id}/due": {
         parameters: {
             query?: never;
             header?: never;
@@ -2630,7 +2630,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/plans/{id}/review": {
+    "/api/v1/ops/plans/{id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -2650,7 +2650,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/plans/{id}/tasks": {
+    "/api/v1/ops/plans/{id}/tasks": {
         parameters: {
             query?: never;
             header?: never;
@@ -2670,7 +2670,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}": {
+    "/api/v1/ops/meetings/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2690,7 +2690,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/agenda": {
+    "/api/v1/ops/meetings/{id}/agenda": {
         parameters: {
             query?: never;
             header?: never;
@@ -2707,7 +2707,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/agenda/import": {
+    "/api/v1/ops/meetings/{id}/agenda/import": {
         parameters: {
             query?: never;
             header?: never;
@@ -2724,7 +2724,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/notice": {
+    "/api/v1/ops/meetings/{id}/notice": {
         parameters: {
             query?: never;
             header?: never;
@@ -2744,7 +2744,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/attend": {
+    "/api/v1/ops/meetings/{id}/attend": {
         parameters: {
             query?: never;
             header?: never;
@@ -2764,7 +2764,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/minutes": {
+    "/api/v1/ops/meetings/{id}/minutes": {
         parameters: {
             query?: never;
             header?: never;
@@ -2784,7 +2784,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/meetings/{id}/todos": {
+    "/api/v1/ops/meetings/{id}/todos": {
         parameters: {
             query?: never;
             header?: never;
@@ -2804,7 +2804,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/diag": {
+    "/api/v1/ops/leads/{id}/diag": {
         parameters: {
             query?: never;
             header?: never;
@@ -2828,7 +2828,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/plan": {
+    "/api/v1/ops/leads/{id}/plan": {
         parameters: {
             query?: never;
             header?: never;
@@ -2848,7 +2848,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/hold/extend": {
+    "/api/v1/ops/leads/{id}/hold/extend": {
         parameters: {
             query?: never;
             header?: never;
@@ -2868,7 +2868,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/appts": {
+    "/api/v1/ops/leads/{id}/appts": {
         parameters: {
             query?: never;
             header?: never;
@@ -2888,7 +2888,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/appts/{kind}": {
+    "/api/v1/ops/leads/{id}/appts/{kind}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2908,7 +2908,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/appts/schedule": {
+    "/api/v1/ops/leads/{id}/appts/schedule": {
         parameters: {
             query?: never;
             header?: never;
@@ -2928,7 +2928,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ops/leads/{id}/appts/book": {
+    "/api/v1/ops/leads/{id}/appts/book": {
         parameters: {
             query?: never;
             header?: never;
@@ -2948,7 +2948,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books": {
+    "/api/v1/books": {
         parameters: {
             query?: never;
             header?: never;
@@ -2969,7 +2969,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/{id}": {
+    "/api/v1/books/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2986,7 +2986,7 @@ export interface paths {
         patch: operations["BooksController_patch"];
         trace?: never;
     };
-    "/books/tracking": {
+    "/api/v1/books/tracking": {
         parameters: {
             query?: never;
             header?: never;
@@ -3003,7 +3003,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/assignment-options": {
+    "/api/v1/books/assignment-options": {
         parameters: {
             query?: never;
             header?: never;
@@ -3020,7 +3020,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/students/{studentId}/latest-diag": {
+    "/api/v1/books/students/{studentId}/latest-diag": {
         parameters: {
             query?: never;
             header?: never;
@@ -3037,7 +3037,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/issues": {
+    "/api/v1/books/issues": {
         parameters: {
             query?: never;
             header?: never;
@@ -3054,7 +3054,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/assignments": {
+    "/api/v1/books/assignments": {
         parameters: {
             query?: never;
             header?: never;
@@ -3071,7 +3071,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/issues/{id}/state": {
+    "/api/v1/books/issues/{id}/state": {
         parameters: {
             query?: never;
             header?: never;
@@ -3088,7 +3088,7 @@ export interface paths {
         patch: operations["BooksController_issueState"];
         trace?: never;
     };
-    "/books/issues/{id}/progress": {
+    "/api/v1/books/issues/{id}/progress": {
         parameters: {
             query?: never;
             header?: never;
@@ -3105,7 +3105,7 @@ export interface paths {
         patch: operations["BooksController_progress"];
         trace?: never;
     };
-    "/books/issues/{id}/return": {
+    "/api/v1/books/issues/{id}/return": {
         parameters: {
             query?: never;
             header?: never;
@@ -3122,7 +3122,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/history": {
+    "/api/v1/books/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -3142,7 +3142,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/deliveries": {
+    "/api/v1/books/deliveries": {
         parameters: {
             query?: never;
             header?: never;
@@ -3160,7 +3160,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/deliveries/{id}": {
+    "/api/v1/books/deliveries/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3180,7 +3180,7 @@ export interface paths {
         patch: operations["BooksController_patchDelivery"];
         trace?: never;
     };
-    "/books/deliveries/{id}/deliver": {
+    "/api/v1/books/deliveries/{id}/deliver": {
         parameters: {
             query?: never;
             header?: never;
@@ -3197,7 +3197,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/deliveries/{id}/receive": {
+    "/api/v1/books/deliveries/{id}/receive": {
         parameters: {
             query?: never;
             header?: never;
@@ -3214,7 +3214,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/{id}/versions": {
+    "/api/v1/books/{id}/versions": {
         parameters: {
             query?: never;
             header?: never;
@@ -3234,7 +3234,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/{id}/holders": {
+    "/api/v1/books/{id}/holders": {
         parameters: {
             query?: never;
             header?: never;
@@ -3254,7 +3254,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/books/versions/{id}/use": {
+    "/api/v1/books/versions/{id}/use": {
         parameters: {
             query?: never;
             header?: never;
@@ -3274,7 +3274,7 @@ export interface paths {
         patch: operations["BooksController_useVersion"];
         trace?: never;
     };
-    "/guides": {
+    "/api/v1/guides": {
         parameters: {
             query?: never;
             header?: never;
@@ -3291,7 +3291,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/students": {
+    "/api/v1/guides/students": {
         parameters: {
             query?: never;
             header?: never;
@@ -3308,7 +3308,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/history": {
+    "/api/v1/guides/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -3325,7 +3325,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/drafts": {
+    "/api/v1/guides/drafts": {
         parameters: {
             query?: never;
             header?: never;
@@ -3345,7 +3345,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/templates": {
+    "/api/v1/guides/templates": {
         parameters: {
             query?: never;
             header?: never;
@@ -3366,7 +3366,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/templates/{id}": {
+    "/api/v1/guides/templates/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3383,7 +3383,7 @@ export interface paths {
         patch: operations["GuidesController_patchTemplate"];
         trace?: never;
     };
-    "/guides/{id}/body": {
+    "/api/v1/guides/{id}/body": {
         parameters: {
             query?: never;
             header?: never;
@@ -3403,7 +3403,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/{id}/class-diagnostics": {
+    "/api/v1/guides/{id}/class-diagnostics": {
         parameters: {
             query?: never;
             header?: never;
@@ -3427,7 +3427,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/{id}/copy": {
+    "/api/v1/guides/{id}/copy": {
         parameters: {
             query?: never;
             header?: never;
@@ -3447,7 +3447,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/{id}/send": {
+    "/api/v1/guides/{id}/send": {
         parameters: {
             query?: never;
             header?: never;
@@ -3464,7 +3464,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/zoom-notice": {
+    "/api/v1/guides/zoom-notice": {
         parameters: {
             query?: never;
             header?: never;
@@ -3484,7 +3484,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guides/zoom-notice/batch": {
+    "/api/v1/guides/zoom-notice/batch": {
         parameters: {
             query?: never;
             header?: never;
@@ -3504,7 +3504,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/zoom": {
+    "/api/v1/zoom": {
         parameters: {
             query?: never;
             header?: never;
@@ -3524,7 +3524,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/zoom/accounts": {
+    "/api/v1/zoom/accounts": {
         parameters: {
             query?: never;
             header?: never;
@@ -3541,7 +3541,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/zoom/accounts/{id}": {
+    "/api/v1/zoom/accounts/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3558,7 +3558,7 @@ export interface paths {
         patch: operations["ZoomController_patch"];
         trace?: never;
     };
-    "/zoom/assign": {
+    "/api/v1/zoom/assign": {
         parameters: {
             query?: never;
             header?: never;
@@ -3578,7 +3578,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting": {
+    "/api/v1/consulting": {
         parameters: {
             query?: never;
             header?: never;
@@ -3602,7 +3602,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/templates": {
+    "/api/v1/consulting/templates": {
         parameters: {
             query?: never;
             header?: never;
@@ -3619,7 +3619,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/templates/{consType}": {
+    "/api/v1/consulting/templates/{consType}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3636,7 +3636,7 @@ export interface paths {
         patch: operations["ConsultingController_writeTemplate"];
         trace?: never;
     };
-    "/consulting/{id}/items/{itemId}": {
+    "/api/v1/consulting/{id}/items/{itemId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3656,7 +3656,7 @@ export interface paths {
         patch: operations["ConsultingController_toggleItem"];
         trace?: never;
     };
-    "/consulting/{id}/items": {
+    "/api/v1/consulting/{id}/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -3676,7 +3676,7 @@ export interface paths {
         patch: operations["ConsultingController_editItems"];
         trace?: never;
     };
-    "/consulting/{id}/items/{itemId}/files": {
+    "/api/v1/consulting/{id}/items/{itemId}/files": {
         parameters: {
             query?: never;
             header?: never;
@@ -3696,7 +3696,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/items/{itemId}/files/{fileId}": {
+    "/api/v1/consulting/{id}/items/{itemId}/files/{fileId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3713,7 +3713,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/accounting": {
+    "/api/v1/consulting/accounting": {
         parameters: {
             query?: never;
             header?: never;
@@ -3733,7 +3733,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/students": {
+    "/api/v1/consulting/students": {
         parameters: {
             query?: never;
             header?: never;
@@ -3753,7 +3753,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}": {
+    "/api/v1/consulting/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3778,7 +3778,7 @@ export interface paths {
         patch: operations["updateCore"];
         trace?: never;
     };
-    "/consulting/{id}/share": {
+    "/api/v1/consulting/{id}/share": {
         parameters: {
             query?: never;
             header?: never;
@@ -3795,7 +3795,7 @@ export interface paths {
         patch: operations["updateShare"];
         trace?: never;
     };
-    "/consulting/{id}/contract-files": {
+    "/api/v1/consulting/{id}/contract-files": {
         parameters: {
             query?: never;
             header?: never;
@@ -3812,7 +3812,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/contract-files/{fileId}": {
+    "/api/v1/consulting/{id}/contract-files/{fileId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3829,7 +3829,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/feedback": {
+    "/api/v1/consulting/{id}/feedback": {
         parameters: {
             query?: never;
             header?: never;
@@ -3846,7 +3846,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/feedback/{feedbackId}/resolve": {
+    "/api/v1/consulting/{id}/feedback/{feedbackId}/resolve": {
         parameters: {
             query?: never;
             header?: never;
@@ -3863,7 +3863,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/deliver": {
+    "/api/v1/consulting/{id}/deliver": {
         parameters: {
             query?: never;
             header?: never;
@@ -3880,7 +3880,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/signed-files": {
+    "/api/v1/consulting/{id}/signed-files": {
         parameters: {
             query?: never;
             header?: never;
@@ -3897,7 +3897,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/sessions/preview": {
+    "/api/v1/consulting/{id}/sessions/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -3917,7 +3917,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/sessions": {
+    "/api/v1/consulting/{id}/sessions": {
         parameters: {
             query?: never;
             header?: never;
@@ -3937,7 +3937,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/sessions/{sessId}": {
+    "/api/v1/consulting/{id}/sessions/{sessId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3957,7 +3957,7 @@ export interface paths {
         patch: operations["ConsultingController_writeSession"];
         trace?: never;
     };
-    "/consulting/{id}/close/preview": {
+    "/api/v1/consulting/{id}/close/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -3974,7 +3974,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/close": {
+    "/api/v1/consulting/{id}/close": {
         parameters: {
             query?: never;
             header?: never;
@@ -3994,7 +3994,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/payments": {
+    "/api/v1/consulting/{id}/payments": {
         parameters: {
             query?: never;
             header?: never;
@@ -4014,7 +4014,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/consulting/{id}/invoice": {
+    "/api/v1/consulting/{id}/invoice": {
         parameters: {
             query?: never;
             header?: never;
@@ -4034,7 +4034,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/board": {
+    "/api/v1/board": {
         parameters: {
             query?: never;
             header?: never;
@@ -4051,7 +4051,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/shell": {
+    "/api/v1/teacher/shell": {
         parameters: {
             query?: never;
             header?: never;
@@ -4071,7 +4071,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/home": {
+    "/api/v1/teacher/home": {
         parameters: {
             query?: never;
             header?: never;
@@ -4088,7 +4088,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/lessons/{serId}/{onDate}/hub": {
+    "/api/v1/teacher/lessons/{serId}/{onDate}/hub": {
         parameters: {
             query?: never;
             header?: never;
@@ -4108,7 +4108,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/history": {
+    "/api/v1/teacher/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -4125,7 +4125,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/guides": {
+    "/api/v1/teacher/guides": {
         parameters: {
             query?: never;
             header?: never;
@@ -4142,7 +4142,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/guides/received": {
+    "/api/v1/teacher/guides/received": {
         parameters: {
             query?: never;
             header?: never;
@@ -4159,7 +4159,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/guides/{id}/ack": {
+    "/api/v1/teacher/guides/{id}/ack": {
         parameters: {
             query?: never;
             header?: never;
@@ -4176,7 +4176,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/suggestions": {
+    "/api/v1/teacher/suggestions": {
         parameters: {
             query?: never;
             header?: never;
@@ -4197,7 +4197,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/diagnostics": {
+    "/api/v1/teacher/diagnostics": {
         parameters: {
             query?: never;
             header?: never;
@@ -4217,7 +4217,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/unavailable": {
+    "/api/v1/teacher/unavailable": {
         parameters: {
             query?: never;
             header?: never;
@@ -4235,7 +4235,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/unavailable/{id}": {
+    "/api/v1/teacher/unavailable/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4252,7 +4252,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/requests": {
+    "/api/v1/teacher/requests": {
         parameters: {
             query?: never;
             header?: never;
@@ -4272,7 +4272,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/gpa": {
+    "/api/v1/gpa": {
         parameters: {
             query?: never;
             header?: never;
@@ -4292,7 +4292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exec": {
+    "/api/v1/exec": {
         parameters: {
             query?: never;
             header?: never;
@@ -4309,7 +4309,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exec/areas/{key}/owner": {
+    "/api/v1/exec/areas/{key}/owner": {
         parameters: {
             query?: never;
             header?: never;
@@ -4329,7 +4329,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exec/report": {
+    "/api/v1/exec/report": {
         parameters: {
             query?: never;
             header?: never;
@@ -4349,7 +4349,7 @@ export interface paths {
         patch: operations["ExecController_saveMemo"];
         trace?: never;
     };
-    "/exec/report/submit": {
+    "/api/v1/exec/report/submit": {
         parameters: {
             query?: never;
             header?: never;
@@ -4369,7 +4369,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exec/report/{id}/review": {
+    "/api/v1/exec/report/{id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -4389,7 +4389,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exec/report/{id}/withdraw": {
+    "/api/v1/exec/report/{id}/withdraw": {
         parameters: {
             query?: never;
             header?: never;
@@ -4409,7 +4409,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer": {
+    "/api/v1/drawer": {
         parameters: {
             query?: never;
             header?: never;
@@ -4426,7 +4426,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory": {
+    "/api/v1/drawer/staff-directory": {
         parameters: {
             query?: never;
             header?: never;
@@ -4446,7 +4446,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}": {
+    "/api/v1/drawer/staff-directory/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4466,7 +4466,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}/home": {
+    "/api/v1/drawer/staff-directory/{id}/home": {
         parameters: {
             query?: never;
             header?: never;
@@ -4486,7 +4486,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}/guides": {
+    "/api/v1/drawer/staff-directory/{id}/guides": {
         parameters: {
             query?: never;
             header?: never;
@@ -4503,7 +4503,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}/suggestions": {
+    "/api/v1/drawer/staff-directory/{id}/suggestions": {
         parameters: {
             query?: never;
             header?: never;
@@ -4523,7 +4523,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}/history": {
+    "/api/v1/drawer/staff-directory/{id}/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -4543,7 +4543,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff-directory/{id}/inbox": {
+    "/api/v1/drawer/staff-directory/{id}/inbox": {
         parameters: {
             query?: never;
             header?: never;
@@ -4563,7 +4563,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff": {
+    "/api/v1/drawer/staff": {
         parameters: {
             query?: never;
             header?: never;
@@ -4583,7 +4583,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff/{id}": {
+    "/api/v1/drawer/staff/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4607,7 +4607,7 @@ export interface paths {
         patch: operations["DrawerController_updateStaff"];
         trace?: never;
     };
-    "/drawer/staff/{id}/password-reset": {
+    "/api/v1/drawer/staff/{id}/password-reset": {
         parameters: {
             query?: never;
             header?: never;
@@ -4627,7 +4627,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/staff/{id}/active": {
+    "/api/v1/drawer/staff/{id}/active": {
         parameters: {
             query?: never;
             header?: never;
@@ -4647,7 +4647,7 @@ export interface paths {
         patch: operations["DrawerController_setStaffActive"];
         trace?: never;
     };
-    "/drawer/todos/{id}": {
+    "/api/v1/drawer/todos/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4667,7 +4667,7 @@ export interface paths {
         patch: operations["DrawerController_todoDone"];
         trace?: never;
     };
-    "/drawer/schedule-history": {
+    "/api/v1/drawer/schedule-history": {
         parameters: {
             query?: never;
             header?: never;
@@ -4687,7 +4687,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/todos": {
+    "/api/v1/drawer/todos": {
         parameters: {
             query?: never;
             header?: never;
@@ -4704,7 +4704,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/todos/completed": {
+    "/api/v1/drawer/todos/completed": {
         parameters: {
             query?: never;
             header?: never;
@@ -4724,7 +4724,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/notis/{id}/read": {
+    "/api/v1/drawer/notis/{id}/read": {
         parameters: {
             query?: never;
             header?: never;
@@ -4741,7 +4741,7 @@ export interface paths {
         patch: operations["DrawerController_notiRead"];
         trace?: never;
     };
-    "/drawer/notis/read-all": {
+    "/api/v1/drawer/notis/read-all": {
         parameters: {
             query?: never;
             header?: never;
@@ -4761,7 +4761,7 @@ export interface paths {
         patch: operations["DrawerController_notiReadAll"];
         trace?: never;
     };
-    "/drawer/requests/{id}/review": {
+    "/api/v1/drawer/requests/{id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -4781,7 +4781,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/change-requests/{id}/review": {
+    "/api/v1/drawer/change-requests/{id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -4801,7 +4801,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/approvals/undo": {
+    "/api/v1/drawer/approvals/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -4821,7 +4821,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/drawer/change-requests": {
+    "/api/v1/drawer/change-requests": {
         parameters: {
             query?: never;
             header?: never;
@@ -4841,7 +4841,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/permissions": {
+    "/api/v1/permissions": {
         parameters: {
             query?: never;
             header?: never;
@@ -4861,7 +4861,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog": {
+    "/api/v1/catalog": {
         parameters: {
             query?: never;
             header?: never;
@@ -4878,7 +4878,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/kinds": {
+    "/api/v1/catalog/kinds": {
         parameters: {
             query?: never;
             header?: never;
@@ -4895,7 +4895,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/kinds/{key}": {
+    "/api/v1/catalog/kinds/{key}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4912,7 +4912,7 @@ export interface paths {
         patch: operations["CatalogController_patchKind"];
         trace?: never;
     };
-    "/catalog/subs": {
+    "/api/v1/catalog/subs": {
         parameters: {
             query?: never;
             header?: never;
@@ -4929,7 +4929,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/subs/{key}": {
+    "/api/v1/catalog/subs/{key}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4946,7 +4946,7 @@ export interface paths {
         patch: operations["CatalogController_patchSub"];
         trace?: never;
     };
-    "/students/{id}/guardians": {
+    "/api/v1/students/{id}/guardians": {
         parameters: {
             query?: never;
             header?: never;
@@ -4967,7 +4967,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guardians/channels": {
+    "/api/v1/guardians/channels": {
         parameters: {
             query?: never;
             header?: never;
@@ -4984,7 +4984,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guardians/send": {
+    "/api/v1/guardians/send": {
         parameters: {
             query?: never;
             header?: never;
@@ -5004,7 +5004,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/guardians/{id}": {
+    "/api/v1/guardians/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5025,7 +5025,7 @@ export interface paths {
         patch: operations["GuardiansController_patch"];
         trace?: never;
     };
-    "/students": {
+    "/api/v1/students": {
         parameters: {
             query?: never;
             header?: never;
@@ -5046,7 +5046,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/options": {
+    "/api/v1/students/options": {
         parameters: {
             query?: never;
             header?: never;
@@ -5063,7 +5063,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/schools": {
+    "/api/v1/students/schools": {
         parameters: {
             query?: never;
             header?: never;
@@ -5081,7 +5081,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/preview": {
+    "/api/v1/students/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -5101,7 +5101,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/reactivation-candidates": {
+    "/api/v1/students/reactivation-candidates": {
         parameters: {
             query?: never;
             header?: never;
@@ -5121,7 +5121,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{id}/reactivate/preview": {
+    "/api/v1/students/{id}/reactivate/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -5138,7 +5138,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{id}/reactivate": {
+    "/api/v1/students/{id}/reactivate": {
         parameters: {
             query?: never;
             header?: never;
@@ -5158,7 +5158,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{id}/hub": {
+    "/api/v1/students/{id}/hub": {
         parameters: {
             query?: never;
             header?: never;
@@ -5178,7 +5178,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{id}/kinder-marker": {
+    "/api/v1/students/{id}/kinder-marker": {
         parameters: {
             query?: never;
             header?: never;
@@ -5199,7 +5199,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{id}": {
+    "/api/v1/students/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5216,7 +5216,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/private-notes": {
+    "/api/v1/teacher/private-notes": {
         parameters: {
             query?: never;
             header?: never;
@@ -5233,7 +5233,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teacher/private-notes/receipts": {
+    "/api/v1/teacher/private-notes/receipts": {
         parameters: {
             query?: never;
             header?: never;
@@ -5250,7 +5250,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/students/{studentId}/private-notes": {
+    "/api/v1/students/{studentId}/private-notes": {
         parameters: {
             query?: never;
             header?: never;
@@ -5267,7 +5267,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/material-requests/options": {
+    "/api/v1/material-requests/options": {
         parameters: {
             query?: never;
             header?: never;
@@ -5284,7 +5284,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/material-requests/mine": {
+    "/api/v1/material-requests/mine": {
         parameters: {
             query?: never;
             header?: never;
@@ -5301,7 +5301,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/material-requests": {
+    "/api/v1/material-requests": {
         parameters: {
             query?: never;
             header?: never;
@@ -5322,7 +5322,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/material-requests/{id}": {
+    "/api/v1/material-requests/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -5342,7 +5342,7 @@ export interface paths {
         patch: operations["MaterialRequestsController_transition"];
         trace?: never;
     };
-    "/material-requests/{id}/ack": {
+    "/api/v1/material-requests/{id}/ack": {
         parameters: {
             query?: never;
             header?: never;
@@ -5378,7 +5378,7 @@ export interface components {
              * @description 로그인 아이디 — 형식 자유 · 대소문자 무시
              * @example kim.teacher
              */
-            loginId: string;
+            loginId?: string;
             /**
              * @deprecated
              * @description 옛 화면 호환 — loginId 와 같은 뜻(W10 이전 화면이 보낸다). 새 코드는 쓰지 않는다
@@ -5469,7 +5469,7 @@ export interface components {
             channel: "email" | "sms";
             /**
              * @description 받을 이메일 주소 또는 휴대폰 번호
-             * @example kim@tnacademy.kr
+             * @example kim@example.com
              */
             target: string;
         };
@@ -5485,13 +5485,13 @@ export interface components {
             expiresAt: string;
             /** @description 같은 채널로 다시 받기까지 기다릴 초 */
             resendAfterSeconds: number;
-            /** @description 개발용 — 운영이 아니고 서버의 AUTH_CODE_DEV_ECHO=on 이며 발송 설정이 없을 때만 실린다. 운영 응답에는 절대 없다 */
+            /** @description 공개 메모리 데모의 체험용 코드(실제 발송 없음). 합성 계정에 코드를 발급했을 때만 반환하며 원본 ERP 운영에는 적용하지 않는다 */
             devCode?: string;
         };
         OnboardingCompleteDto: {
             /**
              * @description 확인한 이메일 — 코드를 받은 주소. 연락 · 비밀번호 찾기에 쓴다(아이디가 아니다 · W10)
-             * @example kim@tnacademy.kr
+             * @example kim@example.com
              */
             email: string;
             /**
@@ -5530,7 +5530,7 @@ export interface components {
              * @description 로그인 아이디(형식 자유 · 대소문자 무시) — 코드는 이 계정에 **등록 · 확인된** 이메일 · 휴대폰으로만 간다
              * @example kim.teacher
              */
-            loginId: string;
+            loginId?: string;
             /**
              * @deprecated
              * @description 옛 화면 호환 — loginId 와 같은 뜻(W10 이전 화면이 보낸다)
@@ -5554,7 +5554,7 @@ export interface components {
             expiresAt: string;
             /** @description 같은 채널로 다시 받기까지 기다릴 초 */
             resendAfterSeconds: number;
-            /** @description 개발용 — 운영이 아니고 서버의 AUTH_CODE_DEV_ECHO=on 이며 발송 설정이 없고 코드를 실제로 만들었을 때만 실린다. 운영 응답에는 절대 없다 */
+            /** @description 공개 메모리 데모의 체험용 코드(실제 발송 없음). 합성 계정에 코드를 발급했을 때만 반환하며 원본 ERP 운영에는 적용하지 않는다 */
             devCode?: string;
         };
         PasswordResetCompleteDto: {
@@ -5562,7 +5562,7 @@ export interface components {
              * @description 로그인 아이디 — 코드를 받은 계정
              * @example kim.teacher
              */
-            loginId: string;
+            loginId?: string;
             /**
              * @deprecated
              * @description 옛 화면 호환 — loginId 와 같은 뜻(W10 이전 화면이 보낸다)
@@ -6712,7 +6712,7 @@ export interface components {
         };
         ReportExportFileDto: {
             studentId: number;
-            /** @example 20260827_체험인물09_고2_수학_16-30.png */
+            /** @example 20260827_체험학생01_고2_수학_16-30.png */
             fileName: string;
             /** @description 클립보드와 RSEND.body가 공유하는 서버 생성 5섹션 본문 */
             plainText: string;
@@ -8407,8 +8407,11 @@ export interface components {
         AcctPrivacyWriteDto: {
             /** @enum {string} */
             key: "wage" | "consulting";
-            /** @description 켬 true · 끔 false */
-            private: boolean;
+            /**
+             * @description 켬 true · 끔 false
+             * @enum {boolean}
+             */
+            private: true | false;
         };
         StudentWithdrawDto: {
             /** @description 누구 */
@@ -9002,7 +9005,7 @@ export interface components {
              * Format: date
              * @description 적용 시작일 — 비우면 오늘. 오늘보다 앞이면 409 WAGE_RETROACTIVE
              */
-            fromDate?: string;
+            fromDate?: string | null;
             reason?: string | null;
         };
         StudentRateWriteDto: {
@@ -12116,7 +12119,7 @@ export interface components {
              * @description 처리일 — 미완료면 null
              */
             doneOn?: string | null;
-            /** @description 처리 시각 KST(YYYY-MM-DDTHH:MI:SS+09:00) — 원본 §31 「2026-07-22 14:00 · 체험인물10」의 시각 (31-04). 미완료면 null */
+            /** @description 처리 시각 KST(YYYY-MM-DDTHH:MI:SS+09:00) — 원본 §31 「2026-07-22 14:00 · 체험직원03」의 시각 (31-04). 미완료면 null */
             doneAt?: string | null;
             /** @description template(§29 기본 항목) | manual(원문 §31 「항목 수정」으로 담당이 더한 것 · N-18-a) */
             source: string;
@@ -14595,7 +14598,7 @@ export interface components {
             id: number;
             studentId: number;
             name: string;
-            /** @description 어머니 · 아버지 · 보호자 … 사람이 적은 말 */
+            /** @description 사람이 적은 관계 또는 신규 등록 관계 코드의 한국어 표시. 직접 수정·비우기는 이전 관계 코드를 대체한다. */
             relation?: string | null;
             /** @description 관리 화면 전용 — 강사 응답에는 없다 */
             email?: string | null;
@@ -15055,8 +15058,11 @@ export interface components {
             status: "withdrawn" | "active" | "unknown";
             /** @description status=withdrawn이고 별도 차단 사유가 없을 때만 true */
             reactivatable: boolean;
-            /** @description ACTIVE_STUDENT | STATUS_UNKNOWN. 화면이 상태를 다시 계산하지 않는다. */
-            blockedCode: string | null;
+            /**
+             * @description ACTIVE_STUDENT | STATUS_UNKNOWN. 화면이 상태를 다시 계산하지 않는다.
+             * @enum {string|null}
+             */
+            blockedCode: "ACTIVE_STUDENT" | "STATUS_UNKNOWN" | null;
             /** @description 재활성화 expectedProfileVersion에 그대로 보내는 bigint decimal string. 기존 학생의 0도 유효하다. */
             profileVersion: string;
             /** Format: date-time */
@@ -15270,6 +15276,7 @@ export interface components {
         StudentGuardianSummaryDto: {
             id: number;
             name: string;
+            /** @description 기존 관계 자유입력 또는 신규 등록 관계 코드의 한국어 표시 */
             relation: string | null;
             active: boolean;
             isPrimary: boolean;
@@ -37397,9 +37404,9 @@ export interface operations {
     StudentsController_list: {
         parameters: {
             query?: {
-                /** @description 현재 STU 이름·학교·학년의 literal 부분 검색. 미전환 LEAD 검색은 아직 포함하지 않는다. */
+                /** @description 현재 학생 이름·학교·학년의 literal 부분 검색. 기간 값은 student_profile_current 정본을 읽으며 미전환 LEAD는 포함하지 않는다. */
                 q?: string;
-                /** @description STU.grade의 정확한 원문값. 선택지는 응답 educationGrades를 사용한다. */
+                /** @description 현재 기간의 grade_code 또는 기간 관리 전 legacy 원문값. 선택지는 응답 educationGrades와 grades를 사용한다. */
                 grade?: string;
                 page?: number;
             };

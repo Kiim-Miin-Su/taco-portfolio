@@ -25,7 +25,7 @@
 - [x] 요청한 로고와 연결선 형식의 제품 기술 스택 이미지를 생성했다.
 - [x] PGlite 124개 migration·149개 테이블과 주요 서비스 호환성을 확인했다.
 - [x] 브라우저 RAM snapshot·직렬 전송·서버 독점 복원과 baseline 초기화 계약을 확정했다.
-- [ ] 전체 화면·CRUD·합성 자료와 외부 부작용 대역을 구현한다.
+- [x] 전체 화면·CRUD 소유자를 이식하고 합성 자료·외부 발송 대역·체험용 OTP를 연결했다.
 - [ ] 전체 기능·격리·브라우저·빌드 검증을 완료한다.
 - [ ] 공개 저장소 push와 데모 배포 후 포트폴리오 링크를 교체한다.
 
@@ -37,8 +37,10 @@
 - 공개 원본 사본의 fixture identity: 합성 인명·학교·연락처로 교체하고 단어 부분 치환으로 SQL을 손상시키지 않는지 migration 전체 재실행했다.
 - 데모 전용 API를 Pages Router에 추가하면 기존 App Router hook 타입이 nullable이 되는 문제: 기존 App Router 내 Node route로 구현했다.
 - 전체 Front 테스트 2,392개·typecheck·lint·Next production build가 통과했다. 개인정보 fixture 치환 후 검색 테스트도 새 합성 검색어로 확인했다.
-- 브라우저 학생 등록 성공 후 학교·학년·보호자 관계 재조회 누락을 발견해 원인 확인 중이다. 검증 실패를 완료로 덮지 않는다.
+- 브라우저 학생 등록 성공 후 학교·학년·보호자 관계 재조회 누락을 발견했다. 기존 student_profile_current 뷰를 목록·상세·검색·meta에 재사용하고 관계 코드 표시를 연결한 뒤 등록→재조회·수정·비우기 회귀를 통과했다. 원본 제품 후속 이슈는 backend/evidence/student-readback-issue.md에 남겼다.
 
 ## 매 청크 갱신 대상
 
 새 저장소의 README·PLAN·기능 CRUD 원장·검증 evidence·소스 이식/공개 검사 receipt를 갱신한다. 원본 문서의 두 PROMPT·TODO·ENTRY·CLAUDE·계약 원장·포트폴리오 생성기/metadata/PPTX/렌더/증거 색인도 R122로 연결한다. 원본 제품 요구/Figma/DBML은 데모 분리로 업무 형상이 바뀌지 않아 영향 없음으로 기록하며 실제 편집했다고 표시하지 않는다. 신규 계약은 공개 메모리 snapshot·파일 제한·모의 발송·OTP 표시다.
+
+청크 기록: 문서 기준 `924aaad`, 전체 Front 이식·통신 `e396b6b`. Backend의 공개 사본·정본 이력 조회 교정은 다음 코드 청크에 함께 기록한다.

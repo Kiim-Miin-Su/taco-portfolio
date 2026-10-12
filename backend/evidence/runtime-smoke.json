@@ -1,0 +1,148 @@
+{
+  "startedAt": "2026-10-12T00:53:57.916Z",
+  "networkDisabled": true,
+  "checks": [
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201,
+      "ms": 3055
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201,
+      "ms": 570
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201,
+      "ms": 512
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "status": 200,
+      "ms": 445
+    },
+    {
+      "method": "GET",
+      "path": "/students",
+      "status": 200,
+      "ms": 419
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201,
+      "ms": 470
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "status": 200,
+      "ms": 448
+    },
+    {
+      "method": "GET",
+      "path": "/students",
+      "status": 200,
+      "ms": 407
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201,
+      "ms": 519
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "status": 200,
+      "ms": 420
+    },
+    {
+      "method": "GET",
+      "path": "/students",
+      "status": 403,
+      "ms": 406
+    },
+    {
+      "method": "GET",
+      "path": "/students",
+      "status": 401,
+      "ms": 397
+    },
+    {
+      "method": "POST",
+      "path": "/drawer/todos",
+      "status": 201,
+      "ms": 406
+    },
+    {
+      "method": "PATCH",
+      "path": "/drawer/todos/17",
+      "status": 200,
+      "ms": 409
+    },
+    {
+      "method": "GET",
+      "path": "/drawer",
+      "status": 200,
+      "ms": 416
+    },
+    {
+      "method": "GET",
+      "path": "/drawer",
+      "status": 200,
+      "ms": 827
+    },
+    {
+      "method": "DELETE",
+      "path": "/drawer/todos/completed",
+      "status": 200,
+      "ms": 436
+    },
+    {
+      "method": "POST",
+      "path": "/files",
+      "status": 201,
+      "ms": 407
+    },
+    {
+      "method": "GET",
+      "path": "/files/903",
+      "status": 200,
+      "ms": 400
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refresh",
+      "status": 201,
+      "ms": 418
+    },
+    {
+      "method": "POST",
+      "path": "/files",
+      "status": 413,
+      "ms": 0
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "status": 200,
+      "ms": 435
+    }
+  ],
+  "coldStateReadback": {
+    "status": 200,
+    "sameFileBytes": true,
+    "ms": 3122
+  },
+  "queueBounded": true,
+  "stateGzipBytes": 54250,
+  "rssBytes": 680001536,
+  "heapUsedBytes": 118119296,
+  "success": true
+}

@@ -1,0 +1,230 @@
+/** @file-guide
+ * 목적: change-request.ts — CHREQ_TYPES, ChreqType, isChreqType, ChangeRequestInput, NormalizedChangeRequest 등 (util)
+ * 책임/재사용: 현재 lib 계층의 순수 계산/표시 방어를 우선 재사용한다. UI·네트워크·DB 부수효과와 서버 업무 권위를 섞지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { lessonTimeIssue } from './recurrence';
+import { isIsoDate } from './kst';
+import { isUUID } from 'class-validator';
+
+/** CHREQ.req_type과 API가 공유하는 유일한 종류 목록. */
+export const CHREQ_TYPES = ['time_move', 'teacher', 'room', 'cancel'] as const;
+export type ChreqType = (typeof CHREQ_TYPES)[number];
+export const isChreqType = (value: unknown): value is ChreqType =>
+  typeof value === 'string' && (CHREQ_TYPES as readonly string[]).includes(value);
+
+export interface ChangeRequestInput {
+  requestKey?: unknown;
+  sourceDate?: unknown;
+  readVersion?: unknown;
+  reqType: unknown;
+  serId?: unknown;
+  onDate?: unknown;
+  reason?: unknown;
+  applyAll?: unknown;
+  startMin?: unknown;
+  endMin?: unknown;
+  requestedDate?: unknown;
+  teacherId?: unknown;
+  roomId?: unknown;
+  zaccId?: unknown;
+}
+
+interface ChangeRequestTarget {
+  requestKey?: string;
+  /** 화면이 읽은 실제 배치 날짜. 서버가 현재 회차와 대조하고 승인 때 다시 검사한다. */
+  sourceDate?: string;
+  /** 회차 목록을 읽기 직전 LOG version. 그 뒤 같은 SER가 바뀌면 요청/승인을 409로 막는다. */
+  readVersion?: number;
+  serId: number;
+  onDate: string;
+  reason: string;
+  applyAll: boolean;
+}
+
+export type NormalizedChangeRequest = ChangeRequestTarget & (
+  | { reqType: 'time_move'; payload: { startMin: number; endMin: number; requestedDate?: string } }
+  | { reqType: 'teacher'; payload: { teacherId: number } }
+  | { reqType: 'room'; payload: { roomId: number } | { zaccId: number } }
+  | { reqType: 'cancel'; payload: Record<string, never> }
+);
+
+/**
+ * 「무엇을 바꿔 달라는가」 한 문장 — 원문 §20 이력 줄의 모양이다
+ * (「MAP Reading 8/28 **강사 → KJ** (이 주만)」).
+ *
+ * 낱말과 형식을 만드는 자리는 여기 하나다 (D-R18). 이름은 부르는 쪽이 표에서 읽어 넘긴다 —
+ * 이 파일은 DB 를 모른다.
+ */
+export function chreqAsked(
+  reqType: string,
+  payload: unknown,
+  names: { teacherName?: string | null; roomName?: string | null; zaccLabel?: string | null } = {},
+): string | null {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const hhmm = (v: unknown) => {
+    const m = Number(v);
+    if (!Number.isFinite(m)) return null;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  };
+  if (reqType === 'time_move') {
+    const from = hhmm(p.startMin); const to = hhmm(p.endMin);
+    return from && to ? `${typeof p.requestedDate === 'string' ? `${p.requestedDate} ` : ''}${from}–${to} 로 이동` : null;
+  }
+  if (reqType === 'teacher') return `강사 → ${names.teacherName ?? `#${String(p.teacherId ?? '?')}`}`;
+  if (reqType === 'room') {
+    if (p.zaccId !== undefined) return `줌 계정 → ${names.zaccLabel ?? `#${String(p.zaccId)}`}`;
+    return `강의실 → ${names.roomName ?? `#${String(p.roomId ?? '?')}`}`;
+  }
+  if (reqType === 'cancel') return '휴강';
+  return null;
+}
+
+/**
+ * 이 요청을 **지금 반영할 수 있는가**.
+ *
+ * 원문 §19 의 갈래는 넷이다 — 시간 옮기기 · 강사 바꾸기 · 강의실 바꾸기 · 휴강.
+ * (배정 자체를 시작하는 자리는 §43 안내 할 일의 「계정 배정 →」이다.)
+ * 온라인 수업의 「강의실」이 줌 계정이라, `room` 은 `{roomId}` 와 `{zaccId}` 두 모양을 갖는다.
+ *
+ * 그 중 `{zaccId}` 모양만 한동안 `false` 였다 — 줌 계정을 붙이는 코드가 저장소에 하나도 없어서,
+ * 승인 단추를 그려 봐야 눌러도 아무 일이 없거나 더 나쁘게는 「반영했다」고 적혔다.
+ * **C48 에서 배정 경로가 생겼다**(ZASSIGN → `ser_occ.zacc_id` 투영 · 대표 결정 2026-09-12).
+ * 이제 네 갈래가 두 모양까지 모두 반영된다.
+ */
+export function chreqApplicable(reqType: string, _payload: unknown): boolean {
+  return isChreqType(reqType);
+}
+
+export interface ChangeRequestIssue {
+  code: string;
+  message: string;
+}
+
+export type ChangeRequestNormalization =
+  | { ok: true; value: NormalizedChangeRequest }
+  | { ok: false; issue: ChangeRequestIssue };
+
+const isPositiveInt = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) > 0;
+const isInt = (value: unknown): value is number => Number.isInteger(value);
+
+function fail(code: string, message: string): ChangeRequestNormalization {
+  return { ok: false, issue: { code, message } };
+}
+
+/**
+ * 종류별 입력을 DB에 저장할 정확한 모양으로 좁힌다.
+ * DTO, 충돌 미리보기, INSERT가 서로 payload를 다시 해석하지 않도록 이 함수만 사용한다.
+ */
+export function normalizeChangeRequest(input: ChangeRequestInput): ChangeRequestNormalization {
+  if (input.requestKey !== undefined && (typeof input.requestKey !== 'string' || !isUUID(input.requestKey))) {
+    return fail('CHANGE_REQUEST_KEY_INVALID', '요청 키가 올바르지 않습니다');
+  }
+  if (input.sourceDate !== undefined && !isIsoDate(input.sourceDate)) {
+    return fail('CHANGE_REQUEST_SOURCE_INVALID', '읽은 수업 날짜가 올바르지 않습니다');
+  }
+  if (input.readVersion !== undefined && (!isInt(input.readVersion) || input.readVersion < 0)) {
+    return fail('CHANGE_REQUEST_VERSION_INVALID', '읽은 수업 버전이 올바르지 않습니다');
+  }
+  if (!isChreqType(input.reqType)) {
+    return fail('BAD_CHANGE_TYPE', '지원하지 않는 변경 요청 종류입니다');
+  }
+  if (!isPositiveInt(input.serId)) {
+    return fail('TARGET_REQUIRED', '수업 번호를 선택해야 합니다');
+  }
+  if (!isIsoDate(input.onDate)) {
+    return fail('TARGET_REQUIRED', '변경할 회차 날짜를 선택해야 합니다');
+  }
+  if (typeof input.reason !== 'string') {
+    return fail('REASON_REQUIRED', '사유를 적어야 제출됩니다');
+  }
+  const reason = input.reason.trim();
+  if (reason.length === 0) {
+    return fail('REASON_REQUIRED', '사유를 적어야 제출됩니다');
+  }
+  if (reason.length > 500) {
+    return fail('REASON_TOO_LONG', '사유는 500자까지 적을 수 있습니다');
+  }
+  if (input.applyAll !== undefined && typeof input.applyAll !== 'boolean') {
+    return fail('BAD_APPLY_ALL', '이후 전체 적용 값이 올바르지 않습니다');
+  }
+
+  const target = {
+    // PostgreSQL uuid 비교는 대소문자를 무시한다. 잠금 키도 같은 표기로 맞춰야 동시 replay가 한 줄에 선다.
+    ...(typeof input.requestKey === 'string' ? { requestKey: input.requestKey.toLowerCase() } : {}),
+    ...(typeof input.sourceDate === 'string' ? { sourceDate: input.sourceDate } : {}),
+    ...(typeof input.readVersion === 'number' ? { readVersion: input.readVersion } : {}),
+    serId: input.serId,
+    onDate: input.onDate,
+    reason,
+    applyAll: input.applyAll === true,
+  };
+  const supplied = (key: 'startMin' | 'endMin' | 'teacherId' | 'roomId' | 'zaccId') =>
+    input[key] !== undefined;
+
+  if (input.reqType === 'time_move') {
+    if (!isInt(input.startMin) || !isInt(input.endMin)) {
+      return fail('TIME_REQUIRED', '시작과 끝 시각을 모두 입력해야 합니다');
+    }
+    if (supplied('teacherId') || supplied('roomId') || supplied('zaccId')) {
+      return fail('BAD_CHANGE_FIELDS', '시간 옮기기 요청에는 시각만 보낼 수 있습니다');
+    }
+    const issue = lessonTimeIssue(input.startMin, input.endMin);
+    if (issue) return fail('BAD_RANGE', issue);
+    if (input.requestedDate !== undefined && !isIsoDate(input.requestedDate)) {
+      return fail('REQUESTED_DATE_INVALID', '변경할 날짜가 올바르지 않습니다');
+    }
+    return {
+      ok: true,
+      value: {
+        ...target,
+        reqType: input.reqType,
+        payload: {
+          startMin: input.startMin,
+          endMin: input.endMin,
+          ...(typeof input.requestedDate === 'string' ? { requestedDate: input.requestedDate } : {}),
+        },
+      },
+    };
+  }
+
+  if (input.reqType === 'teacher') {
+    if (!isPositiveInt(input.teacherId)) {
+      return fail('TEACHER_REQUIRED', '바꿀 강사를 선택해야 합니다');
+    }
+    if (supplied('startMin') || supplied('endMin') || input.requestedDate !== undefined || supplied('roomId') || supplied('zaccId')) {
+      return fail('BAD_CHANGE_FIELDS', '강사 바꾸기 요청에는 강사만 보낼 수 있습니다');
+    }
+    return { ok: true, value: { ...target, reqType: input.reqType, payload: { teacherId: input.teacherId } } };
+  }
+
+  if (input.reqType === 'room') {
+    const hasRoom = supplied('roomId');
+    const hasZoom = supplied('zaccId');
+    if (hasRoom === hasZoom) {
+      return fail('ROOM_REQUIRED', '강의실 또는 Zoom 계정 중 하나만 선택해야 합니다');
+    }
+    if (hasRoom && !isPositiveInt(input.roomId)) {
+      return fail('ROOM_REQUIRED', '바꿀 강의실을 선택해야 합니다');
+    }
+    if (hasZoom && !isPositiveInt(input.zaccId)) {
+      return fail('ROOM_REQUIRED', '바꿀 Zoom 계정을 선택해야 합니다');
+    }
+    if (supplied('startMin') || supplied('endMin') || input.requestedDate !== undefined || supplied('teacherId')) {
+      return fail('BAD_CHANGE_FIELDS', '강의실 바꾸기 요청에는 강의실 또는 Zoom 계정만 보낼 수 있습니다');
+    }
+    return {
+      ok: true,
+      value: hasRoom
+        ? { ...target, reqType: input.reqType, payload: { roomId: input.roomId as number } }
+        : { ...target, reqType: input.reqType, payload: { zaccId: input.zaccId as number } },
+    };
+  }
+
+  if (supplied('startMin') || supplied('endMin') || input.requestedDate !== undefined || supplied('teacherId') || supplied('roomId') || supplied('zaccId')) {
+    return fail('BAD_CHANGE_FIELDS', '취소 요청에는 변경 값을 보낼 수 없습니다');
+  }
+  return { ok: true, value: { ...target, reqType: input.reqType, payload: {} } };
+}

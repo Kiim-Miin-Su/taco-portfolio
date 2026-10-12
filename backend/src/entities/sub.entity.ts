@@ -1,0 +1,40 @@
+/** @file-guide
+ * 목적: sub 테이블 ORM 매핑 — Sub (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * SUB — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, PrimaryColumn } from 'typeorm';
+
+@Entity({ name: 'sub' })
+export class Sub {
+  /** map_read · sat_math · writing … 21종 */
+  @PrimaryColumn({ type: 'varchar', length: 20 })
+  key: string;
+
+  @Column({ type: 'varchar', length: 40 })
+  name: string;
+
+  @Column({ type: 'char', length: 7 })
+  color: string;
+
+  @Column({ type: 'boolean', default: true })
+  active: boolean;
+
+  @Column({ type: 'smallint', nullable: true })
+  sort: number | null;
+
+  /**
+   * BOC-01D-01 권고안 채택(2026-10-08): 과목은 프로그램 하나에 속한다.
+   * 기존 미연결 과목은 읽기 보존해야 하므로 nullable이며, 신규/변경 방어는 migration trigger와 catalog service가 소유한다.
+   * 정책 변경 시 catalog DTO/service, Meta/OpenAPI/generated Front 타입, 두 DBML과 TBO-55 문서를 함께 갱신한다.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  kindKey: string | null;
+}

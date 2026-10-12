@@ -1,0 +1,48 @@
+/** @file-guide
+ * 목적: unav 테이블 ORM 매핑 — Unav (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * UNAV — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+
+@Index(['staffId', 'cycle', 'dow'])
+@Entity({ name: 'unav' })
+export class Unav {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: number;
+
+  @Column({ type: 'bigint' })
+  staffId: number;
+
+  /** v26 2주 회차 흔적 — 표시/묶음용. 새 쓰기는 저장하지 않는다 (N-20 §4-17: 판정은 onDate) */
+  @Column({ type: 'smallint', nullable: true })
+  cycle: number | null;
+
+  /** N-20 — 등록 날짜(판정 기준). NULL 은 날짜 식별 불가 legacy 행 — 강사 화면에 싣지 않는다 */
+  @Column({ type: 'date', nullable: true })
+  onDate: string | null;
+
+  /** 0=일 … 6=토 */
+  @Column({ type: 'smallint' })
+  dow: number;
+
+  @Column({ type: 'smallint' })
+  startMin: number;
+
+  @Column({ type: 'smallint' })
+  endMin: number;
+
+  /** v26 — 필수. 관리자가 조정 가능성을 판단한다 */
+  @Column({ type: 'text' })
+  reason: string;
+
+  @Column({ type: 'timestamptz', default: () => "now()" })
+  createdAt: Date;
+}

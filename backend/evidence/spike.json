@@ -1,0 +1,442 @@
+{
+  "startedAt": "2026-10-12T00:24:55.724Z",
+  "database": "PGlite memory-only",
+  "networkDatabase": false,
+  "initializeMs": 11248,
+  "migrationsMs": 1235,
+  "migrations": [
+    "Init1755000000000",
+    "RruleFormat1756500000000",
+    "ApprovalStateWords1756700000000",
+    "ExpenseStateWords1756800000000",
+    "ReportBodyContract1756900000000",
+    "ExcNullOverrides1757000000000",
+    "ChreqPayloadContract1757100000000",
+    "ReportReviewContract1757200000000",
+    "ReportDeliveryContract1757300000000",
+    "AttendanceContract1757400000000",
+    "ConsultingContract1757500000000",
+    "SubjectMeetingColors1757600000000",
+    "ScheduleReferenceContract1757700000000",
+    "ScheduleTimeContract1757800000000",
+    "StaffDemoIdentities1757900000000",
+    "UnavDatedContract1758000000000",
+    "ConsItemLedger1758100000000",
+    "RateHeadcountTiers1758200000000",
+    "GpaFourTables1758300000000",
+    "LeadFailureHistory1758400000000",
+    "ExpenseCardReview1758500000000",
+    "ChreqRejectReason1758600000000",
+    "PayoutConfirmPair1758700000000",
+    "FileStore1758800000000",
+    "MarketingFeedbackThread1758900000000",
+    "KindSubSourceWords1759000000000",
+    "PlanDueApproval1759100000000",
+    "MeetingMinutesAuthor1759200000000",
+    "ConsultingPayments1759300000000",
+    "InvTypeCheck1759400000000",
+    "TuitionCarry1759500000000",
+    "NotiCategory1759600000000",
+    "BookWorkflow1759700000000",
+    "GuideWorkflow1759800000000",
+    "ConsultingWorkflow1759900000000",
+    "ReportReminderContract1760000000000",
+    "LessonPrepSsot1760100000000",
+    "ZassignConstraints1760200000000",
+    "ExecReportSign1760300000000",
+    "CplStageWords1760400000000",
+    "CancelPolicy1760500000000",
+    "MakeupLink1760600000000",
+    "StuPause1760700000000",
+    "MonthClose1760800000000",
+    "SerStuDates1760900000000",
+    "KindExtraSturateReason1761000000000",
+    "CplDueSeverity1761100000000",
+    "ConsCloseGpaClose1761200000000",
+    "LeadSourceTouch1761300000000",
+    "MtrecSer1761400000000",
+    "SelfApproval1761500000000",
+    "ExpenseFiledBy1761600000000",
+    "PlanStageFlow1761700000000",
+    "SelfApprovalOpen1761800000000",
+    "ConsEventItemWords1761900000000",
+    "LegacyRptSignature1762000000000",
+    "GpapackLegacyState1762100000000",
+    "LeadDiag1762200000000",
+    "Guardian1762300000000",
+    "IntakeConsultingW31762400000000",
+    "GuideDirection1762500000000",
+    "NotiTitle1762900000000",
+    "ScheduleHoliday1763100000000",
+    "TzgSeoulName1763200000000",
+    "CplRequesterClosed1763300000000",
+    "AccountOnboarding1763600000000",
+    "StaffEmailLowerUnique1763700000000",
+    "AuthCodePurpose1763800000000",
+    "StaffLoginId1763900000000",
+    "Holiday20271764000000000",
+    "ExcModeMemo1764100000000",
+    "StuGender1764110000000",
+    "InvInstallment1764200000000",
+    "BookTaxonomy1764300000000",
+    "IssueReason1764310000000",
+    "KindCapSource1764320000000",
+    "IssueForm1764330000000",
+    "WeeklyBundlePdflogRep1764400000000",
+    "ConsultingItemsFiles1764500000000",
+    "IntakeAftercareMktWords1764600000000",
+    "PlanShareExecOwner1764700000000",
+    "PayoutLineBonusPrivacyNote1764900000000",
+    "AttendanceStudentLate1765000000000",
+    "BookIssueTerminalReissue1765100000000",
+    "PdflogSha256Fingerprint1765200000000",
+    "PayRequestKey1765300000000",
+    "LeadParentContact1765400000000",
+    "ConsItemDue1765500000000",
+    "StudentCatalog1765600000000",
+    "StudentProfile1765700000000",
+    "ChreqRequestKey1765800000000",
+    "GuardianContact1765900000000",
+    "StudentStaticContact1766000000000",
+    "MeetingAgenda1766100000000",
+    "StudentStatusReactivation1766200000000",
+    "StudentRegistrationWriter1766300000000",
+    "StudentRegistrationCompatibility1766400000000",
+    "GuideWriteVersion1766500000000",
+    "BookAssignmentWriter1766600000000",
+    "ConsultingWriter1766700000000",
+    "ConsultingInvoiceWriter1766800000000",
+    "StudentHubRelations1766900000000",
+    "TeacherPrivateNote1767000000000",
+    "StudentKinderMarker1767100000000",
+    "KinderRosterConstraint1767200000000",
+    "GpaArchiveGuard1767300000000",
+    "SubProgramOwner1767400000000",
+    "ChreqSourceVersion1767500000000",
+    "SuggestionLessonLink1767600000000",
+    "ReportStructuredBody1767700000000",
+    "ReportBookProgress1767800000000",
+    "MaterialRequest1767900000000",
+    "PaymentEvidence1768000000000",
+    "PayoutDisbursement1768100000000",
+    "InvoiceAdjustment1768200000000",
+    "DelinquencySuspension1768300000000",
+    "ProtectedAccount1768400000000",
+    "StudentRefundDisbursement1768500000000",
+    "HourlyRatePolicy1768600000000",
+    "BookSales1768700000000",
+    "TeacherChangeOperation1768800000000",
+    "MarketingWriter1768900000000",
+    "MarketingVersionGuard1769000000000",
+    "ReportMaterialWriter1769100000000"
+  ],
+  "migrationCount": 124,
+  "seedMs": 779,
+  "seed": [
+    {
+      "table": "country",
+      "rows": 0
+    },
+    {
+      "table": "country_timezone",
+      "rows": 0
+    },
+    {
+      "table": "education_grade",
+      "rows": 0
+    },
+    {
+      "table": "kind",
+      "rows": 8
+    },
+    {
+      "table": "sub",
+      "rows": 21
+    },
+    {
+      "table": "room",
+      "rows": 8
+    },
+    {
+      "table": "tzg",
+      "rows": 3
+    },
+    {
+      "table": "zacc",
+      "rows": 5
+    },
+    {
+      "table": "staff",
+      "rows": 5
+    },
+    {
+      "table": "wage",
+      "rows": 1
+    },
+    {
+      "table": "rate",
+      "rows": 17
+    },
+    {
+      "table": "sturate",
+      "rows": 2
+    },
+    {
+      "table": "stu",
+      "rows": 19
+    },
+    {
+      "table": "enr",
+      "rows": 25
+    },
+    {
+      "table": "lead",
+      "rows": 18
+    },
+    {
+      "table": "ser",
+      "rows": 27
+    },
+    {
+      "table": "ser_stu",
+      "rows": 46
+    },
+    {
+      "table": "exc",
+      "rows": 7
+    },
+    {
+      "table": "exc_stu_out",
+      "rows": 4
+    },
+    {
+      "table": "zassign",
+      "rows": 3
+    },
+    {
+      "table": "ser_occ",
+      "rows": 961
+    },
+    {
+      "table": "unav",
+      "rows": 5
+    },
+    {
+      "table": "rep",
+      "rows": 752
+    },
+    {
+      "table": "rep_stu",
+      "rows": 1616
+    },
+    {
+      "table": "guide",
+      "rows": 5
+    },
+    {
+      "table": "pnoti",
+      "rows": 4
+    },
+    {
+      "table": "lib",
+      "rows": 8
+    },
+    {
+      "table": "file",
+      "rows": 15
+    },
+    {
+      "table": "vers",
+      "rows": 9
+    },
+    {
+      "table": "issue",
+      "rows": 16
+    },
+    {
+      "table": "hist",
+      "rows": 18
+    },
+    {
+      "table": "file",
+      "rows": 2
+    },
+    {
+      "table": "rsend",
+      "rows": 3
+    },
+    {
+      "table": "pdflog",
+      "rows": 3
+    },
+    {
+      "table": "inv",
+      "rows": 11
+    },
+    {
+      "table": "inv_line",
+      "rows": 14
+    },
+    {
+      "table": "pay",
+      "rows": 5
+    },
+    {
+      "table": "expense",
+      "rows": 7
+    },
+    {
+      "table": "payout",
+      "rows": 2
+    },
+    {
+      "table": "req",
+      "rows": 6
+    },
+    {
+      "table": "chreq",
+      "rows": 4
+    },
+    {
+      "table": "gpapack",
+      "rows": 2
+    },
+    {
+      "table": "gpapack_student",
+      "rows": 3
+    },
+    {
+      "table": "gpapack_lib",
+      "rows": 3
+    },
+    {
+      "table": "noti",
+      "rows": 8
+    },
+    {
+      "table": "cons",
+      "rows": 5
+    },
+    {
+      "table": "cons_stu",
+      "rows": 5
+    },
+    {
+      "table": "cons_pick",
+      "rows": 1
+    },
+    {
+      "table": "cons_item",
+      "rows": 21
+    },
+    {
+      "table": "cons_pay",
+      "rows": 4
+    },
+    {
+      "table": "diag",
+      "rows": 1
+    },
+    {
+      "table": "lead_diag",
+      "rows": 3
+    },
+    {
+      "table": "lead_plan",
+      "rows": 5
+    },
+    {
+      "table": "lead_appt",
+      "rows": 3
+    },
+    {
+      "table": "gpasvc",
+      "rows": 5
+    },
+    {
+      "table": "gpa_cycle",
+      "rows": 2
+    },
+    {
+      "table": "gpa_alloc",
+      "rows": 4
+    },
+    {
+      "table": "gpa_use",
+      "rows": 13
+    },
+    {
+      "table": "cons_sess",
+      "rows": 4
+    },
+    {
+      "table": "mkt",
+      "rows": 10
+    },
+    {
+      "table": "mfb",
+      "rows": 3
+    },
+    {
+      "table": "plan",
+      "rows": 5
+    },
+    {
+      "table": "mtrec",
+      "rows": 5
+    },
+    {
+      "table": "mtattd",
+      "rows": 22
+    },
+    {
+      "table": "cpl",
+      "rows": 8
+    },
+    {
+      "table": "suggestion",
+      "rows": 4
+    },
+    {
+      "table": "rpt",
+      "rows": 6
+    },
+    {
+      "table": "todo",
+      "rows": 16
+    },
+    {
+      "table": "guardian",
+      "rows": 8
+    },
+    {
+      "table": "guardian_contact",
+      "rows": 13
+    }
+  ],
+  "syntheticAccountsMs": 62,
+  "logicalExportMs": 66,
+  "tableCount": 149,
+  "logicalBytes": 675130,
+  "logicalGzipBytes": 54283,
+  "logicalRestoreAMs": 226,
+  "restoreAEqual": true,
+  "logicalRestoreBMs": 198,
+  "restoreBEqual": true,
+  "replicationRole": [
+    {
+      "session_replication_role": "origin"
+    }
+  ],
+  "httpSmokeMs": 2873,
+  "http": {
+    "health": 200,
+    "login": 201,
+    "meta": 200,
+    "students": 200,
+    "anonymousStudents": 401
+  },
+  "heapUsedBytes": 642096744,
+  "rssBytes": 2321219584,
+  "success": true
+}

@@ -1,0 +1,44 @@
+/** @file-guide
+ * 목적: enr 테이블 ORM 매핑 — Enr (entity)
+ * 책임/재사용: DB 레코드 매핑만 소유한다. DBML·migration·생성기/수동 보강 metadata를 함께 대조하고 여기에 UI/업무 정책을 넣지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * ENR — docs/contracts/db/erd.dbml v4.5 에서 생성했습니다.
+ *
+ * 표 이름은 명세서 v2 의 전역 배열 이름을 **그대로** 씁니다 (명세서 §82).
+ * 이름을 바꾸면 마이그레이션과 명세서 대조가 둘 다 어려워집니다.
+ */
+import { Column, Entity, ForeignKey, Index, PrimaryGeneratedColumn } from 'typeorm';
+
+// BOC-04E-01 권고안: 허브 상세 정렬과 청구서의 (enr, student) 소유권을 migration/DBML과 함께 유지한다.
+@Index('enr_student_identity', ['id', 'studentId'], { unique: true })
+@Index('enr_student_hub_idx', ['studentId', 'startedOn', 'id'])
+@ForeignKey('stu', ['studentId'], ['id'], { name: 'enr_student_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@ForeignKey('kind', ['kindKey'], ['key'], { name: 'enr_kind_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@ForeignKey('sub', ['subKey'], ['key'], { name: 'enr_sub_fk', onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
+@Entity({ name: 'enr' })
+export class Enr {
+  @PrimaryGeneratedColumn({ type: 'bigint' })
+  id: number;
+
+  @Column({ type: 'bigint' })
+  studentId: number;
+
+  @Column({ type: 'varchar', length: 16 })
+  kindKey: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  subKey: string | null;
+
+  /** 회차 */
+  @Column({ type: 'smallint', nullable: true })
+  sessions: number | null;
+
+  @Column({ type: 'date', nullable: true })
+  startedOn: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  endedOn: string | null;
+}

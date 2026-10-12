@@ -1,0 +1,57 @@
+/** @file-guide
+ * 목적: validation.ts — DATE_SCHEMA, ID_SCHEMA, IsCalendarDate, ToHttpInteger, IsSafeHttpUrl (dto)
+ * 책임/재사용: 프론트 CRUD 입력/응답을 Swagger와 validator로 명시한다. DB entity를 직접 반환하거나 UI 임시 상태를 영속 필드로 만들지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { ValidateBy, type ValidationOptions } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { isIsoDate, ISO_DATE_PATTERN } from '../lib/kst';
+
+/** 일정·리포트의 HTTP 날짜/식별자 형상을 Swagger와 함께 재사용한다. */
+export const DATE_SCHEMA = { type: String, format: 'date', pattern: ISO_DATE_PATTERN };
+export const ID_SCHEMA = { type: 'integer' as const, minimum: 1, maximum: Number.MAX_SAFE_INTEGER };
+
+/** @IsOptional과 함께 쓰면 명시적으로 nullable인 날짜도 같은 판정을 공유한다. */
+export function IsCalendarDate(options?: ValidationOptions): PropertyDecorator {
+  return ValidateBy({
+    name: 'isCalendarDate',
+    validator: {
+      validate: isIsoDate,
+      defaultMessage: args => `${args?.property ?? 'date'}는 실제 YYYY-MM-DD 날짜여야 합니다`,
+    },
+  }, options);
+}
+
+/** HTTP query/path의 십진 정수만 변환한다. 빈 값/지수/hex/배열은 validator가 거절하도록 보존한다. */
+export function ToHttpInteger(): PropertyDecorator {
+  return Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value,
+  { toClassOnly: true });
+}
+
+/** 사용자가 입력한 참가/참조 링크. URL 파서가 지워 버리는 제어문자도 먼저 거절한다. */
+export function IsSafeHttpUrl(options?: ValidationOptions & { allowBlank?: boolean }): PropertyDecorator {
+  const { allowBlank = false, ...validationOptions } = options ?? {};
+  return ValidateBy({
+    name: 'isSafeHttpUrl',
+    validator: {
+      validate(value: unknown): boolean {
+        if (typeof value !== 'string') return false;
+        // 선택 입력만 기존 trim-empty→NULL 의미를 보존한다. 길이 검사는 DTO가 별도로 유지한다.
+        if (allowBlank && value.trim() === '') return true;
+        if ([...value].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 || char === '\\')) return false;
+        const text = value.trim();
+        if (!/^https?:\/\/[^/?#]/i.test(text) || /\s/.test(text)) return false;
+        try {
+          const url = new URL(text);
+          return Boolean(url.hostname) && !url.username && !url.password
+            && (url.protocol === 'http:' || url.protocol === 'https:');
+        } catch {
+          return false;
+        }
+      },
+      defaultMessage: args => `${args?.property ?? 'URL'}는 로그인 정보가 없는 올바른 HTTP(S) 주소여야 합니다`,
+    },
+  }, validationOptions);
+}

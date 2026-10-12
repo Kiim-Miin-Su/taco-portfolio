@@ -85,7 +85,10 @@ export default function PasswordResetPage() {
     return (
       <div className="min-h-screen bg-bg px-4 py-6 sm:grid sm:place-items-center sm:p-6">
         <div className="mx-auto w-full max-w-[420px] rounded-2xl border border-line bg-card p-5 sm:p-6">
-          <Logo size={30} />
+          <p role="note" className="mx-auto mb-4 max-w-[440px] rounded-xl border border-line bg-inset p-3 text-[13px]">
+        공개 체험 전용입니다. 실제 문자·이메일은 발송하지 않으며, 코드 받기를 누르면 화면에 체험용 코드가 표시됩니다.
+        </p>
+        <Logo size={30} />
           <h1 className="mt-3 text-[17px] font-bold text-fg">비밀번호 찾기</h1>
           <Banner tone="success" className="mt-4">
             비밀번호를 바꿨습니다 — 다른 곳에 로그인돼 있던 세션은 끊겼습니다. 새 비밀번호로 로그인해 주세요.
@@ -131,7 +134,7 @@ export default function PasswordResetPage() {
               <div className="mt-4">
                 {codeRow(data, 'sms')}
                 <div className="mt-2">
-                  <Label htmlFor="pr-phone-code" hint="등록된 휴대폰으로 옵니다">휴대폰 인증 코드</Label>
+                  <Label htmlFor="pr-phone-code" hint="화면에 표시된 체험용 코드를 입력합니다">휴대폰 인증 코드</Label>
                   <Input
                     id="pr-phone-code" value={phoneCode} inputMode="numeric" autoComplete="one-time-code" maxLength={6}
                     onChange={(e) => setPhoneCode(e.currentTarget.value)}

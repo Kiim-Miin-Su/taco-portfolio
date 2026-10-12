@@ -1,0 +1,62 @@
+{
+  "startedAt": "2026-10-12T00:54:24.979Z",
+  "networkDisabled": true,
+  "checks": [
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/students/schools",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/students",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/students/20",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/students?q=%EC%83%88%20%EB%93%B1%EB%A1%9D%20%EC%A1%B0%ED%9A%8C%20%EA%B2%80%EC%88%98&grade=G5",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/meta",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/students/20/guardians",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/guardians/9",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/guardians/9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/students/20",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/students/1",
+      "status": 200
+    }
+  ],
+  "success": true
+}

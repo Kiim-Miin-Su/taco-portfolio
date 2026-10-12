@@ -110,7 +110,7 @@ describe('첫 설정 화면', () => {
     type(view, '휴대폰', '010-1234-5678');
     fireEvent.click(view.getByRole('button', { name: '문자로 코드 받기' }));
     await waitFor(() => expect(view.getByText(/010-\*\*\*\*-5678/)).toBeTruthy());
-    expect(view.queryByText(/체험용 코드/)).toBeNull();
+    expect(view.queryByText(/체험용 코드: [0-9]/)).toBeNull();
 
     type(view, '이메일 인증 코드', '111111');
     type(view, '휴대폰 인증 코드', '222222');

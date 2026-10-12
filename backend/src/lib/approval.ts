@@ -1,0 +1,667 @@
+/** @file-guide
+ * 목적: approval.ts — AP_KINDS, ApKind, AP_KINDS_MISSING, AP_KIND_LABEL, REQ_TYPE_LABEL 등 (util)
+ * 책임/재사용: 현재 lib 계층의 순수 계산/표시 방어를 우선 재사용한다. UI·네트워크·DB 부수효과와 서버 업무 권위를 섞지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 결재 흐름 — 공통 결재 갈래와 강사 리포트를 **한 모양으로** 만든다 (D-R26 · §14 · §75).
+ *
+ * 승인 대기함(§14)과 결재 흐름 오버레이(§75)는 **같은 데이터를 다르게 묶어 보여 줄 뿐**이다.
+ * 두 화면이 각자 정규화하면 배지 숫자와 목록이 어긋난다 — 그래서 여기 한 곳에서만 만든다.
+ *
+ * 순수 함수다. 행을 읽어 오는 일은 서비스가 하고, 여기서는 모양만 바꾼다 —
+ * DB 없이 테스트할 수 있어야 규칙이 굳는다.
+ *
+ * §75의 여섯 갈래(RPT·PLAN·REQ·CHREQ·MATREQ·EXPENSE)에 §14의 강사 리포트(REP)를 더한다.
+ * GPAPACK은 과거 자료 전달 이력으로만 보존하고 활성 결재 타일에는 투영하지 않는다.
+ * `ApFlow.missingKinds`는 저장소가 실제로 없는 종류가 생길 때만 쓴다.
+ */
+
+import type { ApprovalFlowScope } from '../common/perm';
+import { planCan } from './plan-words';
+
+/**
+ * **올린 사람은 결재하지 못한다.** 결재라는 제도가 성립하는 유일한 조건이다.
+ *
+ * 이 규칙은 원래 지출에만 있었다 — `expense_no_self_review` DB CHECK(ACCOUNTING §4.3 A-5)와
+ * REQ·CHREQ 의 `SELF_APPROVAL_FORBIDDEN`. 그런데 **리포트·대표 보고·기획·GPA 넷에는 한 줄도 없어서**
+ * 자기가 쓴 것을 자기가 승인할 수 있었다 (2026-09-20 전수 검수). 규칙을 정해 놓고 한 곳에만 적용하면
+ * 다음 사람도 똑같이 빠뜨리므로 **판정을 여기 하나로 모은다.**
+ *
+ * 왜 「없으면 통과」인가 — 올린 사람이 **누구인지 모르는** 옛 행이 있다(RPT 의 `sent_by` 는 C85-a 에서
+ * 생겼고 그 전 행은 NULL 이다 · N-25 기존 행 보정 0). 모르는 것을 「같은 사람이 아니다」로도
+ * 「같은 사람이다」로도 단정하지 않는다 — DB CHECK 도 같은 규약을 쓴다(`a IS NULL OR b IS NULL OR a <> b`).
+ *
+ * `authorId` 를 `unknown` 으로 받는 것은 **raw SQL 행에서 바로 오기 때문**이다 — pg 드라이버가
+ * `bigint` 를 문자열로 주므로 호출부마다 캐스팅을 흩뿌리는 대신 여기서 한 번 좁힌다.
+ * 숫자로 못 읽는 값은 **막지 않는다**(모르는 것을 같다고 단정하지 않는다).
+ *
+ * @param authorId 올린·쓴 사람 (REP teacher_id · RPT sent_by · PLAN owner_id · GPA coord_id)
+ * @param actorId  지금 결재하려는 사람
+ */
+export function isSelfReview(authorId: unknown, actorId: number): boolean {
+  if (authorId === null || authorId === undefined) return false;
+  if (typeof authorId !== 'number' && typeof authorId !== 'string') return false;
+  const n = Number(authorId);
+  return Number.isFinite(n) && n === actorId;
+}
+
+/** 자기 결재 거절의 공통 코드. 예외 종류(409/403)는 각 도메인이 기존 규약대로 고른다. */
+export const SELF_APPROVAL_CODE = 'SELF_APPROVAL_FORBIDDEN' as const;
+
+/** 자기 결재를 막을 수 있는 자리 전부 — 지금 막는 것은 아래 `SELF_APPROVAL_GUARDED` 다 */
+export const SELF_APPROVAL_PLACES = [
+  'rep',      // 리포트 승인·반려      — lib/rules.reportReviewIssue
+  'rpt',      // 대표 보고 결재        — exec.service.review
+  'plan-due', // 기획 기한 승인        — ops.service.decidePlanDue
+  'plan',     // 기획 최종 승인        — ops.service.reviewPlan
+  'gpa-use',  // GPA 포인트 승인       — gpa.service.setUseState
+  'req',      // 강사 요청 결재        — drawer.service.reviewRequest
+  'chreq',    // 변경 요청 반영        — drawer.service.reviewChangeRequest
+  'expense',  // 지출 심사             — accounting.service.reviewExpense (+ DB CHECK 둘)
+] as const;
+export type SelfApprovalGuarded = (typeof SELF_APPROVAL_PLACES)[number];
+
+/**
+ * **지금 실제로 막는 자리.** 여기에 이름이 있는 것만 서버가 거절한다.
+ *
+ * ⚠️ **켜고 끄는 자리는 이 배열 하나다** — 호출부는 `blocksSelfApproval(kind, …)` 만 부르므로
+ * 이름을 도로 넣으면 그 자리가 다시 막힌다. 한동안 이 목록이 **여덟을 선언해 두고 판정에는
+ * 쓰이지 않는 장식**이었다(회귀가 순회할 뿐이었다). 목록과 판정이 갈리면 **목록을 읽은 사람이
+ * 조용히 틀린다** — CPL·PLAN 의 낱말에서 두 번 겪은 그 모양이라(C86-d · S6) 이번에 이었다.
+ *
+ * **대표 결정 2026-09-21 「우선은 매니저에게도 모든 권한」** 으로 **S1 의 넷을 뺐다** —
+ * 리포트 · 대표 보고 · 기획 기한 · 기획 최종 · GPA(다섯 자리, 넷 갈래). 마이그레이션 54 가 짝이 되는
+ * DB CHECK 넷도 함께 내렸다. 코드만 풀고 CHECK 를 남기면 **단추는 서는데 DB 가 거절하는**
+ * 자리가 된다(S5 가 고친 그 결함이라, 둘은 언제나 같이 움직인다).
+ *
+ * 남긴 셋은 **S1 이 만든 것이 아니다** — 지출(A-5 · `expense_no_self_review` ·
+ * `expense_no_self_file_review`)과 요청·변경요청은 처음부터 있던 규칙이라 이번 결정의 범위 밖이다.
+ * 셋 다 풀려면 이 배열을 비우고 그 CHECK 둘도 함께 내린다.
+ */
+export const SELF_APPROVAL_GUARDED: readonly SelfApprovalGuarded[] = ['req', 'chreq', 'expense'];
+
+/**
+ * 이 자리에서 **지금** 자기 결재를 막는가 — 목록과 판정을 한 번에 묻는다.
+ *
+ * 호출부가 `isSelfReview` 를 직접 부르면 목록이 다시 장식이 된다. 언제나 이쪽을 부른다.
+ */
+export function blocksSelfApproval(
+  kind: SelfApprovalGuarded, authorId: unknown, actorId: number,
+): boolean {
+  return SELF_APPROVAL_GUARDED.includes(kind) && isSelfReview(authorId, actorId);
+}
+
+/**
+ * **SQL 안에서 같은 목록을 묻는다.**
+ *
+ * 쓰기 하나(대표 보고 결재)는 판정을 `WHERE` 절에 넣어 **고친 행이 0 이면 거절**하는 모양이다 —
+ * 읽고 나서 쓰면 그 사이에 남이 결재할 수 있어서다. 그런데 그 조건을 손으로 적어 두면
+ * 위 배열에서 이름을 빼도 **SQL 만 계속 막는다**: 읽기의 `canReview` 는 열려 있는데 쓰기가 0행을
+ * 돌려주는, 단추와 서버가 어긋나는 바로 그 자리다(S5). 실제로 2026-09-21 에 한 번 그렇게 됐고
+ * 회귀가 잡았다. 그래서 **조각도 이 파일이 만든다.**
+ *
+ * 컬럼 이름과 파라미터 자리는 **호출부가 적는 리터럴**이다 — 사용자 입력이 들어오는 길이 아니다.
+ */
+export function selfApprovalSqlGuard(
+  kind: SelfApprovalGuarded, authorColumn: string, actorParam: string,
+): string {
+  return SELF_APPROVAL_GUARDED.includes(kind)
+    ? `(${authorColumn} IS NULL OR ${authorColumn} <> ${actorParam})`
+    : 'TRUE';
+}
+
+/** §75 공통 여섯 갈래(지출 포함 · H-83) + §14 강사 리포트 (D-R26 · D-R34) */
+export const AP_KINDS = ['rep', 'rpt', 'plan', 'req', 'chreq', 'matreq', 'gpapack', 'expense', 'suggestion', 'missing'] as const;
+export type ApKind = (typeof AP_KINDS)[number];
+
+/**
+ * §75 중앙 결재 흐름의 갈래. §14 REP·건의·누락은 섞지 않는다.
+ *
+ * **지출(expense)이 여섯째다** — 사용자 결정 2026-09-30 「H-83 · H-84 지출 갈래 추가」가 N-64(「§75 지금대로」)를 뒤집었다.
+ * 테스트 시나리오 H-83 「결재 흐름에 집계」 · H-84 「결재 흐름 되돌아온 것에 붉게 표시」. 결재 · 반려는 여전히 회계 「나간 돈」
+ * (POST /accounting/expenses/:id/review · canMoney)가 하고 §75 는 이동만 한다(D-R27). §14 승인 대기함에는 넣지 않는다(AP_INBOX_KINDS).
+ */
+export const APPROVAL_FLOW_KINDS = ['rpt', 'plan', 'req', 'chreq', 'matreq', 'expense'] as const;
+export type ApprovalFlowKind = (typeof APPROVAL_FLOW_KINDS)[number];
+export const APPROVAL_FLOW_RECIPIENTS = ['ceo', 'head'] as const;
+export type ApprovalFlowRecipient = (typeof APPROVAL_FLOW_RECIPIENTS)[number];
+
+export const APPROVAL_FLOW_KIND_LABEL: Record<ApprovalFlowKind, string> = {
+  rpt: '대표 보고', plan: '기획 결재', req: '강사 요청', chreq: '변경 요청', matreq: '자료 요청', expense: '지출 결재',
+};
+
+export const APPROVAL_FLOW_RECIPIENT: Record<ApprovalFlowKind, ApprovalFlowRecipient> = {
+  rpt: 'ceo', plan: 'ceo', req: 'head', chreq: 'head', matreq: 'head', expense: 'ceo',
+};
+
+export const APPROVAL_FLOW_RECIPIENT_NAMES = ['대표', '실장'] as const;
+export const APPROVAL_FLOW_RECIPIENT_LABELS = ['대표에게', '실장에게'] as const;
+export const APPROVAL_FLOW_RECIPIENT_NAME: Record<ApprovalFlowRecipient, (typeof APPROVAL_FLOW_RECIPIENT_NAMES)[number]> = {
+  ceo: '대표', head: '실장',
+};
+export const APPROVAL_FLOW_RECIPIENT_LABEL: Record<ApprovalFlowRecipient, string> = {
+  ceo: '대표에게', head: '실장에게',
+};
+
+/**
+ * 아직 표가 없어 정규화하지 못하는 것 — **지금은 없다.**
+ *
+ * 한동안 여기에 `gpapack` 이 들어 있었는데 틀린 것이었다. 표는 처음부터 있었고
+ * 시드만 비어 있었다. N-13 으로 막혀 있는 것은 GPA **점수 저장**(§82)이지
+ * 자료 요청 결재가 아니다. 화면에 「못 셉니다」라고 적어 두면 아무도 다시 안 본다.
+ */
+export const AP_KINDS_MISSING: ApKind[] = [];
+
+export const AP_KIND_LABEL: Record<ApKind, string> = {
+  rep: '리포트',
+  rpt: '대표 보고',
+  plan: '기획',
+  req: '요청',
+  chreq: '변경 요청',
+  matreq: '자료 요청',
+  gpapack: '과거 자료 전달',
+  expense: '지출',
+  suggestion: '건의 사항',
+  missing: '빠진 것',
+};
+
+/** §14 필터 순서와 낱말. 화면은 이 표를 복제하지 않고 응답의 `categories`를 그린다. */
+export const AP_INBOX_CATEGORIES = [
+  'schedule_change', 'book_change', 'tz_change', 'wage_change', 'suggestion', 'gpa_request', 'material_request', 'missing', 'other',
+] as const;
+export type ApInboxCategory = (typeof AP_INBOX_CATEGORIES)[number];
+
+export const AP_INBOX_CATEGORY_LABEL: Record<ApInboxCategory, string> = {
+  schedule_change: '스케줄 변경',
+  book_change: '교재 변경',
+  tz_change: '시간대 변경',
+  wage_change: '시급 변경',
+  suggestion: '건의 사항',
+  gpa_request: 'GPA 요청',
+  material_request: '자료 요청',
+  missing: '빠진 것',
+  other: '기타',
+};
+
+/**
+ * 낱말 → 사람이 읽는 이름 (D-R18 · 이름의 출처는 하나여야 한다).
+ *
+ * 서버가 제목을 만들 때도, 화면이 이력 표를 그릴 때도 이 표를 본다.
+ * 여기 없는 값은 **그대로 보여 준다** — 「기타」로 뭉개면 새 종류가 생긴 것을 아무도 모른다.
+ */
+export const REQ_TYPE_LABEL: Record<string, string> = {
+  // REQ — 사람이 올리는 요청
+  wage_change: '시급 변경', tz_change: '시간대 변경', unav_add: '불가 시간 추가', doc: '서류',
+  // 교재 변경 요청 — §14 분류 칩(AP_INBOX_CATEGORY_LABEL)과 같은 낱말. 없던 동안 제목이 「book_change 요청」으로 나갔다
+  book_change: '교재 변경',
+  // 강사 GPA 회차 요청(N-99 · W11) — 입력 단추 이름 「GPA 회차 요청」 그대로. §14 칩은 「GPA 요청」(AP_INBOX_CATEGORY_LABEL)
+  gpa_request: 'GPA 회차',
+  // CHREQ — 수업을 바꿔 달라는 요청. §19 컷의 「무엇을」 칩 낱말 그대로 (시간 옮기기 · 강사 바꾸기 · 강의실 바꾸기)
+  time: '시간 변경', time_move: '시간 옮기기', teacher: '강사 바꾸기',
+  // 컷 §19 의 갈래 이름 그대로다 — 「시간 옮기기 · 강사 바꾸기 · 강의실 바꾸기 · **휴강**」.
+  // `cancel` 을 「취소」라 적던 동안, 같은 줄의 대상 칸(서버가 지은 문장)은 「휴강」이라
+  // 적고 있었다 — 한 줄이 제 갈래를 두 이름으로 부르고 있었다 (`lib/change-request.ts`).
+  room: '강의실 바꾸기', off: '휴강', cancel: '휴강',
+};
+
+/**
+ * 요청이 **무엇을 바라는가** — 낱말과 단위를 만드는 자리는 여기 하나다 (D-R18).
+ *
+ * 강사 홈(§8)은 바라는 값만 보여 주고, 승인 대기함(§14)은 「지금 → 바라는 것」으로 보여 준다.
+ * 두 화면이 각자 숫자를 다듬으면 한쪽만 천 단위 쉼표가 빠지는 날이 온다.
+ */
+export function reqAsked(reqType: string, payload: unknown): { from: string | null; to: string | null } {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const won = (v: unknown) =>
+    v === null || v === undefined || v === '' ? null : `${Number(v).toLocaleString('ko-KR')}원/시간`;
+  const text = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v));
+
+  if (reqType === 'wage_change') return { from: won(p.from), to: won(p.to) };
+  if (reqType === 'tz_change') return { from: text(p.from), to: text(p.tz) };
+  // 교재 변경은 **새 교재를 정하지 않는다**(N-99 · 배부 변경은 관리자가 §38 에서) — 지금 교재만 적는다. 옛 줄(이름만)은 null
+  if (reqType === 'book_change') return { from: text(p.bookTitle), to: null };
+  // GPA 회차 요청은 그 회차의 날짜 · 시각이 곧 「바라는 것」이다(원문 §14 카드 「2026-08-21 20:00–20:40」)
+  if (reqType === 'gpa_request') return { from: null, to: gpaRequestWhen(p) };
+  // 모르는 갈래는 **지어내지 않는다** — 사유가 있으면 그것만 보여 준다
+  return { from: null, to: text(p.reason) };
+}
+
+/** §14 줄에 적는 한 문장 — 「지금 → 바라는 것」, 앞이 없으면 바라는 것만 */
+export function reqAskedLine(reqType: string, payload: unknown): string | null {
+  const { from, to } = reqAsked(reqType, payload);
+  if (!to) return from;
+  return from ? `${from} → ${to}` : to;
+}
+
+const hhmmOf = (min: unknown): string | null =>
+  typeof min === 'number' && Number.isInteger(min) && min >= 0 && min <= 1440
+    ? `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}` : null;
+
+/** GPA 회차 요청의 「언제」 — 「2026-08-21 20:00–20:40」. 적힌 것이 모자라면 적힌 만큼만(지어내지 않는다) */
+function gpaRequestWhen(p: Record<string, unknown>): string | null {
+  const day = typeof p.onDate === 'string' && p.onDate ? p.onDate : null;
+  const start = hhmmOf(p.startMin);
+  const end = hhmmOf(p.endMin);
+  const time = start && end ? `${start}–${end}` : start;
+  return [day, time].filter(Boolean).join(' ') || null;
+}
+
+/**
+ * §14 카드의 회색 제목 — 원문 컷 「박하경 · Quiz 대비」 · 「양찬욱 · MAP Math」(학생 · 서비스/과목 · N-99).
+ * 강사가 새 입력으로 올린 줄은 그때 이름을 스냅숏으로 들고 온다. 스냅숏이 없는 옛 줄은 예전처럼 「갈래 이름 요청」이다
+ * — 없는 과목 이름을 지어내지 않는다.
+ */
+export function reqTitle(reqType: string, payload: unknown): string {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const student = text(p.studentName);
+  const topic = reqType === 'gpa_request' ? text(p.svcName) : reqType === 'book_change' ? text(p.subjectName) : null;
+  if (student && topic) return `${student} · ${topic}`;
+  return `${labelOf(REQ_TYPE_LABEL, reqType)} 요청`;
+}
+
+/**
+ * §14 카드의 **사유 인용 줄**(g2 대조 14-4) — 후보 중 처음으로 적힌 글을 고른다.
+ *
+ * 이미 그 줄에 보인 글(`shown` — 「바라는 것」·반려 사유·제목)과 같으면 **두 번 싣지 않는다**.
+ * 모르는 요청 갈래는 사유가 곧 「바라는 것」이라(`reqAsked`) 회색 상자와 인용 줄에 같은 글이 두 번 서던 자리다.
+ * 적힌 것이 없으면 null — 사유를 지어내지 않는다.
+ */
+export function requesterReason(
+  shown: ReadonlyArray<string | null | undefined>, ...candidates: unknown[]
+): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const text = candidate.trim();
+    if (!text) continue;
+    return shown.some((s) => (s ?? '').trim() === text) ? null : text;
+  }
+  return null;
+}
+
+/** 기존 import 경로는 유지하되 종류의 정본은 변경요청 도메인 파일에 둔다. */
+export { CHREQ_TYPES, type ChreqType } from './change-request';
+
+export const GPAPACK_TYPE_LABEL: Record<string, string> = {
+  exam: '시험 대비', self: '자습',
+};
+
+/**
+ * 보고 주기의 이름 — 원문 §69 의 탭이 「**일일** · 주간 · 월간」이다.
+ * 한동안 이 표만 「일간」이라 적어, §73 결재함과 §75 결재 흐름의 줄이 **탭과 다른 낱말**을 썼다
+ * (화면은 제 표로 「일일」을 그린다 · QA-e 에서 드러났다). 낱말은 한 벌이어야 한다 (D-R18).
+ */
+export const RPT_TYPE_LABEL: Record<string, string> = {
+  day: '일일', week: '주간', month: '월간',
+};
+
+/** 표에 없는 낱말은 감추지 않고 그대로 보여 준다 */
+export const labelOf = (table: Record<string, string>, key: string): string => table[key] ?? key;
+
+/**
+ * 한 줄의 상태. 표마다 낱말이 다르므로 **여기서 세 가지로 좁힌다.**
+ *   waiting  기다리는 것 — 내가 승인해야 하거나, 남이 승인해 주기를 기다리는 것
+ *   back     되돌아온 것 — 반려. 목록 맨 위로 올라간다 (§75)
+ *   done     끝난 것
+ */
+export type ApState = 'waiting' | 'back' | 'done';
+
+/** §75 가 요구하는 한 줄 — `{k,id,t,s,by,at,st,why,go}` */
+export interface ApRow {
+  kind: ApKind;
+  id: number;
+  /** 사람이 읽는 제목 */
+  title: string;
+  /** 부제 — 종류나 날짜처럼 한 줄 더 */
+  sub: string | null;
+  /** 올린 사람 */
+  byId: number | null;
+  byName: string | null;
+  at: string;
+  state: ApState;
+  /** 반려 사유 — `state==='back'` 이면 반드시 있다 (D-R13) */
+  why: string | null;
+  /** 누르면 갈 곳 — §75 결재 흐름은 여전히 이동만 한다 (D-R27) */
+  go: string;
+  /** REQ 갈래의 요청 종류 — 화면이 낱말을 만들지 않는다 (D-R18) */
+  reqType?: string | null;
+  /** 무엇을 바라는가 — 「42,000원/시간 → 45,000원/시간」처럼 이미 사람이 읽는 문장이다 */
+  asked?: string | null;
+  /**
+   * 올린 사람이 **자기 말로** 적은 사유 — 원문 §14 카드의 인용 줄(g2 대조 14-4). 적힌 것이 없으면 null.
+   * 근거를 안 보고 누르는 승인이 되지 않도록 카드에 싣는다. 만드는 규칙은 `requesterReason` 한 곳이다.
+   */
+  reason?: string | null;
+  /**
+   * 이 **줄**이 반영 가능한가 — 갈래가 아니라 줄이다.
+   *
+   * 줌 계정 변경처럼 같은 갈래 안에서도 반영 경로가 없는 것이 있다. `false` 면
+   * 권한이 있어도 `canAct` 가 서지 않는다. 기본은 「가능」이다.
+   */
+  applicable?: boolean;
+  /** 이 사람이 **지금** 이 줄을 처리할 수 있는가 — 판정은 서버가 한다 */
+  canAct?: boolean;
+  /** 못 하는 이유 문장 — 할 수 있으면 null. 쓰기가 내는 말과 같다 (S5) */
+  actBlockedReason?: string | null;
+  /** §14 필터 분류 — 서버가 만들고 화면은 비교만 한다 (D-R18). */
+  category?: ApInboxCategory;
+  /** 분류의 사람이 읽는 이름 — 서버 코드표의 값. */
+  categoryLabel?: string;
+}
+
+export interface CategorizedApRow extends ApRow {
+  category: ApInboxCategory;
+  categoryLabel: string;
+}
+
+export interface ApInboxCategoryCount {
+  key: ApInboxCategory;
+  label: string;
+  count: number;
+}
+
+/**
+ * §14 승인 대기함에서 **여기서 바로 처리할 수 있는** 갈래.
+ *
+ * 원문 §14 는 줄마다 「반려」「승인」을 갖고 D-R13 의 절 칸에도 14 가 있다 —
+ * 반려 사유가 필수인 화면이 곧 반려하는 화면이다. D-R27 의 「이동만」은 §75
+ * 결재 흐름 오버레이의 규칙이다.
+ *
+ * 갈래마다 **승인이 무엇을 바꾸는가**가 다르고 충돌 검사도 다르다. 그래서 적용 경로가
+ * 실제로 만들어진 갈래만 여기 들어온다 — 목록에 없는 갈래는 지금처럼 그 화면으로 보낸다.
+ * 「승인 단추가 있는데 눌러도 아무 일이 없다」보다 「아직 저기서 합니다」가 정직하다.
+ */
+export const AP_ACTIONABLE_KINDS: ApKind[] = ['req', 'chreq'];
+
+/**
+ * §14 승인 대기함에 **드는** 갈래 — 원문 슬라이드 14 「데이터: REQ(강사 요청), SER를 훑어 실시간 계산」.
+ *
+ * 강사가 올린 요청(요청 · 변경 요청 · 일반 자료요청 · 건의)과 SER 를 훑어 계산한 「빠진 것」이다.
+ * 레거시 자료 전달(gpapack)은 여기 없고, 최신 일반 자료요청(matreq)은 독립 분류로 선다.
+ * 레일 배지(`inboxCount`)도 이 목록에서 세므로 두 곳이 갈리지 않는다.
+ */
+export const AP_INBOX_KINDS: readonly ApKind[] = ['req', 'chreq', 'matreq', 'suggestion', 'missing'];
+
+export interface ApFlow {
+  /** 되돌아온 것 → 기다리는 것 → 내가 올린 것 순 (§75) */
+  back: CategorizedApRow[];
+  waiting: CategorizedApRow[];
+  mine: CategorizedApRow[];
+  /** §14 승인 대기함 — 요청·건의·GPA·DB에서 계산한 누락만, 완료 행은 제외한다. */
+  inbox: CategorizedApRow[];
+  /** §14 칩. 0건 갈래도 원문 순서를 유지해 화면이 누락 여부를 알 수 있다. */
+  categories: ApInboxCategoryCount[];
+  /** 배지 숫자 — `apCount()` */
+  count: number;
+  /** §14 우측 레일 배지 — `inbox.length`와 반드시 같다. */
+  inboxCount: number;
+  /** 아직 표가 없어 못 세는 갈래 */
+  missingKinds: ApKind[];
+}
+
+export interface ApprovalFlowItem {
+  kind: ApprovalFlowKind;
+  kindLabel: string;
+  id: number;
+  title: string;
+  sub: string | null;
+  byId: number | null;
+  byName: string;
+  to: ApprovalFlowRecipient;
+  /** 행의 '체험직원03 → 대표'에 쓰는 조사 없는 이름. */
+  toName: string;
+  /** 타일의 '대표에게'에 쓰는 완성된 이름. */
+  toLabel: string;
+  at: string;
+  state: 'back' | 'waiting' | 'mine';
+  why: string | null;
+  go: string;
+}
+
+export interface ApprovalFlowTile {
+  kind: ApprovalFlowKind;
+  kindLabel: string;
+  to: ApprovalFlowRecipient;
+  toLabel: string;
+  count: number;
+}
+
+export interface ApprovalFlowProjection {
+  canView: boolean;
+  tiles: ApprovalFlowTile[];
+  /** 돌아온 건 → 기다리는 건 → 내가 올린 건 순서로 화면이 그린다. */
+  back: ApprovalFlowItem[];
+  waiting: ApprovalFlowItem[];
+  mine: ApprovalFlowItem[];
+  /** 원문 '지금 N건 대기' — waiting과 같은 배열에서 세다. */
+  total: number;
+  backCount: number;
+}
+
+/** 기획 한 건의 공개 범위 재료 (W11 · N-72) — 옛 기획은 `share` 가 null(지금처럼 모두에게 보인다) */
+export interface PlanVisibility {
+  share: string | null;
+  ownerId: number | null;
+  pickIds: readonly number[];
+}
+
+/**
+ * 기획 줄이 보는 사람에게 보이는가 (W11 · N-72) — 판정은 `planCan` 한 곳이고, 결재권자는 기획 결재를 받는 범위
+ * (`approvalFlowScope === 'all'` ⇔ `canCeoApprovePlan`)와 같은 판정이다. 지정 공개(`picked`)면 담당 · 지정된 사람 · 결재권자에게만.
+ *
+ * **줄을 만드는 쪽(`DrawerService.approvalRows`)이 이 판정으로 거른 뒤에 `ApRow` 를 만든다** (W11 A' 후속 · 리드 결정).
+ * 예전에는 공개 범위 재료(`planShare` · `pickIds`)를 `ApRow` 에 실어 §75 투영이 걸렀는데, 그 줄이 §14 목록(`apFlow`)에도
+ * 그대로 실려 **지정된 사람 번호가 응답에 새었고** §14 는 거르지도 않았다. 이제 재료는 줄에 없고, 두 투영이 같은 줄들을 본다.
+ */
+export function approvalPlanVisible(plan: PlanVisibility, viewerId: number, scope: ApprovalFlowScope): boolean {
+  return planCan(plan.share, {
+    isOwner: plan.ownerId !== null && plan.ownerId === viewerId,
+    isPicked: plan.pickIds.includes(viewerId),
+    canApprove: scope === 'all',
+  });
+}
+
+/** §75 전용 읽기 projection. §14와 ApRow 원장을 공유하되 의미는 섞지 않는다. */
+export function approvalFlowProjection(
+  rows: readonly ApRow[], viewerId: number, scope: ApprovalFlowScope,
+): ApprovalFlowProjection {
+  if (scope === 'none') {
+    return { canView: false, tiles: [], back: [], waiting: [], mine: [], total: 0, backCount: 0 };
+  }
+
+  // 지정 공개 기획은 줄을 만드는 쪽이 이미 걸렀다(`approvalPlanVisible` · N-72) — 투영은 공개 범위를 모른다
+  const exact = rows.filter((row): row is ApRow & { kind: ApprovalFlowKind } =>
+    (APPROVAL_FLOW_KINDS as readonly ApKind[]).includes(row.kind));
+  const item = (row: ApRow & { kind: ApprovalFlowKind }, state: ApprovalFlowItem['state']): ApprovalFlowItem => {
+    const to = APPROVAL_FLOW_RECIPIENT[row.kind];
+    /*
+     * 강사 요청 줄은 원문 §75 그대로 **제목 「강사 요청」 + 회색 부제 요청자**다(g2 75-6 · D-R44).
+     * 무엇을 바라는지는 §14 카드가 말하고(같은 행의 `title`·`asked`), §75 는 누가 누구에게 올렸는지를 본다.
+     * 요청자를 모르는 옛 줄은 부제를 비운다 — 이름을 지어내지 않는다. 다른 갈래는 행의 제목·부제 그대로다.
+     */
+    const teacherReq = row.kind === 'req';
+    return {
+      kind: row.kind, kindLabel: APPROVAL_FLOW_KIND_LABEL[row.kind], id: row.id,
+      title: teacherReq ? APPROVAL_FLOW_KIND_LABEL.req : row.title,
+      sub: teacherReq ? row.byName : row.sub,
+      byId: row.byId,
+      // 올린 사람을 모르는 옛 줄(C85-a 의 `rpt.sent_by` 도장 이전 보고 · N-25)은 「알 수 없음」 — 화면이 추정하지 않도록 경계를 값으로 내린다.
+      byName: row.byName ?? '알 수 없음',
+      to, toName: APPROVAL_FLOW_RECIPIENT_NAME[to], toLabel: APPROVAL_FLOW_RECIPIENT_LABEL[to],
+      at: row.at, state, why: row.why, go: row.go,
+    };
+  };
+  const byAtDesc = (a: ApprovalFlowItem, b: ApprovalFlowItem) =>
+    (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+  // '돌아온 건'은 **내가 올렸다가** 반려된 건이다. 대표라도 남의 반려 이력을 여기 섞지 않는다.
+  const back = exact
+    .filter((row) => row.state === 'back' && row.byId === viewerId)
+    .map((row) => item(row, 'back')).sort(byAtDesc);
+  const waiting = exact
+    .filter((row) => row.state === 'waiting' && row.byId !== viewerId)
+    .filter((row) => scope === 'all' || APPROVAL_FLOW_RECIPIENT[row.kind] === 'head')
+    .map((row) => item(row, 'waiting')).sort(byAtDesc);
+  const mine = exact
+    .filter((row) => row.state !== 'back' && row.byId === viewerId)
+    .map((row) => item(row, 'mine')).sort(byAtDesc);
+  const tiles = APPROVAL_FLOW_KINDS.map((kind) => {
+    const to = APPROVAL_FLOW_RECIPIENT[kind];
+    return {
+      kind, kindLabel: APPROVAL_FLOW_KIND_LABEL[kind], to,
+      toLabel: APPROVAL_FLOW_RECIPIENT_LABEL[to],
+      count: waiting.filter((row) => row.kind === kind).length,
+    };
+  });
+  return { canView: true, tiles, back, waiting, mine, total: waiting.length, backCount: back.length };
+}
+
+/**
+ * §14의 분류는 저장 표 이름이 아니라 업무 의미다. 이 함수 한 곳에서만 대응한다.
+ *
+ * **레거시 자료 전달(gpapack)은 「GPA 요청」이 아니다**(g2 14-2 · D-R44). 원문 §14 의 GPA 요청 카드는
+ * 강사가 올린 GPA 회차 요청(「Sophia · 박하경 · Quiz 대비 · 20:00–20:40 → 줌 배정 후 확정」)이고,
+ * 같은 두 줄이 §75 에서는 「강사 요청」으로 선다 — 원천이 REQ(강사 요청)다. 최신 일반 자료요청은
+ * MATREQ의 `material_request` 분류이며, 레거시 GPAPACK은 「기타」로 두고 §14 목록에 넣지 않는다.
+ * 강사 쪽 입력은 N-99(W11)로 생겼다 — 강사 캘린더의 「GPA 회차 요청」이 REQ `gpa_request` 한 줄을 쓴다(칩은 0 이어도 선다 · 어휘다).
+ */
+export function approvalInboxCategory(row: ApRow): ApInboxCategory {
+  if (row.kind === 'missing') return 'missing';
+  if (row.kind === 'suggestion') return 'suggestion';
+  if (row.kind === 'chreq') return 'schedule_change';
+  if (row.kind === 'matreq') return 'material_request';
+  if (row.kind === 'req') {
+    if (row.reqType === 'tz_change') return 'tz_change';
+    if (row.reqType === 'wage_change') return 'wage_change';
+    if (row.reqType === 'book_change') return 'book_change';
+    // 강사 GPA 회차 요청(N-99 · W11) — 이제 입력이 있다. 원문 §14 「GPA 요청」 칩이 이 줄을 센다
+    if (row.reqType === 'gpa_request') return 'gpa_request';
+  }
+  return 'other';
+}
+
+export const AP_STATE_WORDS: Record<ApState, readonly string[]> = {
+  // 되돌아온 것 — PLAN.stage 의 rework 가 여기 붙는다
+  back: ['rejected', 'rej', 'rework', 'denied', 'no', 'back'],
+  // 끝난 것
+  done: ['approved', 'ok', 'done', 'closed', 'applied', 'delivered', 'received'],
+  /**
+   * 기다리는 것 — 기본값이기도 하다.
+   *
+   * ⚠ `sent` 가 여기 있는 것이 중요하다. TBO-29 에서 「나갔으니 끝난 것」이라 보고
+   * `done` 에 넣었는데 **틀렸다.** RPT 에서 `sent` 는 「대표께 올렸고 검토를 기다린다」는 뜻이다
+   * (`erd.dbml` RPT: `draft | sent | ok | rej` · `reviewed_at` 이 그 뒤에 찍힌다).
+   * 그래서 제출된 대표 보고 4건이 승인 대기함에서 통째로 빠져 있었다 — D-R34 가 말하는
+   * 「전건이 뜬다」의 정반대다. 안내(GUIDE)의 `sent` 는 발송 완료지만, 그 표는 결재를 돌지 않는다.
+   */
+  waiting: ['pending', 'review', 'submitted', 'sent', 'wait', 'open', 'draft'],
+};
+
+/**
+ * 표마다 다른 상태 낱말을 셋으로 좁힌다.
+ *
+ * 모르는 값은 **기다리는 것**으로 둔다 — 사라지는 것보다 낫다.
+ * 다만 그 관대함이 낱말이 어긋난 것을 덮어 버리므로,
+ * `test/approval.spec.ts` 가 **DB 에 실제로 있는 낱말이 전부 위 표에 있는지** 검사한다.
+ */
+export function toApState(raw: string | null | undefined): ApState {
+  const v = String(raw ?? '').toLowerCase();
+  if (AP_STATE_WORDS.back.includes(v)) return 'back';
+  if (AP_STATE_WORDS.done.includes(v)) return 'done';
+  return 'waiting';
+}
+
+/** 표에 없는 낱말인가 — 조용한 오분류를 잡으려고 테스트가 쓴다 */
+export const isKnownApWord = (raw: string | null | undefined): boolean =>
+  Object.values(AP_STATE_WORDS).some((ws) => ws.includes(String(raw ?? '').toLowerCase()));
+
+/**
+ * §20 변경 요청의 반영 · 반려 · 되돌리기는 **시간표를 바꾸는 쓰기**다 — 일정 쓰기(`/schedule` 쓰기 전부)와 같은 전체 편집 권한(`canCrudAll`)이
+ * 있어야 한다(P1 CROSS-CUT · 2026-09-29). 결재 권한(`canApprove`)만으로는 모자란다 — 사람별 예외로 결재 권한만 켠 강사가 남의 수업을 옮기고 ·
+ * 강사를 바꾸고 · 휴강시키던 옆문을 막는다. 쓰기의 403 과 §14 줄의 막힌 이유가 이 한 문장이다(D-R39).
+ */
+export const CHREQ_REVIEW_FORBIDDEN_MESSAGE =
+  '변경 요청은 시간표를 바꾸는 일이라 전체 편집 권한이 있어야 처리할 수 있습니다 — 결재 권한만으로는 처리하지 못합니다';
+
+/**
+ * 공통 결재 갈래와 강사 리포트를 한 목록으로 묶는다.
+ *
+ * @param viewerId  「내가 올린 것」을 가르는 기준
+ * @param canApprove 승인 권한이 있는가 — 없으면 `waiting` 에 남의 건이 들어가지 않는다 (D-R39)
+ * @param canWage 시급을 다룰 수 있는가 — **시급 요청은 이것까지 있어야 승인된다**(S5).
+ *   `reviewRequest` 가 403 `WAGE_REVIEW_FORBIDDEN` 로 막는데 `canAct` 가 그것을 몰라서
+ *   단추가 선 채 눌러야만 거절당했다. 안 주면 예전처럼 **승인 권한만** 본다.
+ * @param canWriteSchedule 시간표를 쓸 수 있는가(`canCrudAll`) — **변경 요청은 이것까지 있어야 처리된다**(P1 CROSS-CUT).
+ *   `reviewChangeRequest` 가 403 `CHREQ_REVIEW_FORBIDDEN` 로 막는다. 안 주면 예전처럼 승인 권한만 본다(시급 층과 같은 규약).
+ */
+export function apFlow(
+  rows: ApRow[],
+  viewerId: number,
+  canApprove: boolean,
+  canWage?: boolean,
+  canWriteSchedule?: boolean,
+): ApFlow {
+  const back: CategorizedApRow[] = [];
+  const waiting: CategorizedApRow[] = [];
+  const mine: CategorizedApRow[] = [];
+
+  /* §14와 §75가 같은 원장 행을 보되, §14의 필터 분류까지 서버가 붙인다.
+     행 객체를 복제해 호출자가 넘긴 배열을 오염시키지 않는다. */
+  const categorizedRows: CategorizedApRow[] = rows.map((source) => {
+    const category = approvalInboxCategory(source);
+    return { ...source, category, categoryLabel: AP_INBOX_CATEGORY_LABEL[category] };
+  });
+
+  for (const r of categorizedRows) {
+    const isMine = r.byId !== null && r.byId === viewerId;
+    // 처리할 수 있는가 — 권한이 있고, 남의 것이고, 아직 기다리는 중이고, 적용 경로가 있는 갈래
+    const open = canApprove && !isMine && r.state === 'waiting'
+      && AP_ACTIONABLE_KINDS.includes(r.kind) && r.applicable !== false;
+    /* **시급 요청은 한 층이 더 있다**(S5) — `reviewRequest` 가 `canWage` 없이 승인하면 403 을 낸다.
+       인자를 안 준 호출자에게는 예전 그대로다(모르는 쪽으로 닫지 않는다 — 그러면 §75 가 통째로 잠긴다). */
+    const needsWage = open && r.kind === 'req' && r.reqType === 'wage_change' && canWage === false;
+    const needsSchedule = open && r.kind === 'chreq' && canWriteSchedule === false;
+    r.canAct = open && !needsWage && !needsSchedule;
+    r.actBlockedReason = needsWage ? '시급을 다룰 권한이 필요합니다' : needsSchedule ? CHREQ_REVIEW_FORBIDDEN_MESSAGE : null;
+    // 남의 결재는 승인 권한이 있을 때만 **목록에서 아예 뺀다.**
+    // 감추기만 하면 「있다」는 사실이 배지 숫자로 새어 나간다 (D-R39).
+    if (!isMine && !canApprove) continue;
+
+    // 되돌아온 것이 맨 위 — 내 것이든 남의 것이든 (§75)
+    if (r.state === 'back') { back.push(r); continue; }
+    if (r.state === 'done') { if (isMine) mine.push(r); continue; }
+    // 기다리는 것 — 내가 올린 것은 「내가 올린 것」으로, 남의 것은 승인 대기로
+    if (isMine) mine.push(r);
+    else waiting.push(r);
+  }
+
+  const byAtDesc = (a: ApRow, b: ApRow) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+  back.sort(byAtDesc); waiting.sort(byAtDesc); mine.sort(byAtDesc);
+
+  const inbox = canApprove
+    ? categorizedRows.filter((r) => AP_INBOX_KINDS.includes(r.kind) && r.state !== 'done').sort(byAtDesc)
+    : [];
+  const categories = AP_INBOX_CATEGORIES.map((key) => ({
+    key,
+    label: AP_INBOX_CATEGORY_LABEL[key],
+    count: inbox.filter((row) => row.category === key).length,
+  }));
+
+  return {
+    back, waiting, mine,
+    inbox,
+    categories,
+    // §75 결재 흐름 숫자는 기존 의미를 유지한다.
+    count: back.length + waiting.length,
+    // §14 우측 레일은 실제 inbox 행과 같은 배열에서 센다.
+    inboxCount: inbox.length,
+    missingKinds: [...AP_KINDS_MISSING],
+  };
+}
+
+/** 「체험직원01 → 대표」처럼 누가 누구에게를 한 문장으로 (§75 표시 규약) */
+export function apSentence(r: ApRow, toName: string | null): string {
+  const from = r.byName ?? '알 수 없음';
+  return toName ? `${from} → ${toName}` : from;
+}
