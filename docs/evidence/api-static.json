@@ -1,0 +1,4979 @@
+{
+  "version": 1,
+  "startedAt": "2026-10-12T00:40:21.232Z",
+  "mode": "static-only",
+  "staticCoverage": {
+    "contractSha256": "2db5f52d1e94f030ed8d5dbe10e99205a53f50af44c9f7496bfa322fd0ed6f5b",
+    "paths": 279,
+    "operations": 309,
+    "mappedOperations": 309,
+    "dispatch": "backend/demo/entry.ts → createApp → AppModule → original controllers/services",
+    "usesOriginalDispatcher": true,
+    "mappings": [
+      {
+        "method": "GET",
+        "path": "/health",
+        "operationId": "HealthController_health",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/health",
+            "controller": "HealthController",
+            "handler": "health",
+            "file": "backend/src/health.controller.ts",
+            "line": 15
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/login",
+        "operationId": "AuthController_login",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/login",
+            "controller": "AuthController",
+            "handler": "login",
+            "file": "backend/src/auth/auth.controller.ts",
+            "line": 27
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/refresh",
+        "operationId": "AuthController_refresh",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/refresh",
+            "controller": "AuthController",
+            "handler": "refresh",
+            "file": "backend/src/auth/auth.controller.ts",
+            "line": 40
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/logout",
+        "operationId": "AuthController_logout",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/logout",
+            "controller": "AuthController",
+            "handler": "logout",
+            "file": "backend/src/auth/auth.controller.ts",
+            "line": 49
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/auth/me",
+        "operationId": "AuthController_me",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/auth/me",
+            "controller": "AuthController",
+            "handler": "me",
+            "file": "backend/src/auth/auth.controller.ts",
+            "line": 59
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/auth/onboarding",
+        "operationId": "OnboardingController_info",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/auth/onboarding",
+            "controller": "OnboardingController",
+            "handler": "info",
+            "file": "backend/src/auth/onboarding.controller.ts",
+            "line": 38
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/onboarding/codes",
+        "operationId": "OnboardingController_codes",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/onboarding/codes",
+            "controller": "OnboardingController",
+            "handler": "codes",
+            "file": "backend/src/auth/onboarding.controller.ts",
+            "line": 49
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/onboarding/complete",
+        "operationId": "OnboardingController_complete",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/onboarding/complete",
+            "controller": "OnboardingController",
+            "handler": "complete",
+            "file": "backend/src/auth/onboarding.controller.ts",
+            "line": 71
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/auth/password-reset",
+        "operationId": "PasswordResetController_info",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/auth/password-reset",
+            "controller": "PasswordResetController",
+            "handler": "info",
+            "file": "backend/src/auth/password-reset.controller.ts",
+            "line": 33
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/password-reset/codes",
+        "operationId": "PasswordResetController_codes",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/password-reset/codes",
+            "controller": "PasswordResetController",
+            "handler": "codes",
+            "file": "backend/src/auth/password-reset.controller.ts",
+            "line": 44
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/auth/password-reset/complete",
+        "operationId": "PasswordResetController_complete",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/auth/password-reset/complete",
+            "controller": "PasswordResetController",
+            "handler": "complete",
+            "file": "backend/src/auth/password-reset.controller.ts",
+            "line": 58
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/meta",
+        "operationId": "MetaController_get",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/meta",
+            "controller": "MetaController",
+            "handler": "get",
+            "file": "backend/src/modules/meta/meta.controller.ts",
+            "line": 23
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/occurrences",
+        "operationId": "ScheduleController_list",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/occurrences",
+            "controller": "ScheduleController",
+            "handler": "list",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 66
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/holidays",
+        "operationId": "ScheduleController_holidays",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/holidays",
+            "controller": "ScheduleController",
+            "handler": "holidays",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 102
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/unavailable",
+        "operationId": "ScheduleController_unavailable",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/unavailable",
+            "controller": "ScheduleController",
+            "handler": "unavailable",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 116
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/day-cancel/notices",
+        "operationId": "ScheduleController_dayCancelNotices",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/day-cancel/notices",
+            "controller": "ScheduleController",
+            "handler": "dayCancelNotices",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 127
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/series-counts",
+        "operationId": "ScheduleController_seriesCounts",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/series-counts",
+            "controller": "ScheduleController",
+            "handler": "seriesCounts",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 139
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/students/{studentId}/books",
+        "operationId": "ScheduleController_studentBooks",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/students/{studentId}/books",
+            "controller": "ScheduleController",
+            "handler": "studentBooks",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 152
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/teachers/{teacherId}/guides",
+        "operationId": "ScheduleController_teacherGuides",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/teachers/{teacherId}/guides",
+            "controller": "ScheduleController",
+            "handler": "teacherGuides",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 167
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/tracking",
+        "operationId": "ScheduleController_tracking",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/tracking",
+            "controller": "ScheduleController",
+            "handler": "tracking",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 190
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/tracking/notes",
+        "operationId": "ScheduleController_addNote",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/tracking/notes",
+            "controller": "ScheduleController",
+            "handler": "addNote",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 214
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/conflicts",
+        "operationId": "ScheduleController_conflicts",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/conflicts",
+            "controller": "ScheduleController",
+            "handler": "conflicts",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 238
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/schedule/horizon",
+        "operationId": "ScheduleController_bounds",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/schedule/horizon",
+            "controller": "ScheduleController",
+            "handler": "bounds",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 269
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/schedule/{serId}/{onDate}/attendance",
+        "operationId": "ScheduleController_saveAttendance",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/schedule/{serId}/{onDate}/attendance",
+            "controller": "ScheduleController",
+            "handler": "saveAttendance",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 276
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/schedule/{serId}/{onDate}/attendance",
+        "operationId": "ScheduleController_clearAttendance",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/schedule/{serId}/{onDate}/attendance",
+            "controller": "ScheduleController",
+            "handler": "clearAttendance",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 294
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule",
+        "operationId": "ScheduleController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule",
+            "controller": "ScheduleController",
+            "handler": "create",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 307
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/paste",
+        "operationId": "ScheduleController_paste",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/paste",
+            "controller": "ScheduleController",
+            "handler": "paste",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 316
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/move",
+        "operationId": "ScheduleController_moveMany",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/move",
+            "controller": "ScheduleController",
+            "handler": "moveMany",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 325
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/day-cancel",
+        "operationId": "ScheduleController_dayCancel",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/day-cancel",
+            "controller": "ScheduleController",
+            "handler": "dayCancel",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 334
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/students/{studentId}/pause",
+        "operationId": "ScheduleController_pauseStudent",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/students/{studentId}/pause",
+            "controller": "ScheduleController",
+            "handler": "pauseStudent",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 353
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/students/{studentId}/pause/{pauseId}/resume",
+        "operationId": "ScheduleController_resumeStudent",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/students/{studentId}/pause/{pauseId}/resume",
+            "controller": "ScheduleController",
+            "handler": "resumeStudent",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 372
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/schedule/undo",
+        "operationId": "ScheduleController_undo",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/schedule/undo",
+            "controller": "ScheduleController",
+            "handler": "undo",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 391
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/schedule/{serId}",
+        "operationId": "ScheduleController_patch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/schedule/{serId}",
+            "controller": "ScheduleController",
+            "handler": "patch",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 403
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/schedule/{serId}",
+        "operationId": "ScheduleController_remove",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/schedule/{serId}",
+            "controller": "ScheduleController",
+            "handler": "remove",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 423
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/schedule/{serId}/roster",
+        "operationId": "ScheduleController_roster",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/schedule/{serId}/roster",
+            "controller": "ScheduleController",
+            "handler": "roster",
+            "file": "backend/src/modules/schedule/schedule.controller.ts",
+            "line": 443
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports",
+        "operationId": "ReportsController_list",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports",
+            "controller": "ReportsController",
+            "handler": "list",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 47
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports/unwritten",
+        "operationId": "ReportsController_unwritten",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports/unwritten",
+            "controller": "ReportsController",
+            "handler": "unwritten",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/reminders",
+        "operationId": "ReportsController_reminders",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/reminders",
+            "controller": "ReportsController",
+            "handler": "reminders",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 72
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports/deliveries",
+        "operationId": "ReportsController_deliveryQueue",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports/deliveries",
+            "controller": "ReportsController",
+            "handler": "deliveryQueue",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 88
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/deliveries",
+        "operationId": "ReportsController_deliver",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/deliveries",
+            "controller": "ReportsController",
+            "handler": "deliver",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 108
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports/deliveries/history",
+        "operationId": "ReportsController_deliveryHistory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports/deliveries/history",
+            "controller": "ReportsController",
+            "handler": "deliveryHistory",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 98
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/deliveries/{sendId}/resend",
+        "operationId": "ReportsController_resend",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/deliveries/{sendId}/resend",
+            "controller": "ReportsController",
+            "handler": "resend",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 121
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports/weekly",
+        "operationId": "ReportsController_weekly",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports/weekly",
+            "controller": "ReportsController",
+            "handler": "weekly",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 132
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/reports/weekly",
+        "operationId": "ReportsController_writeWeekly",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/reports/weekly",
+            "controller": "ReportsController",
+            "handler": "writeWeekly",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 145
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/reports/{serId}/{onDate}",
+        "operationId": "ReportsController_detail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/reports/{serId}/{onDate}",
+            "controller": "ReportsController",
+            "handler": "detail",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 160
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/{serId}/{onDate}/materials",
+        "operationId": "ReportsController_createMaterial",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/{serId}/{onDate}/materials",
+            "controller": "ReportsController",
+            "handler": "createMaterial",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 167
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/reports/{serId}/{onDate}/draft",
+        "operationId": "ReportsController_saveDraft",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/reports/{serId}/{onDate}/draft",
+            "controller": "ReportsController",
+            "handler": "saveDraft",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 187
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/{serId}/{onDate}/submit",
+        "operationId": "ReportsController_submit",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/{serId}/{onDate}/submit",
+            "controller": "ReportsController",
+            "handler": "submit",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 204
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/reports/{serId}/{onDate}/review",
+        "operationId": "ReportsController_review",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/reports/{serId}/{onDate}/review",
+            "controller": "ReportsController",
+            "handler": "review",
+            "file": "backend/src/modules/reports/reports.controller.ts",
+            "line": 221
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/files",
+        "operationId": "FilesController_upload",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/files",
+            "controller": "FilesController",
+            "handler": "upload",
+            "file": "backend/src/modules/files/files.controller.ts",
+            "line": 25
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/files/{id}",
+        "operationId": "FilesController_download",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/files/{id}",
+            "controller": "FilesController",
+            "handler": "download",
+            "file": "backend/src/modules/files/files.controller.ts",
+            "line": 37
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/book-sales",
+        "operationId": "AccountingController_bookSaleLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/book-sales",
+            "controller": "AccountingController",
+            "handler": "bookSaleLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 87
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/book-sales",
+        "operationId": "AccountingController_createBookSale",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/book-sales",
+            "controller": "AccountingController",
+            "handler": "createBookSale",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 109
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/book-sales/{id}",
+        "operationId": "AccountingController_bookSaleDetail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/book-sales/{id}",
+            "controller": "AccountingController",
+            "handler": "bookSaleDetail",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 98
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/book-sales/{id}/cancel",
+        "operationId": "AccountingController_cancelBookSale",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/book-sales/{id}/cancel",
+            "controller": "AccountingController",
+            "handler": "cancelBookSale",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 123
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting",
+        "operationId": "AccountingController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting",
+            "controller": "AccountingController",
+            "handler": "all",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 144
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/student-cumulative",
+        "operationId": "AccountingController_studentCumulative",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/student-cumulative",
+            "controller": "AccountingController",
+            "handler": "studentCumulative",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 153
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/delinquency-suspensions",
+        "operationId": "AccountingController_delinquencyLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/delinquency-suspensions",
+            "controller": "AccountingController",
+            "handler": "delinquencyLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 168
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/delinquency-suspensions/policy",
+        "operationId": "AccountingController_writeDelinquencyPolicy",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/delinquency-suspensions/policy",
+            "controller": "AccountingController",
+            "handler": "writeDelinquencyPolicy",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 183
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/delinquency-suspensions/{studentId}/remind",
+        "operationId": "AccountingController_remindDelinquency",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/delinquency-suspensions/{studentId}/remind",
+            "controller": "AccountingController",
+            "handler": "remindDelinquency",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 197
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/delinquency-suspensions/remind-batch",
+        "operationId": "AccountingController_remindDelinquencyBatch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/delinquency-suspensions/remind-batch",
+            "controller": "AccountingController",
+            "handler": "remindDelinquencyBatch",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 211
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/delinquency-suspensions/{studentId}/suspend",
+        "operationId": "AccountingController_suspendDelinquency",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/delinquency-suspensions/{studentId}/suspend",
+            "controller": "AccountingController",
+            "handler": "suspendDelinquency",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 224
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/delinquency-suspensions/{studentId}/release",
+        "operationId": "AccountingController_releaseDelinquency",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/delinquency-suspensions/{studentId}/release",
+            "controller": "AccountingController",
+            "handler": "releaseDelinquency",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 238
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/adjustments",
+        "operationId": "AccountingController_adjustmentLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/adjustments",
+            "controller": "AccountingController",
+            "handler": "adjustmentLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 252
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/adjustments",
+        "operationId": "AccountingController_createAdjustment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/adjustments",
+            "controller": "AccountingController",
+            "handler": "createAdjustment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 269
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/adjustments/{id}/approve",
+        "operationId": "AccountingController_approveAdjustment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/adjustments/{id}/approve",
+            "controller": "AccountingController",
+            "handler": "approveAdjustment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 286
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/adjustments/{id}/reject",
+        "operationId": "AccountingController_rejectAdjustment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/adjustments/{id}/reject",
+            "controller": "AccountingController",
+            "handler": "rejectAdjustment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 300
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/adjustments/{id}/cancel",
+        "operationId": "AccountingController_cancelAdjustment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/adjustments/{id}/cancel",
+            "controller": "AccountingController",
+            "handler": "cancelAdjustment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 314
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/adjustments/{id}/undo",
+        "operationId": "AccountingController_undoAdjustment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/adjustments/{id}/undo",
+            "controller": "AccountingController",
+            "handler": "undoAdjustment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 328
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/payment-evidence",
+        "operationId": "AccountingController_paymentEvidenceLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/payment-evidence",
+            "controller": "AccountingController",
+            "handler": "paymentEvidenceLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 342
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/payment-evidence/{payId}",
+        "operationId": "AccountingController_paymentEvidence",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/payment-evidence/{payId}",
+            "controller": "AccountingController",
+            "handler": "paymentEvidence",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 356
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payment-evidence/issue-batch",
+        "operationId": "AccountingController_issuePaymentEvidenceBatch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payment-evidence/issue-batch",
+            "controller": "AccountingController",
+            "handler": "issuePaymentEvidenceBatch",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 366
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payment-evidence/{payId}/issue",
+        "operationId": "AccountingController_issuePaymentEvidence",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payment-evidence/{payId}/issue",
+            "controller": "AccountingController",
+            "handler": "issuePaymentEvidence",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 379
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payment-evidence/{payId}/cancel",
+        "operationId": "AccountingController_cancelPaymentEvidence",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payment-evidence/{payId}/cancel",
+            "controller": "AccountingController",
+            "handler": "cancelPaymentEvidence",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 392
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/protected-accounts",
+        "operationId": "AccountingController_protectedAccountLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/protected-accounts",
+            "controller": "AccountingController",
+            "handler": "protectedAccountLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 405
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/protected-accounts",
+        "operationId": "AccountingController_writeProtectedAccount",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/protected-accounts",
+            "controller": "AccountingController",
+            "handler": "writeProtectedAccount",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 425
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/protected-accounts/{accountId}/delete",
+        "operationId": "AccountingController_deleteProtectedAccount",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/protected-accounts/{accountId}/delete",
+            "controller": "AccountingController",
+            "handler": "deleteProtectedAccount",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 442
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/protected-accounts/{accountId}/reveal",
+        "operationId": "AccountingController_revealProtectedAccount",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/protected-accounts/{accountId}/reveal",
+            "controller": "AccountingController",
+            "handler": "revealProtectedAccount",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 461
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/student-refunds",
+        "operationId": "AccountingController_studentRefundLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/student-refunds",
+            "controller": "AccountingController",
+            "handler": "studentRefundLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 480
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/student-refunds/{adjustmentId}/pay",
+        "operationId": "AccountingController_payStudentRefund",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/student-refunds/{adjustmentId}/pay",
+            "controller": "AccountingController",
+            "handler": "payStudentRefund",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 498
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/student-refunds/{adjustmentId}/cancel",
+        "operationId": "AccountingController_cancelStudentRefund",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/student-refunds/{adjustmentId}/cancel",
+            "controller": "AccountingController",
+            "handler": "cancelStudentRefund",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 513
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/tuition",
+        "operationId": "AccountingController_tuition",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/tuition",
+            "controller": "AccountingController",
+            "handler": "tuition",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 528
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/payout-ledger",
+        "operationId": "AccountingController_payoutDisbursementLedger",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/payout-ledger",
+            "controller": "AccountingController",
+            "handler": "payoutDisbursementLedger",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 544
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payout-ledger/pay-batch",
+        "operationId": "AccountingController_payPayoutDisbursementBatch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payout-ledger/pay-batch",
+            "controller": "AccountingController",
+            "handler": "payPayoutDisbursementBatch",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 558
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payout-ledger/{payoutId}/pay",
+        "operationId": "AccountingController_payPayoutDisbursement",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payout-ledger/{payoutId}/pay",
+            "controller": "AccountingController",
+            "handler": "payPayoutDisbursement",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 572
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payout-ledger/{payoutId}/cancel",
+        "operationId": "AccountingController_cancelPayoutDisbursement",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payout-ledger/{payoutId}/cancel",
+            "controller": "AccountingController",
+            "handler": "cancelPayoutDisbursement",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 588
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/payouts",
+        "operationId": "AccountingController_payoutSheet",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/payouts",
+            "controller": "AccountingController",
+            "handler": "payoutSheet",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 603
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/payouts/{staffId}",
+        "operationId": "AccountingController_payoutDetail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/payouts/{staffId}",
+            "controller": "AccountingController",
+            "handler": "payoutDetail",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 622
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/cashflow",
+        "operationId": "AccountingController_cashflow",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/cashflow",
+            "controller": "AccountingController",
+            "handler": "cashflow",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 641
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payouts/{month}/confirm",
+        "operationId": "AccountingController_confirmPayout",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payouts/{month}/confirm",
+            "controller": "AccountingController",
+            "handler": "confirmPayout",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 656
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/bonus-rules",
+        "operationId": "AccountingController_bonusBook",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/bonus-rules",
+            "controller": "AccountingController",
+            "handler": "bonusBook",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 678
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/bonus-rules",
+        "operationId": "AccountingController_writeBonusRule",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/bonus-rules",
+            "controller": "AccountingController",
+            "handler": "writeBonusRule",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 690
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/privacy",
+        "operationId": "AccountingController_acctPrivacy",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/privacy",
+            "controller": "AccountingController",
+            "handler": "acctPrivacy",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 707
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/accounting/privacy",
+        "operationId": "AccountingController_setAcctPrivacy",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/accounting/privacy",
+            "controller": "AccountingController",
+            "handler": "setAcctPrivacy",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 718
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/withdrawals/preview",
+        "operationId": "AccountingController_withdrawPreview",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/withdrawals/preview",
+            "controller": "AccountingController",
+            "handler": "withdrawPreview",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 730
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/withdrawals",
+        "operationId": "AccountingController_withdraw",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/withdrawals",
+            "controller": "AccountingController",
+            "handler": "withdraw",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 747
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/tuition/close",
+        "operationId": "AccountingController_closeMonth",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/tuition/close",
+            "controller": "AccountingController",
+            "handler": "closeMonth",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 763
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/tuition/reopen",
+        "operationId": "AccountingController_reopenMonth",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/tuition/reopen",
+            "controller": "AccountingController",
+            "handler": "reopenMonth",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 778
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/board",
+        "operationId": "AccountingController_invoiceBoard",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/board",
+            "controller": "AccountingController",
+            "handler": "invoiceBoard",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 790
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/other-income",
+        "operationId": "AccountingController_otherIncome",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/other-income",
+            "controller": "AccountingController",
+            "handler": "otherIncome",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 810
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/tuition/carry",
+        "operationId": "AccountingController_carryTuition",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/tuition/carry",
+            "controller": "AccountingController",
+            "handler": "carryTuition",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 833
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/invoices/draft",
+        "operationId": "AccountingController_draftInvoice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/invoices/draft",
+            "controller": "AccountingController",
+            "handler": "draftInvoice",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 858
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/invoices",
+        "operationId": "AccountingController_issueInvoice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/invoices",
+            "controller": "AccountingController",
+            "handler": "issueInvoice",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 873
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/invoices/batch",
+        "operationId": "AccountingController_issueBatch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/invoices/batch",
+            "controller": "AccountingController",
+            "handler": "issueBatch",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 901
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/invoices/{id}/deliver",
+        "operationId": "AccountingController_deliverInvoice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/invoices/{id}/deliver",
+            "controller": "AccountingController",
+            "handler": "deliverInvoice",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 916
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/invoices/{id}/void",
+        "operationId": "AccountingController_voidInvoice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/invoices/{id}/void",
+            "controller": "AccountingController",
+            "handler": "voidInvoice",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 927
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payments",
+        "operationId": "AccountingController_addPayment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payments",
+            "controller": "AccountingController",
+            "handler": "addPayment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 941
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/payments/manual",
+        "operationId": "AccountingController_addManualPayment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/payments/manual",
+            "controller": "AccountingController",
+            "handler": "addManualPayment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 955
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/accounting/payments/{id}",
+        "operationId": "AccountingController_removePayment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/accounting/payments/{id}",
+            "controller": "AccountingController",
+            "handler": "removePayment",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 969
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/expenses/{id}/review",
+        "operationId": "AccountingController_reviewExpense",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/expenses/{id}/review",
+            "controller": "AccountingController",
+            "handler": "reviewExpense",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 982
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/rates",
+        "operationId": "AccountingController_rateBook",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/rates",
+            "controller": "AccountingController",
+            "handler": "rateBook",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1005
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/rates",
+        "operationId": "AccountingController_writeRate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/rates",
+            "controller": "AccountingController",
+            "handler": "writeRate",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1062
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/hourly-rates",
+        "operationId": "AccountingController_createHourlyRate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/hourly-rates",
+            "controller": "AccountingController",
+            "handler": "createHourlyRate",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1017
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/accounting/hourly-rates/{id}",
+        "operationId": "AccountingController_replaceHourlyRate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/accounting/hourly-rates/{id}",
+            "controller": "AccountingController",
+            "handler": "replaceHourlyRate",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1031
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/accounting/hourly-rates/{id}",
+        "operationId": "AccountingController_retireHourlyRate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/accounting/hourly-rates/{id}",
+            "controller": "AccountingController",
+            "handler": "retireHourlyRate",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1047
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/wages",
+        "operationId": "AccountingController_wageHistory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/wages",
+            "controller": "AccountingController",
+            "handler": "wageHistory",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1078
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/wages",
+        "operationId": "AccountingController_writeWage",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/wages",
+            "controller": "AccountingController",
+            "handler": "writeWage",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1090
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/sturates",
+        "operationId": "AccountingController_writeStudentRate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/sturates",
+            "controller": "AccountingController",
+            "handler": "writeStudentRate",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1104
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/accounting/expenses",
+        "operationId": "AccountingController_createExpense",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/accounting/expenses",
+            "controller": "AccountingController",
+            "handler": "createExpense",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1124
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/accounting/expenses/mine",
+        "operationId": "AccountingController_myExpenses",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/accounting/expenses/mine",
+            "controller": "AccountingController",
+            "handler": "myExpenses",
+            "file": "backend/src/modules/accounting/accounting.controller.ts",
+            "line": 1145
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/ops",
+        "operationId": "OpsController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/ops",
+            "controller": "OpsController",
+            "handler": "all",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 33
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings",
+        "operationId": "OpsController_createMeeting",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings",
+            "controller": "OpsController",
+            "handler": "createMeeting",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 53
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/plans",
+        "operationId": "OpsController_createPlan",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/plans",
+            "controller": "OpsController",
+            "handler": "createPlan",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 71
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads",
+        "operationId": "OpsController_createLead",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads",
+            "controller": "OpsController",
+            "handler": "createLead",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 86
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/leads/{id}",
+        "operationId": "OpsController_patchLead",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/leads/{id}",
+            "controller": "OpsController",
+            "handler": "patchLead",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 99
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/leads/{id}/stage",
+        "operationId": "OpsController_moveLeadStage",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/leads/{id}/stage",
+            "controller": "OpsController",
+            "handler": "moveLeadStage",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 112
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/touches",
+        "operationId": "OpsController_addLeadTouch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/touches",
+            "controller": "OpsController",
+            "handler": "addLeadTouch",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 125
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/fail",
+        "operationId": "OpsController_failLead",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/fail",
+            "controller": "OpsController",
+            "handler": "failLead",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 138
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/resume",
+        "operationId": "OpsController_resumeLead",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/resume",
+            "controller": "OpsController",
+            "handler": "resumeLead",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 157
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/enroll/preview",
+        "operationId": "OpsController_enrollPreview",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/enroll/preview",
+            "controller": "OpsController",
+            "handler": "enrollPreview",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 177
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/enroll",
+        "operationId": "OpsController_enroll",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/enroll",
+            "controller": "OpsController",
+            "handler": "enroll",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 191
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/complaints",
+        "operationId": "OpsController_createComplaint",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/complaints",
+            "controller": "OpsController",
+            "handler": "createComplaint",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 208
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/complaints/{id}",
+        "operationId": "OpsController_patchComplaint",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/complaints/{id}",
+            "controller": "OpsController",
+            "handler": "patchComplaint",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 221
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/teacher-change/preview",
+        "operationId": "OpsController_teacherChangePreview",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/teacher-change/preview",
+            "controller": "OpsController",
+            "handler": "teacherChangePreview",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 234
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/teacher-change",
+        "operationId": "OpsController_teacherChange",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/teacher-change",
+            "controller": "OpsController",
+            "handler": "teacherChange",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 248
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/teacher-change/{requestKey}/undo",
+        "operationId": "OpsController_teacherChangeUndo",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/teacher-change/{requestKey}/undo",
+            "controller": "OpsController",
+            "handler": "teacherChangeUndo",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 264
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/ops/marketing-overview",
+        "operationId": "OpsController_marketingOverview",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/ops/marketing-overview",
+            "controller": "OpsController",
+            "handler": "marketingOverview",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 282
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/marketing",
+        "operationId": "OpsController_createMarketing",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/marketing",
+            "controller": "OpsController",
+            "handler": "createMarketing",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 293
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/marketing/{id}",
+        "operationId": "OpsController_patchMarketing",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/marketing/{id}",
+            "controller": "OpsController",
+            "handler": "patchMarketing",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 308
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/marketing/{id}/comments",
+        "operationId": "OpsController_comment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/marketing/{id}/comments",
+            "controller": "OpsController",
+            "handler": "comment",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 328
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/marketing/{id}/replies",
+        "operationId": "OpsController_reply",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/marketing/{id}/replies",
+            "controller": "OpsController",
+            "handler": "reply",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 345
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/marketing/feedback/{id}",
+        "operationId": "OpsController_editPost",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/marketing/feedback/{id}",
+            "controller": "OpsController",
+            "handler": "editPost",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 363
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/ops/plans/{id}",
+        "operationId": "OpsController_planDetail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/ops/plans/{id}",
+            "controller": "OpsController",
+            "handler": "planDetail",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 379
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/plans/{id}",
+        "operationId": "OpsController_patchPlan",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/plans/{id}",
+            "controller": "OpsController",
+            "handler": "patchPlan",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 396
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/plans/{id}/owner",
+        "operationId": "OpsController_patchPlanOwner",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/plans/{id}/owner",
+            "controller": "OpsController",
+            "handler": "patchPlanOwner",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 419
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/suggestions/{id}/reply",
+        "operationId": "OpsController_replySuggestion",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/suggestions/{id}/reply",
+            "controller": "OpsController",
+            "handler": "replySuggestion",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 438
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/ops/plans/{id}/stage",
+        "operationId": "OpsController_movePlanStage",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/ops/plans/{id}/stage",
+            "controller": "OpsController",
+            "handler": "movePlanStage",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 456
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/plans/{id}/due",
+        "operationId": "OpsController_decidePlanDue",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/plans/{id}/due",
+            "controller": "OpsController",
+            "handler": "decidePlanDue",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 476
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/plans/{id}/review",
+        "operationId": "OpsController_reviewPlan",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/plans/{id}/review",
+            "controller": "OpsController",
+            "handler": "reviewPlan",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 495
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/plans/{id}/tasks",
+        "operationId": "OpsController_addPlanTask",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/plans/{id}/tasks",
+            "controller": "OpsController",
+            "handler": "addPlanTask",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 513
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/ops/meetings/{id}",
+        "operationId": "OpsController_meetingDetail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/ops/meetings/{id}",
+            "controller": "OpsController",
+            "handler": "meetingDetail",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 540
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/ops/meetings/{id}/agenda",
+        "operationId": "OpsController_writeMeetingAgenda",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/ops/meetings/{id}/agenda",
+            "controller": "OpsController",
+            "handler": "writeMeetingAgenda",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 559
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings/{id}/agenda/import",
+        "operationId": "OpsController_importMeetingAgenda",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings/{id}/agenda/import",
+            "controller": "OpsController",
+            "handler": "importMeetingAgenda",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 573
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings/{id}/notice",
+        "operationId": "OpsController_sendMeetingNotice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings/{id}/notice",
+            "controller": "OpsController",
+            "handler": "sendMeetingNotice",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 587
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings/{id}/attend",
+        "operationId": "OpsController_respondMeeting",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings/{id}/attend",
+            "controller": "OpsController",
+            "handler": "respondMeeting",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 602
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings/{id}/minutes",
+        "operationId": "OpsController_writeMinutes",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings/{id}/minutes",
+            "controller": "OpsController",
+            "handler": "writeMinutes",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 618
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/meetings/{id}/todos",
+        "operationId": "OpsController_assignMeetingTask",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/meetings/{id}/todos",
+            "controller": "OpsController",
+            "handler": "assignMeetingTask",
+            "file": "backend/src/modules/ops/ops.controller.ts",
+            "line": 634
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/ops/leads/{id}/diag",
+        "operationId": "LeadDiagController_history",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/ops/leads/{id}/diag",
+            "controller": "LeadDiagController",
+            "handler": "history",
+            "file": "backend/src/modules/ops/lead-diag.controller.ts",
+            "line": 24
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/diag",
+        "operationId": "LeadDiagController_append",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/diag",
+            "controller": "LeadDiagController",
+            "handler": "append",
+            "file": "backend/src/modules/ops/lead-diag.controller.ts",
+            "line": 36
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/ops/leads/{id}/plan",
+        "operationId": "LeadPlanController_savePlan",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/ops/leads/{id}/plan",
+            "controller": "LeadPlanController",
+            "handler": "savePlan",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 29
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/hold/extend",
+        "operationId": "LeadPlanController_extendHold",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/hold/extend",
+            "controller": "LeadPlanController",
+            "handler": "extendHold",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 44
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/ops/leads/{id}/appts",
+        "operationId": "LeadPlanController_saveAppt",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/ops/leads/{id}/appts",
+            "controller": "LeadPlanController",
+            "handler": "saveAppt",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 59
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/ops/leads/{id}/appts/{kind}",
+        "operationId": "LeadPlanController_deleteAppt",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/ops/leads/{id}/appts/{kind}",
+            "controller": "LeadPlanController",
+            "handler": "deleteAppt",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 74
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/appts/schedule",
+        "operationId": "LeadPlanController_scheduleAppts",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/appts/schedule",
+            "controller": "LeadPlanController",
+            "handler": "scheduleAppts",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 90
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/ops/leads/{id}/appts/book",
+        "operationId": "LeadPlanController_bookAppt",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/ops/leads/{id}/appts/book",
+            "controller": "LeadPlanController",
+            "handler": "bookAppt",
+            "file": "backend/src/modules/ops/lead-plan.controller.ts",
+            "line": 106
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books",
+        "operationId": "BooksController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books",
+            "controller": "BooksController",
+            "handler": "all",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 24
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books",
+        "operationId": "BooksController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books",
+            "controller": "BooksController",
+            "handler": "create",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 34
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/books/{id}",
+        "operationId": "BooksController_patch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/books/{id}",
+            "controller": "BooksController",
+            "handler": "patch",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 45
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/tracking",
+        "operationId": "BooksController_tracking",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/tracking",
+            "controller": "BooksController",
+            "handler": "tracking",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 54
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/assignment-options",
+        "operationId": "BooksController_assignmentOptions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/assignment-options",
+            "controller": "BooksController",
+            "handler": "assignmentOptions",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 59
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/students/{studentId}/latest-diag",
+        "operationId": "BooksController_latestDiag",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/students/{studentId}/latest-diag",
+            "controller": "BooksController",
+            "handler": "latestDiag",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 64
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/issues",
+        "operationId": "BooksController_issue",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/issues",
+            "controller": "BooksController",
+            "handler": "issue",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 72
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/assignments",
+        "operationId": "BooksController_assignment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/assignments",
+            "controller": "BooksController",
+            "handler": "assignment",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 80
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/books/issues/{id}/state",
+        "operationId": "BooksController_issueState",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/books/issues/{id}/state",
+            "controller": "BooksController",
+            "handler": "issueState",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 89
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/books/issues/{id}/progress",
+        "operationId": "BooksController_progress",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/books/issues/{id}/progress",
+            "controller": "BooksController",
+            "handler": "progress",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 102
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/issues/{id}/return",
+        "operationId": "BooksController_returnIssue",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/issues/{id}/return",
+            "controller": "BooksController",
+            "handler": "returnIssue",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 110
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/history",
+        "operationId": "BooksController_history",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/history",
+            "controller": "BooksController",
+            "handler": "history",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 121
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/deliveries",
+        "operationId": "BooksController_deliveries",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/deliveries",
+            "controller": "BooksController",
+            "handler": "deliveries",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 131
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/deliveries",
+        "operationId": "BooksController_createDelivery",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/deliveries",
+            "controller": "BooksController",
+            "handler": "createDelivery",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 137
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/books/deliveries/{id}",
+        "operationId": "BooksController_patchDelivery",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/books/deliveries/{id}",
+            "controller": "BooksController",
+            "handler": "patchDelivery",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 145
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/deliveries/{id}/deliver",
+        "operationId": "BooksController_deliver",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/deliveries/{id}/deliver",
+            "controller": "BooksController",
+            "handler": "deliver",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 153
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/deliveries/{id}/receive",
+        "operationId": "BooksController_receive",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/deliveries/{id}/receive",
+            "controller": "BooksController",
+            "handler": "receive",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 162
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/books/{id}/versions",
+        "operationId": "BooksController_addVersion",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/books/{id}/versions",
+            "controller": "BooksController",
+            "handler": "addVersion",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 174
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/books/{id}/holders",
+        "operationId": "BooksController_holders",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/books/{id}/holders",
+            "controller": "BooksController",
+            "handler": "holders",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 192
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/books/versions/{id}/use",
+        "operationId": "BooksController_useVersion",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/books/versions/{id}/use",
+            "controller": "BooksController",
+            "handler": "useVersion",
+            "file": "backend/src/modules/books/books.controller.ts",
+            "line": 204
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guides",
+        "operationId": "GuidesController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guides",
+            "controller": "GuidesController",
+            "handler": "all",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 22
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guides/students",
+        "operationId": "GuidesController_students",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guides/students",
+            "controller": "GuidesController",
+            "handler": "students",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 30
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guides/history",
+        "operationId": "GuidesController_history",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guides/history",
+            "controller": "GuidesController",
+            "handler": "history",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 38
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/drafts",
+        "operationId": "GuidesController_createDraft",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/drafts",
+            "controller": "GuidesController",
+            "handler": "createDraft",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 46
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guides/templates",
+        "operationId": "GuidesController_templates",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guides/templates",
+            "controller": "GuidesController",
+            "handler": "templates",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 60
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/templates",
+        "operationId": "GuidesController_createTemplate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/templates",
+            "controller": "GuidesController",
+            "handler": "createTemplate",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 71
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/guides/templates/{id}",
+        "operationId": "GuidesController_patchTemplate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/guides/templates/{id}",
+            "controller": "GuidesController",
+            "handler": "patchTemplate",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 80
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/guides/{id}/body",
+        "operationId": "GuidesController_writeBody",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/guides/{id}/body",
+            "controller": "GuidesController",
+            "handler": "writeBody",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 96
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guides/{id}/class-diagnostics",
+        "operationId": "GuidesController_classDiagnostics",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guides/{id}/class-diagnostics",
+            "controller": "GuidesController",
+            "handler": "classDiagnostics",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 113
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/{id}/class-diagnostics",
+        "operationId": "GuidesController_writeClassDiagnostics",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/{id}/class-diagnostics",
+            "controller": "GuidesController",
+            "handler": "writeClassDiagnostics",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 125
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/{id}/copy",
+        "operationId": "GuidesController_copyBody",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/{id}/copy",
+            "controller": "GuidesController",
+            "handler": "copyBody",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 144
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/{id}/send",
+        "operationId": "GuidesController_sendGuide",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/{id}/send",
+            "controller": "GuidesController",
+            "handler": "sendGuide",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 165
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/zoom-notice",
+        "operationId": "GuidesController_sendZoomNotice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/zoom-notice",
+            "controller": "GuidesController",
+            "handler": "sendZoomNotice",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 183
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guides/zoom-notice/batch",
+        "operationId": "GuidesController_sendZoomNoticeBatch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guides/zoom-notice/batch",
+            "controller": "GuidesController",
+            "handler": "sendZoomNoticeBatch",
+            "file": "backend/src/modules/guides/guides.controller.ts",
+            "line": 204
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/zoom",
+        "operationId": "ZoomController_board",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/zoom",
+            "controller": "ZoomController",
+            "handler": "board",
+            "file": "backend/src/modules/zoom/zoom.controller.ts",
+            "line": 34
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/zoom/accounts",
+        "operationId": "ZoomController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/zoom/accounts",
+            "controller": "ZoomController",
+            "handler": "create",
+            "file": "backend/src/modules/zoom/zoom.controller.ts",
+            "line": 45
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/zoom/accounts/{id}",
+        "operationId": "ZoomController_patch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/zoom/accounts/{id}",
+            "controller": "ZoomController",
+            "handler": "patch",
+            "file": "backend/src/modules/zoom/zoom.controller.ts",
+            "line": 54
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/zoom/assign",
+        "operationId": "ZoomController_assign",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/zoom/assign",
+            "controller": "ZoomController",
+            "handler": "assign",
+            "file": "backend/src/modules/zoom/zoom.controller.ts",
+            "line": 67
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting",
+        "operationId": "create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting",
+            "controller": "ConsultingController",
+            "handler": "create",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 30
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/consulting",
+        "operationId": "ConsultingController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/consulting",
+            "controller": "ConsultingController",
+            "handler": "all",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 45
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/consulting/templates",
+        "operationId": "ConsultingController_templates",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/consulting/templates",
+            "controller": "ConsultingController",
+            "handler": "templates",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 64
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/templates/{consType}",
+        "operationId": "ConsultingController_writeTemplate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/templates/{consType}",
+            "controller": "ConsultingController",
+            "handler": "writeTemplate",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 70
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/{id}/items/{itemId}",
+        "operationId": "ConsultingController_toggleItem",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/{id}/items/{itemId}",
+            "controller": "ConsultingController",
+            "handler": "toggleItem",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 79
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/{id}/items",
+        "operationId": "ConsultingController_editItems",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/{id}/items",
+            "controller": "ConsultingController",
+            "handler": "editItems",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 102
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/items/{itemId}/files",
+        "operationId": "ConsultingController_addItemFile",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/items/{itemId}/files",
+            "controller": "ConsultingController",
+            "handler": "addItemFile",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 119
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/consulting/{id}/items/{itemId}/files/{fileId}",
+        "operationId": "ConsultingController_removeItemFile",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/consulting/{id}/items/{itemId}/files/{fileId}",
+            "controller": "ConsultingController",
+            "handler": "removeItemFile",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 135
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/consulting/accounting",
+        "operationId": "ConsultingController_accounting",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/consulting/accounting",
+            "controller": "ConsultingController",
+            "handler": "accounting",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 152
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/consulting/students",
+        "operationId": "ConsultingController_students",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/consulting/students",
+            "controller": "ConsultingController",
+            "handler": "students",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 173
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/consulting/{id}",
+        "operationId": "detail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/consulting/{id}",
+            "controller": "ConsultingController",
+            "handler": "detail",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 194
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/{id}",
+        "operationId": "updateCore",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/{id}",
+            "controller": "ConsultingController",
+            "handler": "updateCore",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 204
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/consulting/{id}",
+        "operationId": "archive",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/consulting/{id}",
+            "controller": "ConsultingController",
+            "handler": "archive",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 286
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/{id}/share",
+        "operationId": "updateShare",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/{id}/share",
+            "controller": "ConsultingController",
+            "handler": "updateShare",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 220
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/contract-files",
+        "operationId": "addContractFile",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/contract-files",
+            "controller": "ConsultingController",
+            "handler": "addContractFile",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 230
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/consulting/{id}/contract-files/{fileId}",
+        "operationId": "removeContractFile",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/consulting/{id}/contract-files/{fileId}",
+            "controller": "ConsultingController",
+            "handler": "removeContractFile",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 239
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/feedback",
+        "operationId": "addFeedback",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/feedback",
+            "controller": "ConsultingController",
+            "handler": "addFeedback",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 249
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/feedback/{feedbackId}/resolve",
+        "operationId": "markFeedbackResolved",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/feedback/{feedbackId}/resolve",
+            "controller": "ConsultingController",
+            "handler": "markFeedbackResolved",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 258
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/deliver",
+        "operationId": "deliverContract",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/deliver",
+            "controller": "ConsultingController",
+            "handler": "deliverContract",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 267
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/signed-files",
+        "operationId": "addSignedFile",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/signed-files",
+            "controller": "ConsultingController",
+            "handler": "addSignedFile",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 277
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/sessions/preview",
+        "operationId": "ConsultingController_previewSessions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/sessions/preview",
+            "controller": "ConsultingController",
+            "handler": "previewSessions",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 303
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/sessions",
+        "operationId": "ConsultingController_addSessions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/sessions",
+            "controller": "ConsultingController",
+            "handler": "addSessions",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 316
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/consulting/{id}/sessions/{sessId}",
+        "operationId": "ConsultingController_writeSession",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/consulting/{id}/sessions/{sessId}",
+            "controller": "ConsultingController",
+            "handler": "writeSession",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 330
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/close/preview",
+        "operationId": "ConsultingController_previewClose",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/close/preview",
+            "controller": "ConsultingController",
+            "handler": "previewClose",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 346
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/close",
+        "operationId": "ConsultingController_close",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/close",
+            "controller": "ConsultingController",
+            "handler": "close",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 357
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/payments",
+        "operationId": "ConsultingController_addPayment",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/payments",
+            "controller": "ConsultingController",
+            "handler": "addPayment",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 374
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/consulting/{id}/invoice",
+        "operationId": "ConsultingController_toInvoice",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/consulting/{id}/invoice",
+            "controller": "ConsultingController",
+            "handler": "toInvoice",
+            "file": "backend/src/modules/consulting/consulting.controller.ts",
+            "line": 394
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/board",
+        "operationId": "BoardController_range",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/board",
+            "controller": "BoardController",
+            "handler": "range",
+            "file": "backend/src/modules/board/board.controller.ts",
+            "line": 20
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/shell",
+        "operationId": "TeacherController_shell",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/shell",
+            "controller": "TeacherController",
+            "handler": "shell",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 50
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/home",
+        "operationId": "TeacherController_home",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/home",
+            "controller": "TeacherController",
+            "handler": "home",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/lessons/{serId}/{onDate}/hub",
+        "operationId": "TeacherController_lessonHub",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/lessons/{serId}/{onDate}/hub",
+            "controller": "TeacherController",
+            "handler": "lessonHub",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 71
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/history",
+        "operationId": "TeacherController_history",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/history",
+            "controller": "TeacherController",
+            "handler": "history",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 90
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/guides",
+        "operationId": "TeacherController_guides",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/guides",
+            "controller": "TeacherController",
+            "handler": "guides",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 113
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/guides/received",
+        "operationId": "TeacherController_receivedGuides",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/guides/received",
+            "controller": "TeacherController",
+            "handler": "receivedGuides",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 122
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/guides/{id}/ack",
+        "operationId": "TeacherController_acknowledgeGuide",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/guides/{id}/ack",
+            "controller": "TeacherController",
+            "handler": "acknowledgeGuide",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 130
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/suggestions",
+        "operationId": "TeacherController_suggestions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/suggestions",
+            "controller": "TeacherController",
+            "handler": "suggestions",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 147
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/suggestions",
+        "operationId": "TeacherController_createSuggestion",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/suggestions",
+            "controller": "TeacherController",
+            "handler": "createSuggestion",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 156
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/diagnostics",
+        "operationId": "TeacherController_createDiagnostic",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/diagnostics",
+            "controller": "TeacherController",
+            "handler": "createDiagnostic",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 175
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/unavailable",
+        "operationId": "TeacherController_unavailable",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/unavailable",
+            "controller": "TeacherController",
+            "handler": "unavailable",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 196
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/unavailable",
+        "operationId": "TeacherController_createUnavailable",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/unavailable",
+            "controller": "TeacherController",
+            "handler": "createUnavailable",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 205
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/teacher/unavailable/{id}",
+        "operationId": "TeacherController_deleteUnavailable",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/teacher/unavailable/{id}",
+            "controller": "TeacherController",
+            "handler": "deleteUnavailable",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 227
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/requests",
+        "operationId": "TeacherController_createSettingRequest",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/requests",
+            "controller": "TeacherController",
+            "handler": "createSettingRequest",
+            "file": "backend/src/modules/teacher/teacher.controller.ts",
+            "line": 240
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/gpa",
+        "operationId": "GpaController_board",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/gpa",
+            "controller": "GpaController",
+            "handler": "board",
+            "file": "backend/src/modules/gpa/gpa.controller.ts",
+            "line": 20
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/exec",
+        "operationId": "ExecController_range",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/exec",
+            "controller": "ExecController",
+            "handler": "range",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 25
+          }
+        ]
+      },
+      {
+        "method": "PUT",
+        "path": "/exec/areas/{key}/owner",
+        "operationId": "ExecController_setAreaOwner",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PUT",
+            "path": "/exec/areas/{key}/owner",
+            "controller": "ExecController",
+            "handler": "setAreaOwner",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 57
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/exec/report",
+        "operationId": "ExecController_saveMemo",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/exec/report",
+            "controller": "ExecController",
+            "handler": "saveMemo",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 84
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/exec/report/submit",
+        "operationId": "ExecController_submit",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/exec/report/submit",
+            "controller": "ExecController",
+            "handler": "submit",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 100
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/exec/report/{id}/review",
+        "operationId": "ExecController_review",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/exec/report/{id}/review",
+            "controller": "ExecController",
+            "handler": "review",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 119
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/exec/report/{id}/withdraw",
+        "operationId": "ExecController_withdraw",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/exec/report/{id}/withdraw",
+            "controller": "ExecController",
+            "handler": "withdraw",
+            "file": "backend/src/modules/exec/exec.controller.ts",
+            "line": 145
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer",
+        "operationId": "DrawerController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer",
+            "controller": "DrawerController",
+            "handler": "all",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 77
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory",
+        "operationId": "DrawerController_staffDirectory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory",
+            "controller": "DrawerController",
+            "handler": "staffDirectory",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 91
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}",
+        "operationId": "DrawerController_staffDirectoryDetail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}",
+            "controller": "DrawerController",
+            "handler": "staffDirectoryDetail",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 99
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}/home",
+        "operationId": "DrawerController_staffTeacherHome",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}/home",
+            "controller": "DrawerController",
+            "handler": "staffTeacherHome",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 111
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}/guides",
+        "operationId": "DrawerController_staffTeacherGuides",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}/guides",
+            "controller": "DrawerController",
+            "handler": "staffTeacherGuides",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 124
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}/suggestions",
+        "operationId": "DrawerController_staffTeacherSuggestions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}/suggestions",
+            "controller": "DrawerController",
+            "handler": "staffTeacherSuggestions",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 133
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}/history",
+        "operationId": "DrawerController_staffTeacherHistory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}/history",
+            "controller": "DrawerController",
+            "handler": "staffTeacherHistory",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 145
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/staff-directory/{id}/inbox",
+        "operationId": "DrawerController_staffTeacherInbox",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/staff-directory/{id}/inbox",
+            "controller": "DrawerController",
+            "handler": "staffTeacherInbox",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 158
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/staff",
+        "operationId": "DrawerController_createStaff",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/staff",
+            "controller": "DrawerController",
+            "handler": "createStaff",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 173
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/drawer/staff/{id}",
+        "operationId": "DrawerController_updateStaff",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/drawer/staff/{id}",
+            "controller": "DrawerController",
+            "handler": "updateStaff",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 196
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/drawer/staff/{id}",
+        "operationId": "DrawerController_deleteStaff",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/drawer/staff/{id}",
+            "controller": "DrawerController",
+            "handler": "deleteStaff",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 253
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/staff/{id}/password-reset",
+        "operationId": "DrawerController_resetStaffPassword",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/staff/{id}/password-reset",
+            "controller": "DrawerController",
+            "handler": "resetStaffPassword",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 216
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/drawer/staff/{id}/active",
+        "operationId": "DrawerController_setStaffActive",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/drawer/staff/{id}/active",
+            "controller": "DrawerController",
+            "handler": "setStaffActive",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 236
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/drawer/todos/{id}",
+        "operationId": "DrawerController_todoDone",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/drawer/todos/{id}",
+            "controller": "DrawerController",
+            "handler": "todoDone",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 268
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/drawer/schedule-history",
+        "operationId": "DrawerController_scheduleHistory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/drawer/schedule-history",
+            "controller": "DrawerController",
+            "handler": "scheduleHistory",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 291
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/todos",
+        "operationId": "DrawerController_createTodo",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/todos",
+            "controller": "DrawerController",
+            "handler": "createTodo",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 303
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/drawer/todos/completed",
+        "operationId": "DrawerController_clearDoneTodos",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/drawer/todos/completed",
+            "controller": "DrawerController",
+            "handler": "clearDoneTodos",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 313
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/drawer/notis/{id}/read",
+        "operationId": "DrawerController_notiRead",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/drawer/notis/{id}/read",
+            "controller": "DrawerController",
+            "handler": "notiRead",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 323
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/drawer/notis/read-all",
+        "operationId": "DrawerController_notiReadAll",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/drawer/notis/read-all",
+            "controller": "DrawerController",
+            "handler": "notiReadAll",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 335
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/requests/{id}/review",
+        "operationId": "DrawerController_reviewRequest",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/requests/{id}/review",
+            "controller": "DrawerController",
+            "handler": "reviewRequest",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 345
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/change-requests/{id}/review",
+        "operationId": "DrawerController_reviewChangeRequest",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/change-requests/{id}/review",
+            "controller": "DrawerController",
+            "handler": "reviewChangeRequest",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 364
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/approvals/undo",
+        "operationId": "DrawerController_undoApproval",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/approvals/undo",
+            "controller": "DrawerController",
+            "handler": "undoApproval",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 386
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/drawer/change-requests",
+        "operationId": "DrawerController_createChangeReq",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/drawer/change-requests",
+            "controller": "DrawerController",
+            "handler": "createChangeReq",
+            "file": "backend/src/modules/drawer/drawer.controller.ts",
+            "line": 407
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/permissions",
+        "operationId": "PermissionsController_table",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/permissions",
+            "controller": "PermissionsController",
+            "handler": "table",
+            "file": "backend/src/modules/drawer/permissions.controller.ts",
+            "line": 24
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/catalog",
+        "operationId": "CatalogController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/catalog",
+            "controller": "CatalogController",
+            "handler": "all",
+            "file": "backend/src/modules/catalog/catalog.controller.ts",
+            "line": 35
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/catalog/kinds",
+        "operationId": "CatalogController_createKind",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/catalog/kinds",
+            "controller": "CatalogController",
+            "handler": "createKind",
+            "file": "backend/src/modules/catalog/catalog.controller.ts",
+            "line": 43
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/catalog/kinds/{key}",
+        "operationId": "CatalogController_patchKind",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/catalog/kinds/{key}",
+            "controller": "CatalogController",
+            "handler": "patchKind",
+            "file": "backend/src/modules/catalog/catalog.controller.ts",
+            "line": 53
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/catalog/subs",
+        "operationId": "CatalogController_createSub",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/catalog/subs",
+            "controller": "CatalogController",
+            "handler": "createSub",
+            "file": "backend/src/modules/catalog/catalog.controller.ts",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/catalog/subs/{key}",
+        "operationId": "CatalogController_patchSub",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/catalog/subs/{key}",
+            "controller": "CatalogController",
+            "handler": "patchSub",
+            "file": "backend/src/modules/catalog/catalog.controller.ts",
+            "line": 73
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/{id}/guardians",
+        "operationId": "GuardiansController_list",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/{id}/guardians",
+            "controller": "GuardiansController",
+            "handler": "list",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 31
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/{id}/guardians",
+        "operationId": "GuardiansController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/{id}/guardians",
+            "controller": "GuardiansController",
+            "handler": "create",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 40
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/guardians/channels",
+        "operationId": "GuardiansController_channels",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/guardians/channels",
+            "controller": "GuardiansController",
+            "handler": "channels",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 57
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/guardians/send",
+        "operationId": "GuardiansController_send",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/guardians/send",
+            "controller": "GuardiansController",
+            "handler": "send",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 65
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/guardians/{id}",
+        "operationId": "GuardiansController_patch",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/guardians/{id}",
+            "controller": "GuardiansController",
+            "handler": "patch",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 89
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/guardians/{id}",
+        "operationId": "GuardiansController_deactivate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "DELETE",
+            "path": "/guardians/{id}",
+            "controller": "GuardiansController",
+            "handler": "deactivate",
+            "file": "backend/src/modules/guardians/guardians.controller.ts",
+            "line": 107
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students",
+        "operationId": "StudentsController_list",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students",
+            "controller": "StudentsController",
+            "handler": "list",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 39
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students",
+        "operationId": "StudentsController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students",
+            "controller": "StudentsController",
+            "handler": "create",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 83
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/options",
+        "operationId": "StudentsController_registrationOptions",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/options",
+            "controller": "StudentsController",
+            "handler": "registrationOptions",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 45
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/schools",
+        "operationId": "StudentsController_searchSchools",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/schools",
+            "controller": "StudentsController",
+            "handler": "searchSchools",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 50
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/schools",
+        "operationId": "StudentsController_createSchool",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/schools",
+            "controller": "StudentsController",
+            "handler": "createSchool",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 57
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/preview",
+        "operationId": "StudentsController_previewCreate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/preview",
+            "controller": "StudentsController",
+            "handler": "previewCreate",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 66
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/reactivation-candidates",
+        "operationId": "StudentsController_reactivationCandidates",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/reactivation-candidates",
+            "controller": "StudentsController",
+            "handler": "reactivationCandidates",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 99
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/{id}/reactivate/preview",
+        "operationId": "StudentsController_previewReactivation",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/{id}/reactivate/preview",
+            "controller": "StudentsController",
+            "handler": "previewReactivation",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 109
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/{id}/reactivate",
+        "operationId": "StudentsController_reactivate",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/{id}/reactivate",
+            "controller": "StudentsController",
+            "handler": "reactivate",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 124
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/{id}/hub",
+        "operationId": "StudentsController_hub",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/{id}/hub",
+            "controller": "StudentsController",
+            "handler": "hub",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 141
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/{id}/kinder-marker",
+        "operationId": "StudentsController_kinderHistory",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/{id}/kinder-marker",
+            "controller": "StudentsController",
+            "handler": "kinderHistory",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 164
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/students/{id}/kinder-marker",
+        "operationId": "StudentsController_createKinderMarker",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/students/{id}/kinder-marker",
+            "controller": "StudentsController",
+            "handler": "createKinderMarker",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 172
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/{id}",
+        "operationId": "StudentsController_detail",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/{id}",
+            "controller": "StudentsController",
+            "handler": "detail",
+            "file": "backend/src/modules/students/students.controller.ts",
+            "line": 189
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/teacher/private-notes",
+        "operationId": "PrivateNotesController_write",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/teacher/private-notes",
+            "controller": "PrivateNotesController",
+            "handler": "write",
+            "file": "backend/src/modules/private-notes/private-notes.controller.ts",
+            "line": 28
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/teacher/private-notes/receipts",
+        "operationId": "PrivateNotesController_receipts",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/teacher/private-notes/receipts",
+            "controller": "PrivateNotesController",
+            "handler": "receipts",
+            "file": "backend/src/modules/private-notes/private-notes.controller.ts",
+            "line": 40
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/students/{studentId}/private-notes",
+        "operationId": "PrivateNotesController_studentNotes",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/students/{studentId}/private-notes",
+            "controller": "PrivateNotesController",
+            "handler": "studentNotes",
+            "file": "backend/src/modules/private-notes/private-notes.controller.ts",
+            "line": 48
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/material-requests/options",
+        "operationId": "MaterialRequestsController_options",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/material-requests/options",
+            "controller": "MaterialRequestsController",
+            "handler": "options",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 25
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/material-requests/mine",
+        "operationId": "MaterialRequestsController_mine",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/material-requests/mine",
+            "controller": "MaterialRequestsController",
+            "handler": "mine",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 33
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/material-requests",
+        "operationId": "MaterialRequestsController_create",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/material-requests",
+            "controller": "MaterialRequestsController",
+            "handler": "create",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 41
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/material-requests",
+        "operationId": "MaterialRequestsController_all",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "GET",
+            "path": "/material-requests",
+            "controller": "MaterialRequestsController",
+            "handler": "all",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 54
+          }
+        ]
+      },
+      {
+        "method": "PATCH",
+        "path": "/material-requests/{id}",
+        "operationId": "MaterialRequestsController_transition",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "PATCH",
+            "path": "/material-requests/{id}",
+            "controller": "MaterialRequestsController",
+            "handler": "transition",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/material-requests/{id}/ack",
+        "operationId": "MaterialRequestsController_acknowledge",
+        "matched": true,
+        "candidates": [
+          {
+            "method": "POST",
+            "path": "/material-requests/{id}/ack",
+            "controller": "MaterialRequestsController",
+            "handler": "acknowledge",
+            "file": "backend/src/modules/material-requests/material-requests.controller.ts",
+            "line": 78
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [],
+  "calls": [],
+  "boundaries": [
+    "정적 controller 매핑은 실제 CRUD 실행 성공을 뜻하지 않는다.",
+    "원본 309개 계약에는 학생 기본 프로필 PATCH/PUT가 없다. 학생 생성·재조회와 보호자 수정은 별도 검증한다.",
+    "외부 메일·문자·은행 송금·운영 DB·브라우저 화면은 이 스크립트의 검증 대상이 아니다.",
+    "상태·쿠키·Access 토큰은 실행 프로세스 메모리에만 보존한다."
+  ],
+  "finishedAt": "2026-10-12T00:40:21.291Z",
+  "summary": {
+    "cases": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "calls": 0,
+    "attemptedOperations": 0,
+    "actualOperationsExercised": 0,
+    "successfulOperations": 0,
+    "totalContractOperations": 309
+  }
+}
