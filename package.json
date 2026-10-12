@@ -1,0 +1,94 @@
+{
+  "name": "taco-portfolio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TACO ERP 공개 체험 — 방문자별 메모리 데이터",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "npm run build:backend && next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "types:gen": "openapi-typescript backend/openapi.json -o src/api/schema.d.ts",
+    "usage:gen": "node scripts/component-usage.mjs",
+    "build:backend": "npm run build --prefix backend",
+    "vercel-build": "npm ci --prefix backend --no-audit --no-fund && npm run build:backend && npm prune --prefix backend --omit=dev --no-audit --no-fund && next build",
+    "test:demo": "node scripts/verify-demo-api.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
+    "@hookform/resolvers": "^3.10.0",
+    "@tanstack/react-query": "^5.102.8",
+    "axios": "^1.7.9",
+    "html-to-image": "^1.11.11",
+    "lucide-react": "^0.468.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.87.0",
+    "zod": "^3.24.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.0",
+    "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.4.4",
+    "postcss": "^8.4.49",
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.6.9",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.29"
+    }
+  },
+  "depCheck": {
+    "runtime": {
+      "react-dom": "Next 가 렌더러로 쓴다 — 직접 import 하지 않는다"
+    },
+    "tooling": {
+      "typescript": "tsc",
+      "eslint": "npm run lint",
+      "eslint-config-next": "@next/eslint-plugin-next 공급 · flat core-web-vitals 설정",
+      "prettier": "포맷",
+      "prettier-plugin-tailwindcss": "클래스 정렬",
+      "postcss": "tailwind 빌드",
+      "autoprefixer": "postcss 플러그인",
+      "tailwindcss": "postcss 가 설정 파일로 부른다 — 코드에서 import 하지 않는다",
+      "openapi-typescript": "npm run types:gen — 백엔드 openapi.json 에서 타입 생성",
+      "vitest": "npm test",
+      "jsdom": "vitest 환경",
+      "@vitejs/plugin-react": "vitest 트랜스폼",
+      "@testing-library/react": "컴포넌트 테스트",
+      "@types/node": "타입만",
+      "@types/react": "타입만",
+      "@types/react-dom": "타입만"
+    },
+    "reserved": {
+      "react-hook-form": "TBO-29I 변경 요청 폼 · 30G 청구서 · 32D 컨설팅 시작",
+      "zod": "위 폼들의 스키마 — 서버 DTO 와 규칙이 겹치지 않게 입력 형식만 본다",
+      "@hookform/resolvers": "react-hook-form ↔ zod 연결",
+      "@dnd-kit/core": "28N1 캘린더 드래그 이동",
+      "@dnd-kit/modifiers": "28N1 — 격자에 스냅",
+      "html-to-image": "TBO-31 §50 리포트 PNG — D-R33 이 프론트에서 만들라고 정한다",
+      "lucide-react": "TBO-29 우측 서랍 8종 아이콘"
+    }
+  }
+}

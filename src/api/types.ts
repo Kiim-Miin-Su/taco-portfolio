@@ -1,0 +1,678 @@
+/** @file-guide
+ * 목적: types.ts — OkResult, ApiErrorResponse, Me, TeacherHome, TeacherHistory 등 (contract)
+ * 책임/재사용: backend DTO/OpenAPI에서 생성한 타입만 별칭으로 소비한다. 응답 타입을 손으로 복제하지 않고 요청/응답/오류를 생성 계약과 대조한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * API 타입 — **생성물에서만 가져온다.**
+ *
+ * `schema.d.ts` 는 백엔드의 `openapi.json` 에서 만든 것이고, 그 json 은 DTO 에서 나온다.
+ * 여기서 `interface MeDto { … }` 를 손으로 다시 적으면 형상이 조용히 어긋난다
+ * (docs/contracts/CONTRACTS.md §1 · AGENT.md §2.2).
+ *
+ * 갱신: `npm run types:gen`
+ */
+import type { components, paths } from './schema';
+
+type S = components['schemas'];
+
+export type OkResult = S['OkDto'];
+export type ApiErrorResponse = S['ApiErrorDto'];
+
+export type Me = S['MeDto'];
+
+/** 강사 홈 — GET /teacher/home (강사 전용, 서버가 본인 고정) */
+export type TeacherHome = S['TeacherHomeDto'];
+/** 강사 머리줄 — GET /teacher/shell (시간대·시급·내 알림 · 강사 전용) */
+export type TeacherShell = S['TeacherShellDto'];
+export type TeacherNoti = S['TeacherNotiDto'];
+export type TeacherHistory = S['TeacherHistoryDto'];
+export type TeacherGuides = S['TeacherGuidesDto'];
+/** BOC-05D-01 — 본인 exact 회차의 허브 read model */
+export type TeacherLessonHub = S['TeacherLessonHubDto'];
+export type TeacherLessonHubHistoryItem = S['TeacherLessonHubHistoryItemDto'];
+export type TeacherUnav = S['TeacherUnavDto'];
+export type TeacherUnavBlock = S['TeacherUnavBlockDto'];
+export type TeacherUnavCreate = S['TeacherUnavCreateDto'];
+/** BOC-06D-01 — 실제 배정 수업과 겹친 불가시간 409의 안전한 본인 회차 상세 */
+export type TeacherUnavailableConflictError = S['TeacherUnavailableConflictErrorDto'];
+export type TeacherGuideStudent = S['TeacherGuideStudentDto'];
+
+/* 진단 리포트 (C61) — 강사 원문 슬라이드 20 「04 진단 리포트」. 쓰는 사람은 강사뿐이다(슬라이드 47) */
+export type TeacherGuideDiag = S['TeacherGuideDiagDto'];
+export type TeacherDiagCreate = S['TeacherDiagCreateDto'];
+export type TeacherSuggestions = S['TeacherSuggestionsDto'];
+export type TeacherSuggestion = S['TeacherSuggestionDto'];
+export type TeacherSuggestionCreate = S['TeacherSuggestionCreateDto'];
+/** 강사 §8 내 설정 — 시간대·시급과 올린 요청 이력 */
+export type TeacherSettings = S['TeacherSettingsDto'];
+/** 강사 §8 내 설정 변경 요청 (C39) — 올리기만 하고 적용은 관리자 승인 뒤다 */
+export type TeacherSettingRequest = S['TeacherSettingRequestDto'];
+export type TeacherSettingReqCreate = S['TeacherSettingReqCreateDto'];
+export type TeacherHistoryLesson = S['TeacherHistoryLessonDto'];
+/** BOC-09D-03 — 강사 작성·관리자 전용 학생 특이사항. 강사 projection에는 본문이 없다. */
+export type TeacherPrivateNoteWrite = S['TeacherPrivateNoteWriteDto'];
+export type TeacherPrivateNoteReceipt = S['TeacherPrivateNoteReceiptDto'];
+export type TeacherPrivateNoteReceipts = S['TeacherPrivateNoteReceiptListDto'];
+export type AdminStudentPrivateNote = S['AdminStudentPrivateNoteDto'];
+export type AdminStudentPrivateNotes = S['AdminStudentPrivateNoteListDto'];
+/** 강사 히스토리의 오늘 걸린 가산 규칙 (N-93) · 수업 안내 학생 카드의 인수인계 메모 (N-36 ②) */
+export type TeacherBonusRule = S['TeacherBonusRuleDto'];
+export type TeacherGuideNote = S['TeacherGuideNoteDto'];
+export type TeacherLesson = S['TeacherLessonDto'];
+
+/** 코드표 — 색과 이름의 유일한 출처. 프론트에 KIND/SUB 를 복사해 두지 않는다 (D-R18) */
+export type Meta = S['MetaDto'];
+export type Kind = S['KindDto'];
+export type Sub = S['SubDto'];
+export type Room = S['RoomDto'];
+export type Zacc = S['ZaccDto'];
+export type StaffBrief = S['StaffBriefDto'];
+export type StudentBrief = S['StudentBriefDto'];
+/** BOC-01D-02 세 교육체계 학년 projection — Backend DTO/OpenAPI 생성 타입 */
+export type EducationGradeOption = S['EducationGradeOptionDto'];
+/** 학생 성별 선택지(N-83 · 선택 칸) — 관리자 표 아바타에만 쓴다 */
+export type Gender = S['GenderDto'];
+
+/** 스케줄 — 탭 01 의 다섯 화면이 이 한 모양을 쓰고 묶는 방법만 다르다 */
+export type Occurrence = S['OccurrenceDto'];
+export type OccurrenceList = S['OccurrenceListDto'];
+/** Query도 DTO/OpenAPI 정본에서 가져온다. 숫자 필터를 string으로 수기 재선언하지 않는다. */
+export type OccurrenceQuery = paths['/schedule/occurrences']['get']['parameters']['query'];
+export type OccStudent = S['OccStudentDto'];
+export type Attendance = S['AttendanceDto'];
+export type AttendanceWrite = S['AttendanceWriteDto'];
+export type AttendanceMutationResult = S['AttendanceMutationResultDto'];
+export type AttendanceResult = AttendanceWrite['result'];
+export type AttendanceCancelReason = NonNullable<AttendanceWrite['reason']>;
+
+/** 리포트 */
+export type ReportQuery = NonNullable<paths['/reports']['get']['parameters']['query']>;
+export type ReportTeacherQuery = NonNullable<paths['/reports/unwritten']['get']['parameters']['query']>;
+export type ReportDeliveryQuery = NonNullable<paths['/reports/deliveries']['get']['parameters']['query']>;
+export type ReportHistoryQuery = NonNullable<paths['/reports/deliveries/history']['get']['parameters']['query']>;
+export type ReportRow = S['ReportRowDto'];
+export type ReportList = S['ReportListDto'];
+export type Unwritten = S['UnwrittenDto'];
+export type UnwrittenByTeacher = S['UnwrittenByTeacherDto'];
+export type ReportReminderCreate = S['ReportReminderCreateDto'];
+export type ReportReminderRecipient = S['ReportReminderRecipientDto'];
+export type ReportReminderResult = S['ReportReminderResultDto'];
+export type ReportBody = S['ReportBodyDto'];
+export type ReportField = S['ReportFieldDto'];
+export type ReportDetail = S['ReportDetailDto'];
+export type ReportUpsert = S['ReportUpsertDto'];
+export type ReportReview = S['ReportReviewDto'];
+export type ReportStructuredBody = NonNullable<ReportDetail['structuredBody']>;
+export type ReportBookOption = S['ReportBookOptionDto'];
+export type ReportMaterialCreate = S['ReportMaterialCreateDto'];
+export type ReportMaterialCreateResult = S['ReportMaterialCreateResultDto'];
+export type ReportDeliveryQueue = S['ReportDeliveryQueueDto'];
+export type ReportDeliveryStudent = S['ReportDeliveryStudentDto'];
+export type ReportDeliveryCreate = S['ReportDeliveryCreateDto'];
+export type ReportDeliveryResult = S['ReportDeliveryResultDto'];
+export type ReportSendHistory = S['ReportSendHistoryDto'];
+export type ReportSendHistoryList = S['ReportSendHistoryListDto'];
+/* N-54 주간 묶음 (W11 · R2) */
+export type WeeklyQuery = NonNullable<paths['/reports/weekly']['get']['parameters']['query']>;
+export type WeeklyBundleList = S['WeeklyBundleListDto'];
+export type WeeklyBundle = S['WeeklyBundleDto'];
+export type WeeklyLesson = S['WeeklyLessonDto'];
+export type WeeklySummaryWrite = S['WeeklySummaryWriteDto'];
+
+/** 회계 — 금액은 canSeeProfit 이 아니면 서버가 null 로 내려준다 (D-R39) */
+export type Accounting = S['AccountingDto'];
+
+/* §54 수업료 계산 (C65) — 청구서가 쓰는 바로 그 계산을 미리 보는 자리다 */
+export type Tuition = S['TuitionDto'];
+export type TuitionRow = S['TuitionRowDto'];
+export type OtherIncome = S['OtherIncomeDto'];
+export type InvBoard = S['InvBoardDto'];
+export type CarryRow = S['CarryRowDto'];
+export type InvBoardCard = S['InvBoardCardDto'];
+export type OtherIncomeRow = S['OtherIncomeRowDto'];
+export type OtherIncomeItem = S['OtherIncomeItemDto'];
+export type Invoice = S['InvoiceDto'];
+export type InvoiceIssue = S['InvoiceIssueDto'];
+/* W11 — §53 다섯 칸 판 · 발행 미리 세기 · 분납 일정 (N-28 ② · N-75 · N-79) — 옛 `accounting-queries.ts` 의 별칭을 이 파일로 옮겼다(W11 D) */
+export type InvStageColumn = S['InvStageColumnDto'];
+export type InvBoardCandidate = S['InvBoardCandidateDto'];
+export type InvoiceDraft = S['InvoiceDraftDto'];
+export type InvoiceInstallment = S['InvoiceInstallmentDto'];
+/** §55 들어온 돈 — 기간 요약 · 입금 달력 · 분류별 · 미수 전체 (w5 · 55-01~55-05) */
+export type Cashflow = S['CashflowDto'];
+export type CashflowDay = S['CashflowDayDto'];
+export type CashflowCategory = S['CashflowCategoryDto'];
+export type CashflowOpen = S['CashflowOpenDto'];
+/** §56 강사 한 사람 상세 — 시급 · 수업 날짜 · 정산 내역 (w5 · 56-01) */
+export type PayoutDetail = S['PayoutDetailDto'];
+export type PayoutLesson = S['PayoutLessonDto'];
+export type Payment = S['PaymentDto'];
+/** 입금 한 줄 등록 — 분납은 줄을 늘린다 (A-D2 · C36-a) */
+export type PaymentCreate = S['PaymentCreateDto'];
+/** §55 「+ 결제 등록」 — 청구서 없이 들어온 돈 (A-D1 ②) */
+export type ManualPaymentCreate = S['ManualPaymentCreateDto'];
+/** 나간 돈 §56 — 부대비용·법인카드 (A-D3·A-D5 · C36-b) */
+export type Expense = S['ExpenseDto'];
+export type ExpenseTotal = S['ExpenseTotalDto'];
+export type ExpenseReview = S['ExpenseReviewDto'];
+export type Payout = S['PayoutDto'];
+export type MoneySummary = S['MoneySummaryDto'];
+/** TBO-55 BO-11AD-02 — 최근 3개월·전체 누적·미수·분류별 서버 집계 */
+export type StudentCumulative = S['StudentCumulativeDto'];
+export type StudentCumulativeRow = S['StudentCumulativeRowDto'];
+export type StudentCumulativeMonth = S['StudentCumulativeMonthDto'];
+export type StudentCumulativeCategory = S['StudentCumulativeCategoryDto'];
+/** TBO-55 BO-11AD-01 — PAY별 외부 발행 확인 상태·보존 snapshot·version */
+export type PaymentEvidence = S['PaymentEvidenceDto'];
+export type PaymentEvidenceLedger = S['PaymentEvidenceLedgerDto'];
+export type PaymentEvidenceIssue = S['PaymentEvidenceIssueDto'];
+export type PaymentEvidenceCancel = S['PaymentEvidenceCancelDto'];
+export type PaymentEvidenceBatchIssue = S['PaymentEvidenceBatchIssueDto'];
+export type PaymentEvidenceBatchResult = S['PaymentEvidenceBatchResultDto'];
+/** TBO-55 BO-11AD-03 — 확정 정산과 분리된 실제 계좌이체 current/event 원장 */
+export type PayoutDisbursement = S['PayoutDisbursementDto'];
+export type PayoutDisbursementMonth = S['PayoutDisbursementMonthDto'];
+export type PayoutDisbursementLedger = S['PayoutDisbursementLedgerDto'];
+export type PayoutDisbursementPay = S['PayoutDisbursementPayDto'];
+export type PayoutDisbursementCancel = S['PayoutDisbursementCancelDto'];
+export type PayoutDisbursementBatchPay = S['PayoutDisbursementBatchPayDto'];
+export type PayoutDisbursementBatchResult = S['PayoutDisbursementBatchResultDto'];
+/** TBO-55 BOC-11D-01 — 학생 환불·강사 지급 보호 계좌 masked current/event와 사유 있는 원문 확인 */
+export type ProtectedAccountTarget = S['ProtectedAccountTargetDto'];
+export type ProtectedAccountEvent = S['ProtectedAccountEventDto'];
+export type ProtectedAccount = S['ProtectedAccountDto'];
+export type ProtectedAccountLedger = S['ProtectedAccountLedgerDto'];
+export type ProtectedAccountWrite = S['ProtectedAccountWriteDto'];
+export type ProtectedAccountAction = S['ProtectedAccountActionDto'];
+export type ProtectedAccountWriteResult = S['ProtectedAccountWriteResultDto'];
+export type ProtectedAccountSecret = S['ProtectedAccountSecretDto'];
+/** TBO-55 BOC-11D-02 — 승인 조정의 환불 증가분과 실제 계좌이체 current/event 원장 */
+export type StudentRefundEvent = S['StudentRefundEventDto'];
+export type StudentRefund = S['StudentRefundDto'];
+export type StudentRefundLedger = S['StudentRefundLedgerDto'];
+export type StudentRefundPay = S['StudentRefundPayDto'];
+export type StudentRefundCancel = S['StudentRefundCancelDto'];
+/** TBO-55 BOC-11F — 교재 판매·PAY·수단별 수수료 snapshot 계약 */
+export type BookSaleFeePolicySnapshot = S['BookSaleFeePolicySnapshotDto'];
+export type BookSale = S['BookSaleDto'];
+export type BookSaleMethodSummary = S['BookSaleMethodSummaryDto'];
+export type BookSaleLedger = S['BookSaleLedgerDto'];
+export type BookSaleCreate = S['BookSaleCreateDto'];
+export type BookSaleCancel = S['BookSaleCancelDto'];
+export type BookSaleWriteResult = S['BookSaleWriteResultDto'];
+/** TBO-55 BO-11BD-01 — 청구 조정 current/event·승인 전이·환불 예정액 */
+export type InvoiceAdjustmentEvent = S['InvoiceAdjustmentEventDto'];
+export type InvoiceAdjustment = S['InvoiceAdjustmentDto'];
+export type InvoiceAdjustmentLedger = S['InvoiceAdjustmentLedgerDto'];
+export type InvoiceAdjustmentCreate = S['InvoiceAdjustmentCreateDto'];
+export type InvoiceAdjustmentAction = S['InvoiceAdjustmentActionDto'];
+export type InvoiceAdjustmentReasonAction = S['InvoiceAdjustmentReasonActionDto'];
+export type InvoiceAdjustmentWriteResult = S['InvoiceAdjustmentWriteResultDto'];
+/** TBO-55 BOC-11C — 연체 aging·정지 current/event와 정책 version */
+export type DelinquencyPolicy = S['DelinquencyPolicyDto'];
+export type DelinquencyAgingBucket = S['DelinquencyAgingBucketDto'];
+export type DelinquencySuspensionEvent = S['DelinquencySuspensionEventDto'];
+export type DelinquencySuspensionItem = S['DelinquencySuspensionItemDto'];
+export type DelinquencySuspensionLedger = S['DelinquencySuspensionLedgerDto'];
+export type DelinquencyPolicyWrite = S['DelinquencyPolicyWriteDto'];
+export type DelinquencySuspensionActionWrite = S['DelinquencySuspensionActionDto'];
+export type DelinquencySuspensionWriteResult = S['DelinquencySuspensionWriteResultDto'];
+export type DelinquencyReminderBatchItem = S['DelinquencyReminderBatchItemDto'];
+export type DelinquencyReminderBatch = S['DelinquencyReminderBatchDto'];
+export type DelinquencyReminderBatchResult = S['DelinquencyReminderBatchResultDto'];
+
+/** 운영 — 상담 · 컴플레인 · 할 일 · 기획 · 회의 · 마케팅 · 건의 */
+export type Ops = S['OpsDto'];
+export type Lead = S['LeadDto'];
+/** 상담 카드의 배치안 · 2차/진단 일정 쓰기 (wave 3 · g3 23-15 · 23-16) — 옛 `intake-queries.ts` 의 별칭(W11 D) */
+export type LeadPlanLine = S['LeadPlanLineDto'];
+export type LeadAppt = S['LeadApptDto'];
+export type LeadPlanWrite = S['LeadPlanWriteDto'];
+export type LeadApptWrite = S['LeadApptWriteDto'];
+export type LeadApptBook = S['LeadApptBookDto'];
+export type LeadApptScheduleResult = S['LeadApptScheduleResultDto'];
+/** §23 상담 머리 — 낱말·순서·수가 전부 서버에서 온다 (C86-a · C86-b) */
+export type IntakeHead = S['IntakeHeadDto'];
+export type IntakeFunnelStep = S['IntakeFunnelStepDto'];
+export type IntakeStop = S['IntakeStopDto'];
+/** §24 실패 전이/되살리기 입력 — 판정 코드(ALREADY_FAILED 등)는 서버가 낸다 (N-25 · C35) */
+export type LeadFail = S['LeadFailDto'];
+export type LeadResume = S['LeadResumeDto'];
+/** C90 — 「+ 신규 문의」 · 단계 이동 · 접촉 원장 (N-45 · N-44). 낱말·전이표·칩 판정은 전부 서버 */
+export type LeadCreate = S['LeadCreateDto'];
+export type LeadPatch = S['LeadPatchDto'];
+export type LeadStageMove = S['LeadStageMoveDto'];
+export type LeadTouchWrite = S['LeadTouchWriteDto'];
+export type LeadTouch = S['LeadTouchDto'];
+export type IntakeWord = S['IntakeWordDto'];
+export type IntakeSource = S['IntakeSourceDto'];
+export type Complaint = S['ComplaintDto'];
+export type Todo = S['TodoDto'];
+export type Plan = S['PlanDto'];
+export type Meeting = S['MeetingDto'];
+export type Marketing = S['MarketingDto'];
+export type MarketingOverview = S['MarketingOverviewDto'];
+/** §66 회의 상세 */
+export type MeetingDetail = S['MeetingDetailDto'];
+export type MeetingAttendee = S['MeetingAttendeeDto'];
+export type MeetingTask = S['MeetingTaskDto'];
+/** BO-Q13 — 별도 versioned agenda. 형상은 Backend DTO/OpenAPI 생성물만 소비한다. */
+export type MeetingAgendaSummary = S['MeetingAgendaSummaryDto'];
+export type MeetingMinutesSummary = S['MeetingMinutesSummaryDto'];
+export type MeetingAgenda = S['MeetingAgendaDto'];
+export type MeetingAgendaWrite = S['MeetingAgendaWriteDto'];
+export type MeetingAgendaImport = S['MeetingAgendaImportDto'];
+export type MeetingAgendaImportResult = S['MeetingAgendaImportResultDto'];
+/** W11 · N-32 — 「안내 보내기」 결과 · 본인 참석 응답 */
+export type MeetingNoticeResult = S['MeetingNoticeResultDto'];
+export type MeetingAttend = S['MeetingAttendDto'];
+/** §62 기획 기한 · §65 기획 보고서 */
+export type PlanDueRow = S['PlanDueRowDto'];
+export type PlanDetail = S['PlanDetailDto'];
+export type PlanTask = S['PlanTaskDto'];
+/** §65 「+ 대표 지시」 · §59 「+ 오늘 한 것」 입력 (w5 · x5) — 옛 `ops-queries.ts` 의 별칭(W11 D) */
+export type PlanTaskCreate = S['PlanTaskCreateDto'];
+export type MarketingCreate = S['MarketingCreateDto'];
+/** §59 활동 수정 — DTO/OpenAPI가 허용하는 활동 칸만 보낸다. 성과 숫자는 별도 소유자다. */
+export type MarketingPatch = S['MarketingPatchDto'];
+/** S6 — 본문 고치기 · 단계 이동 */
+export type PlanPatch = S['PlanPatchDto'];
+export type PlanNextStage = S['PlanNextStageDto'];
+/** W11 · N-72 공개 범위 두 값의 낱말(전체 공개 · 지정 공개) · N-71 §64 연결 수업 칩 */
+export type PlanShareWord = S['PlanShareWordDto'];
+export type TodoLesson = S['TodoLessonDto'];
+/** §79 수강 학생 — 학생 트래킹 */
+export type LessonTracking = S['LessonTrackingDto'];
+export type TrackedStudent = S['TrackedStudentDto'];
+export type TrackedReport = S['TrackedReportDto'];
+/** §79 학생 카드의 인수인계 메모 한 줄 (N-36 ②) — 더하기만 있다 */
+export type TrackedNote = S['TrackedNoteDto'];
+export type NoteCreate = S['NoteCreateDto'];
+/** §60 대표 피드백 — 카드 한 장(글타래)과 그 안의 글 한 줄 */
+export type MfbThread = S['MfbThreadDto'];
+export type MfbPost = S['MfbPostDto'];
+export type Suggestion = S['SuggestionDto'];
+
+/** 스케줄 쓰기 — 자원 + scope 한 형태 (D-R16 · D-R21) */
+export type OccurrenceCreate = S['OccurrenceCreateDto'];
+export type OccurrenceRef = S['OccurrenceRefDto'];
+export type OccurrencePaste = S['OccurrencePasteDto'];
+export type OccurrenceMove = S['OccurrenceMoveDto'];
+export type OccurrenceMoveItem = S['OccurrenceMoveItemDto'];
+export type ScheduleUndo = S['ScheduleUndoDto'];
+export type OccurrencePatch = S['OccurrencePatchDto'];
+export type OccurrenceDelete = S['OccurrenceDeleteDto'];
+/** 그날 전체 휴강 — 공휴일·학원 휴원 (C92 · C-33). 결과는 WriteResult + count/skipped */
+export type DayCancel = S['DayCancelDto'];
+export type DayCancelResult = S['DayCancelResultDto'];
+export type DayCancelParentNotice = S['DayCancelParentNoticeDto'];
+export type DayCancelNoticeList = S['DayCancelNoticeListDto'];
+export type RosterPatch = S['RosterPatchDto'];
+/** 휴원·복귀 — 학생 카드 「휴원」·「복귀」 (C92-c · C-36/C-37). 기간 하나를 적고 회차는 지우지 않는다 */
+export type StudentPause = S['StudentPauseDto'];
+export type StudentPauseWrite = S['StudentPauseWriteDto'];
+export type StudentResumeWrite = S['StudentResumeWriteDto'];
+export type StudentPauseResult = S['StudentPauseResultDto'];
+/** §54 월 마감 (C92-d · C-39/L-123/N-140) — 마감 달의 쓰기는 409 MONTH_CLOSED */
+export type MonthClose = S['MonthCloseDto'];
+export type MonthCloseWrite = S['MonthCloseWriteDto'];
+export type MonthReopenWrite = S['MonthReopenWriteDto'];
+/** §53 청구서 일괄 발행 · 전달 · 취소 (C94-a · H-75/H-76/N-139) */
+export type InvoiceBatch = S['InvoiceBatchDto'];
+export type InvoiceBatchResult = S['InvoiceBatchResultDto'];
+export type InvoiceVoid = S['InvoiceVoidDto'];
+/** §57 강사료 시트 · 지급 확정 (C94-b · H-82/O-148/D-43) — 세는 곳은 서버 `lib/payout-sheet` 하나 */
+export type PayoutSheet = S['PayoutSheetDto'];
+export type PayoutSheetRow = S['PayoutSheetRowDto'];
+export type PayoutConfirm = S['PayoutConfirmDto'];
+/** 정리 · 기준 › 가산 규칙 (N-93) — 새 줄로만 바꾸고 셈은 서버 `lib/payout-sheet.lessonCompensation` 하나 */
+export type PayoutBonusBook = S['PayoutBonusBookDto'];
+export type PayoutBonusSlot = S['PayoutBonusSlotDto'];
+export type PayoutBonusRule = S['PayoutBonusRuleDto'];
+export type PayoutBonusRuleWrite = S['PayoutBonusRuleWriteDto'];
+/** 회계 탭 줄의 두 비공개 스위치 (N-94) — 켜고 끄기는 대표 판정 · 가리는 것은 서버 */
+export type AcctPrivacy = S['AcctPrivacyDto'];
+export type AcctPrivacySwitch = S['AcctPrivacySwitchDto'];
+export type AcctPrivacyWrite = S['AcctPrivacyWriteDto'];
+/** 수강 종료 · 중도 환불 (C94-c · H-80/N-135/N-136) — 잔여 회차·환불액은 서버가 세고 미리보기는 같은 계산이다 */
+export type StudentWithdraw = S['StudentWithdrawDto'];
+export type WithdrawResult = S['WithdrawResultDto'];
+export type WithdrawInvoice = S['WithdrawInvoiceDto'];
+export type WithdrawSeries = S['WithdrawSeriesDto'];
+/** 단가표 · 학생별 예외 · 지출 등록 (C94-d · H-81/H-83/C-38) — 「살아 있는 줄」·pending 판정은 서버다 */
+export type RateBook = S['RateBookDto'];
+export type RateRow = S['RateRowDto'];
+export type StudentRateRow = S['StudentRateRowDto'];
+export type HourlyRatePolicy = S['HourlyRatePolicyDto'];
+export type HourlyRatePolicyEvent = S['HourlyRatePolicyEventDto'];
+export type HourlyRateCreate = S['HourlyRateCreateDto'];
+export type HourlyRateReplace = S['HourlyRateReplaceDto'];
+export type HourlyRateRetire = S['HourlyRateRetireDto'];
+export type HourlyRateWriteResult = S['HourlyRateWriteResultDto'];
+export type RateWrite = S['RateWriteDto'];
+export type StudentRateWrite = S['StudentRateWriteDto'];
+export type ExpenseCreate = S['ExpenseCreateDto'];
+export type ExpenseCategory = S['ExpenseCategoryDto'];
+/** 서랍 요청함 「내 지출 신청」 (N-52) — 본인이 신청자인 줄 · 분류 코드표 */
+export type MyExpenseList = S['MyExpenseListDto'];
+/** 등록 확정 (C91 · A-05) — 일곱 가지를 서버가 한 트랜잭션에서 하고 미리보기는 같은 계산을 되돌린 값이다 */
+export type LeadEnroll = S['LeadEnrollDto'];
+export type EnrollLine = S['EnrollLineDto'];
+export type EnrollResult = S['EnrollResultDto'];
+export type EnrollSeries = S['EnrollSeriesDto'];
+/** §67 컴플레인 접수·처리 · 강사 교체 마법사 (C93 · J-96 · J-97) — 여섯 단계는 서버가 한 트랜잭션에서 하고 미리보기는 되돌린 값이다 */
+export type ComplaintCreate = S['ComplaintCreateDto'];
+export type ComplaintPatch = S['ComplaintPatchDto'];
+export type CplWord = S['CplWordDto'];
+/** 운영에 만드는 길 · 기간과 갈래로 좁히기 (C96 · N-46 ②③ · J-102) */
+export type MeetingCreate = S['MeetingCreateDto'];
+export type MeetingCreateResult = S['MeetingCreateResultDto'];
+export type PlanCreate = S['PlanCreateDto'];
+export type PlanCreateResult = S['PlanCreateResultDto'];
+/** 지금 보고 있는 기간 — 「전체」·「2026년 9월」 같은 낱말도 서버가 만든다 (D-R18) */
+export type OpsRange = S['OpsRangeDto'];
+/** 칩 줄 한 칸 — 건수는 서버가 센다 (D-R37) */
+export type OpsCount = S['OpsCountDto'];
+export type TeacherChange = S['TeacherChangeDto'];
+export type TeacherChangeResult = S['TeacherChangeResultDto'];
+export type TeacherChangeUndo = S['TeacherChangeUndoDto'];
+export type TeacherChangeUndoResult = S['TeacherChangeUndoResultDto'];
+export type TcSeries = S['TcSeriesDto'];
+export type TcStep = S['TcStepDto'];
+export type WriteResult = S['WriteResultDto'];
+/** §69 보고 쓰기 — 영역 메모 · 올리기 · 결재 */
+export type ExecMemoWrite = S['ExecMemoWriteDto'];
+export type ExecSubmit = S['ExecSubmitDto'];
+export type ExecReview = S['ExecReviewDto'];
+export type ExecReportWriteResult = S['ExecReportWriteResultDto'];
+export type ExecAreaMemo = S['ExecAreaMemoDto'];
+/** 저장은 됐지만 강사가 불가로 적어 둔 시간에 걸쳤다 — 막지 않고 알린다 (§15·§16) */
+export type UnavWarn = S['UnavWarnDto'];
+/** 저장은 됐지만 같은 학생이 같은 시각 다른 수업에도 있다 — 막지 않고 알린다 (N-58) */
+export type StudentOverlap = S['StudentOverlapDto'];
+/** 공휴일 이름표 — 원문 §09 월간 칸 칩 · §10 요일 머리 (서버 표 HOLIDAY) */
+export type Holiday = S['HolidayDto'];
+export type HolidayList = S['HolidayListDto'];
+/** 강사 불가 시간(관리자 읽기) — 「가능 시간」 겹쳐 보기 · 빈 시간 찾기 (G37) */
+export type ScheduleUnav = S['ScheduleUnavRowDto'];
+export type ScheduleUnavList = S['ScheduleUnavListDto'];
+/** §07 사이드바 「프로그램」·「과목」 수 — 기간과 무관한 일정 원본(SER) 수 · 묶음 합까지 서버가 센다 */
+export type ScheduleSeriesCounts = S['ScheduleSeriesCountsDto'];
+/** §10 개인 머리 「교재 없음」 — 배부 완료 교재 수와 낱말(서버) */
+export type ScheduleStudentBooks = S['ScheduleStudentBooksDto'];
+/** §11 개인 머리 「안내 N」 — 그 강사에게 보냈는데 아직 확인 안 된 안내 수(서버 · N-100) */
+export type ScheduleTeacherGuides = S['ScheduleTeacherGuidesDto'];
+export type RosterResult = S['RosterResultDto'];
+export type Horizon = S['HorizonDto'];
+/** 'this' | 'future' | 'all' — 화면이 문자열을 다시 적지 않게 DTO 에서 가져온다 */
+export type Scope = OccurrencePatch['scope'];
+export type RosterOp = RosterPatch['op'];
+
+/** 컨설팅 — 금액은 대표만 (D-R39) */
+export type ConsultingList = S['ConsultingListDto'];
+export type Consulting = S['ConsultingDto'];
+/** §26 보드 칸 — 이름·순서·한 줄이 서버에 있다 (C86-e) */
+export type ConsultingStage = S['ConsultingStageDto'];
+export type ConsItem = S['ConsItemDto'];
+/** 원문 §31 「항목 수정」 — 더하기 · 이름 바꾸기 · 빼기 (N-18-a · W11) */
+export type ConsItemsEdit = S['ConsItemsEditDto'];
+/** §29·§30 컨설팅 시작·계약 워크플로 — 요청/응답은 생성 OpenAPI만 별칭으로 소비한다. */
+export type ConsultingCreate = S['ConsultingCreateDto'];
+export type ConsultingPatch = S['ConsultingPatchDto'];
+export type ConsultingDetail = S['ConsultingDetailDto'];
+export type ConsultingShareUpdate = S['ConsultingShareUpdateDto'];
+export type ConsultingTemplates = S['ConsultingTemplatesDto'];
+export type ConsultingTemplate = S['ConsultingTemplateDto'];
+export type ConsultingTemplateWrite = S['ConsultingTemplateWriteDto'];
+export type ConsultingFileCreate = S['ConsultingFileCreateDto'];
+export type ConsultingFile = S['ConsultingFileDto'];
+export type ConsultingFeedbackCreate = S['ConsultingFeedbackCreateDto'];
+export type ConsultingFeedback = S['ConsultingFeedbackDto'];
+
+/* §28 컨설팅 회계 (C58) — 「남음」과 머리 세 칸은 서버가 만든 숫자다. 화면은 그리기만 한다 (D-R37) */
+export type ConsAccounting = S['ConsAccountingDto'];
+export type ConsAccountRow = S['ConsAccountRowDto'];
+export type ConsPayment = S['ConsPaymentDto'];
+export type ConsPaymentCreate = S['ConsPaymentCreateDto'];
+export type ConsToInvoice = S['ConsToInvoiceDto'];
+
+/* §27 컨설팅 학생별 (C59) — 「csCan() 으로 볼 수 있는 것만 집계합니다」는 서버가 지킨다 */
+export type ConsStudents = S['ConsStudentsDto'];
+export type ConsStudent = S['ConsStudentDto'];
+export type ConsStudentCase = S['ConsStudentCaseDto'];
+
+/* §31 회차 잡기 · 육하원칙 · 종료 (C95 · I-91 · I-95) — 순번·연결·「한 회차」·종료 가능 여부는 전부 서버가 정한다 */
+export type ConsSession = S['ConsultingSessionDto'];
+export type ConsSessionCreate = S['ConsSessionCreateDto'];
+export type ConsSessionWrite = S['ConsSessionWriteDto'];
+export type ConsSessionsResult = S['ConsSessionsResultDto'];
+export type ConsSessionPlanRow = S['ConsSessionPlanRowDto'];
+export type ConsClose = S['ConsCloseDto'];
+export type ConsCloseResult = S['ConsCloseResultDto'];
+export type GpaBoard = S['GpaBoardDto'];
+export type GpaCycle = S['GpaCycleDto'];
+
+/* ══ 줌 계정 관리 — §21 서랍의 「줌 계정 관리」가 가는 자리 (대표 결정 2026-09-12 신설) ══ */
+export type ZoomBoard = S['ZoomBoardDto'];
+export type ZoomAcct = S['ZoomAcctDto'];
+
+/* ══ 프로그램·과목 관리 — §18 의 「프로그램 · 과목 전체 열기」가 가는 자리 (신설) ══ */
+export type Catalog = S['CatalogDto'];
+export type CatalogKind = S['KindRowsDto'];
+export type CatalogSub = S['SubRowDto'];
+export type KindCreate = S['KindCreateDto'];
+export type KindPatch = S['KindPatchDto'];
+export type SubCreate = S['SubCreateDto'];
+export type SubPatch = S['SubPatchDto'];
+export type ZoomAccountCreate = S['ZoomAccountCreateDto'];
+export type ZoomAccountPatch = S['ZoomAccountPatchDto'];
+export type ZoomAssign = S['ZoomAssignDto'];
+export type ZoomAssignResult = S['ZoomAssignResultDto'];
+
+/* ══ 올린 파일 — Neon 안에 둔다 (대표 결정 2026-09-12 · D6 · A-D4) ══ */
+export type FileRef = S['FileRefDto'];
+export type FileUpload = S['FileUploadDto'];
+export type GpaStudent = S['GpaStudentDto'];
+export type GpaUse = S['GpaUseDto'];
+export type ConsultingSession = S['ConsultingSessionDto'];
+
+/** 교재 */
+export type Books = S['BooksDto'];
+export type BookVersion = S['BookVersionDto'];
+/** E-53 새 판을 올린 자리의 기존 배부자 */
+export type BookHolders = S['BookHoldersDto'];
+export type BookVersionCreate = S['BookVersionCreateDto'];
+export type BookHistoryRow = S['BookHistoryRowDto'];
+export type BookHistory = S['BookHistoryDto'];
+export type BookHistoryQuery = NonNullable<paths['/books/history']['get']['parameters']['query']>;
+export type Book = S['BookDto'];
+export type BookWrite = S['BookWriteDto'];
+export type BookPatch = S['BookPatchDto'];
+export type BookIssue = S['BookIssueDto'];
+export type BookAssignmentCreate = S['BookAssignmentCreateDto'];
+export type BookAssignmentOptions = S['BookAssignmentOptionsDto'];
+export type BookTrackingStudent = S['BookTrackingStudentDto'];
+export type BookProgressStudent = S['BookProgressStudentDto'];
+export type BookTracking = S['BookTrackingDto'];
+export type BookIssueCreate = S['BookIssueCreateDto'];
+export type BookIssueTransition = S['BookIssueTransitionDto'];
+export type BookIssueProgress = S['BookIssueProgressDto'];
+export type BookIssueReturn = S['BookIssueReturnDto'];
+/** §39 서가 필터 — 과목 · 레벨 · 학년 (N-47 · 거르기는 서버가 한다) */
+export type BookShelfQuery = NonNullable<paths['/books']['get']['parameters']['query']>;
+/** 배부 창의 진단 한 줄 — 그 학생의 최신 상담 진단 (N-62) */
+export type BookIssueDiag = S['BookIssueDiagDto'];
+export type BookPack = S['BookPackDto'];
+export type BookPacks = S['BookPacksDto'];
+export type BookPackWrite = S['BookPackWriteDto'];
+export type BookPackPatch = S['BookPackPatchDto'];
+
+/** BOC-08D-02 — GPAPACK과 분리된 일반 강사 자료요청·관리자 처리 원장 */
+export type MaterialRequestOptions = S['MaterialRequestOptionsDto'];
+export type MaterialRequests = S['MaterialRequestsDto'];
+export type MaterialRequestItem = S['MaterialRequestItemDto'];
+export type MaterialRequestCreate = S['MaterialRequestCreateDto'];
+export type MaterialRequestTransition = S['MaterialRequestTransitionDto'];
+export type MaterialRequestAcknowledge = S['MaterialRequestAcknowledgeDto'];
+export type MaterialRequestWriteResult = S['MaterialRequestWriteResultDto'];
+
+/** 안내 — 한 번만(GUIDE) 과 회차마다(PNOTI) 는 다른 것이다 */
+export type Guides = S['GuidesDto'];
+export type Guide = S['GuideDto'];
+export type ReceivedGuides = S['ReceivedGuidesDto'];
+/** §44 학생별 — 학생 준비 정보와 최신 유효 안내는 서버 투영을 그대로 쓴다. */
+export type GuideStudents = S['GuideStudentsDto'];
+export type GuideStudent = S['GuideStudentDto'];
+export type GuideDiagnostic = S['GuideDiagnosticDto'];
+export type GuideBook = S['GuideBookDto'];
+/** §45 이력 — 기간·누락 판정은 DB 사실에서 서버가 계산한다. */
+export type GuideHistory = S['GuideHistoryDto'];
+export type GuideHistorySpan = GuideHistory['span'];
+export type GuideHistoryQuery = NonNullable<paths['/guides/history']['get']['parameters']['query']>;
+export type GuideMissing = S['GuideMissingDto'];
+/* N-89 안내 기한 · N-90 이력 사건 (W11 · R2) */
+export type GuideDeadline = S['GuideDeadlineDto'];
+export type GuideLadderStep = S['GuideLadderStepDto'];
+export type GuideHistoryEvent = S['GuideHistoryEventDto'];
+export type GuideHistoryDay = S['GuideHistoryDayDto'];
+export type GuideDraftCreate = S['GuideDraftCreateDto'];
+export type GuideTemplate = S['GuideTemplateDto'];
+export type GuideTemplateWrite = S['GuideTemplateWriteDto'];
+/** BOC-04D-03a — GUIDE 작성 HTTP 계약은 읽은 version과 제출 requestKey를 반드시 보낸다. */
+export type GuideBody = S['GuideBodyWriteDto'];
+/** C98 — §43 자동 채움 · 나머지 학생에게 복사 · 줌 안내 (F-60 · F-61 · F-63) */
+export type GuideAutoFill = S['GuideAutoFillDto'];
+export type GuideFact = S['GuideFactDto'];
+export type GuideCopyResult = S['GuideCopyResultDto'];
+/** F-60 · F-61 — 안내 작성 창의 학생별 진단 탭(반 진단) */
+export type GuideClassDiagList = S['GuideClassDiagListDto'];
+export type GuideClassDiagWrite = S['GuideClassDiagWriteDto'];
+export type ZoomNoticeWrite = S['ZoomNoticeWriteDto'];
+export type ZoomNoticeResult = S['ZoomNoticeResultDto'];
+/** wave 6 §43-6 — 「강사 N명 한 번에」 일괄 줌 안내 (N·막힌 이유·결과 줄은 서버가 준다) */
+export type ZoomNoticeBatchInfo = S['ZoomNoticeBatchInfoDto'];
+export type ZoomNoticeBatchResult = S['ZoomNoticeBatchResultDto'];
+export type ZoomNoticeBatchRow = S['ZoomNoticeBatchRowDto'];
+export type PerLessonNotice = S['PerLessonNoticeDto'];
+
+/** 수업 현황판 — 저장하지 않는다. 매번 계산된 값이 내려온다 (D-R4) */
+export type Board = S['BoardDto'];
+export type BoardRow = S['BoardRowDto'];
+export type CheckMark = S['CheckMarkDto'];
+export type BoardMarkCount = S['BoardMarkCountDto'];
+export type BoardSummary = S['BoardSummaryDto'];
+export type BoardTeacherDay = S['BoardTeacherDayDto'];
+export type BoardTeacherRow = S['BoardTeacherRowDto'];
+export type BoardWeek = S['BoardWeekDto'];
+
+/** 대표 보고 — 집계도 저장하지 않는다 (D-R4) */
+export type Exec = S['ExecDto'];
+export type ExecQuery = NonNullable<paths['/exec']['get']['parameters']['query']>;
+export type ExecStat = S['ExecStatDto'];
+export type ExecReport = S['ExecReportDto'];
+/** §69 6영역 · §73 결재함 — 이동만 (N-12 · C37) */
+export type ExecArea = S['ExecAreaDto'];
+/** W11 · N-81 영역 담당 지정 */
+export type ExecAreaOwner = S['ExecAreaOwnerDto'];
+export type ExecAreaOwnerWrite = S['ExecAreaOwnerWriteDto'];
+export type ExecInbox = S['ExecInboxDto'];
+/** §71 월간 전용 — 기간이 달력 한 달 전체일 때만 내려온다 (C86-b) */
+export type ExecMonthly = S['ExecMonthlyDto'];
+export type ExecLostRow = S['ExecLostRowDto'];
+export type ExecFunnelRow = S['ExecFunnelRowDto'];
+
+/** 리포트 상태 — 캘린더 블록 색이 이 값에서 나온다 */
+export type RepState = Occurrence['repState'];
+export type LoginBody = S['LoginDto'];
+export type LoginResult = S['LoginResultDto'];
+export type RefreshResult = S['RefreshResultDto'];
+/** W8 첫 설정 — 안내(규칙 · 채널 낱말은 서버) · 코드 받기 · 마치기(응답은 LoginResult 와 같다) */
+export type OnboardingInfo = S['OnboardingInfoDto'];
+export type OnboardingChannel = S['OnboardingChannelDto'];
+export type OnboardingCodeRequest = S['OnboardingCodeRequestDto'];
+export type OnboardingCodeResult = S['OnboardingCodeResultDto'];
+export type OnboardingComplete = S['OnboardingCompleteDto'];
+/** N-103 휴대폰 국가번호 한 줄 — 목록은 서버(lib/phone)가 준다 · 첫 줄이 국내(대한민국 · `+` 없이 보내는 나라) */
+export type PhoneCountry = S['PhoneCountryDto'];
+/** N-101 비밀번호 찾기 — 로그인 전 화면이 부른다. 코드 받기 응답은 계정 여부와 무관하게 같은 모양이다 */
+export type PasswordResetInfo = S['PasswordResetInfoDto'];
+export type PasswordResetCodeRequest = S['PasswordResetCodeRequestDto'];
+export type PasswordResetCodeResult = S['PasswordResetCodeResultDto'];
+export type PasswordResetComplete = S['PasswordResetCompleteDto'];
+
+/**
+ * 권한 플래그 이름 — 화면이 조건을 적을 때 오타가 나지 않게.
+ * 선택 칸(`mustChangeCredentials?` · W8)은 매핑에서 `undefined` 로 떨어진다 — 그것을 걷어 권한 이름만 남긴다(첫 설정 잠금은 권한이 아니다).
+ */
+export type PermName = NonNullable<{
+  [K in keyof Me]: Me[K] extends boolean ? K : never;
+}[keyof Me]>;
+
+/** 서랍 — §14~§21 여덟 칸이 한 응답으로 온다 */
+export type Drawer = S['DrawerDto'];
+export type ApRow = S['ApRowDto'];
+export type ApFlow = S['ApFlowDto'];
+export type ApprovalFlowItem = S['ApprovalFlowItemDto'];
+export type ApprovalFlow = S['ApprovalFlowDto'];
+export type DrawerTodo = S['DrawerTodoDto'];
+export type DrawerTodoCreate = S['TodoCreateDto'];
+export type DrawerTodoPatch = S['TodoPatchDto'];
+export type DrawerTodoCreateResult = S['TodoCreateResultDto'];
+export type DrawerTodoClearResult = S['TodoClearDto'];
+export type Noti = S['NotiDto'];
+export type Member = S['MemberDto'];
+/** C97 — §17 「+ 구성원」 · 시급 이력 · 직접 수정 (D-41 · D-48 · I-8). 소급 없음·같은 날 한 줄은 서버 판정 */
+export type StaffCreate = S['StaffCreateDto'];
+/**
+ * W8 · W10 — §17 사용자 표 CRUD. 아이디 · 임시 비밀번호는 매니저가 적는다(W10). 만들기 · 초기화 응답은 그 줄(Member)이고
+ * 비밀번호는 어느 응답에도 없다 — 넘겨줄 비밀번호는 적은 창만 안다.
+ */
+export type StaffPatch = S['StaffPatchDto'];
+export type StaffPasswordReset = S['StaffPasswordResetDto'];
+export type WageRow = S['WageRowDto'];
+export type WageHistory = S['WageHistoryDto'];
+export type WageWrite = S['WageWriteDto'];
+export type MemberGroup = S['MemberGroupDto'];
+export type TzGroup = S['TzGroupDto'];
+export type KindRow = S['KindRowDto'];
+export type ChangeReq = S['ChangeReqDto'];
+/** §20 「최근 변경 이력」 (W11 A' 후속) — 스케줄 쓰기 감사 줄 한 줄 = 누가 · 언제 · 앞 → 뒤 · 무엇을(서버 문장) */
+export type ScheduleHistory = S['ScheduleHistoryDto'];
+export type ScheduleHistoryRow = S['ScheduleHistoryRowDto'];
+export type ScheduleHistoryQuery = NonNullable<paths['/drawer/schedule-history']['get']['parameters']['query']>;
+export type ZoomAccount = S['ZoomAccountDto'];
+/** 요청 본문의 oneOf를 그대로 쓴다 — 종류별 필수 필드가 컴파일 단계에서 갈린다. */
+export type ChangeReqCreate = paths['/drawer/change-requests']['post']['requestBody']['content']['application/json'];
+export type ChangeReqResult = S['ChangeReqResultDto'];
+/** §14 요청 처리 결과 — `applied` 가 승인이 **실제로 바꾼 것**이다 · `undoToken` 은 그 처리를 되돌리는 토큰(N-84 · 본인 · 10분) */
+export type ReqReviewResult = S['ReqReviewResultDto'];
+/** §14 결재 되돌리기 (N-84) — 토큰 하나를 보내고 무엇을 되돌렸는지 받는다 */
+export type ApprovalUndo = S['ApprovalUndoDto'];
+export type ApprovalUndoResult = S['ApprovalUndoResultDto'];
+/** §17 권한 예외 한 칸 — 켬 · 끔 · 역할 따름(null) (N-68) */
+export type MemberPerm = S['MemberPermDto'];
+export type StaffPermsPatch = S['StaffPermsPatchDto'];
+/** §76 권한 표 · 창 부제 · 역할 설명 줄 — 서버 문장 (N-98) */
+export type PermissionTable = S['PermissionTableDto'];
+export type PermissionRow = S['PermissionRowDto'];
+export type ConflictRow = S['ConflictRowDto'];
+/** 409 뒤 설명 — 누구와 겹쳤는지 + 그 시각 비어 있는 자원 한 줄(N-70 · 누를 수 없다) */
+export type ConflictPreview = S['ConflictPreviewDto'];
+
+/* 보호자와 선택 발송 (DQ3 · 2026-09-25) — 메일·문자 둘뿐. 연락처는 관리 화면 전용이다 */
+export type Guardian = S['GuardianDto'];
+export type GuardianList = S['GuardianListDto'];
+export type GuardianCreate = S['GuardianCreateDto'];
+export type GuardianPatch = S['GuardianPatchDto'];
+export type GuardianChannel = S['GuardianChannelDto'];
+export type GuardianChannels = S['GuardianChannelsDto'];
+export type GuardianSend = S['GuardianSendDto'];
+export type GuardianSendResult = S['GuardianSendResultDto'];
+export type GuardianSendItem = S['GuardianSendItemDto'];
+
+/* 상담 진단 점수 (DQ1 · 2026-09-25 「점수만 저장 + 담당자가 선택」) — 레벨·교재는 담당자가 고른 값이다. 자동 판정 없음 */
+export type LeadDiag = S['LeadDiagDto'];
+export type LeadDiagList = S['LeadDiagListDto'];
+export type LeadDiagWrite = S['LeadDiagWriteDto'];

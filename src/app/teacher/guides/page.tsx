@@ -1,0 +1,396 @@
+/** @file-guide
+ * 목적: page.tsx — TeacherGuidesPage (route)
+ * 책임/재사용: 기존 셸/도메인 컴포넌트를 조립하고 화면 선택·초안만 소유한다. API DTO는 생성 타입, 서버 데이터는 Query 캐시를 사용한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 수업 안내 — 강사 덱 §10~13 · Figma 「웹 · 수업 안내」(7977:46327·7983:46928).
+ * 수신 GUIDE는 독립 GET /teacher/guides/received이며 현재 주 학생 자료보다 먼저 보여 준다.
+ * 이번 주 담당 학생(좌) + 학생 준비 정보(우)는 기존 GET /teacher/guides의 교재·진단·수업 설정이다.
+ * 덱의 «학생 스타일 영역별 바»는 구조화 저장처가 없어 싣지 않는다 — 진단 요약(diag)으로 대신하고
+ * 경계를 기록했다 (TBO-49 §6 조사 메모). 교재 «변경 요청»은 REQ(book_change) 한 줄을 올린다(N-99 · W11) —
+ * 눌리는지 · 「변경 요청 중」은 서버 플래그. «받기»는 여전히 미확정이라 그리지 않는다.
+ */
+'use client';
+import { useRef, useState, type ReactNode } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { AppShell } from '@/components/shell/AppShell';
+import { RequireAuth } from '@/components/shell/RequireAuth';
+import { Banner, Button, Chip, Panel, QueryState } from '@/components/ui';
+import { useAcknowledgeGuide, useReceivedGuides, useTeacherGuides } from '@/api/queries';
+import { apiMessage } from '@/api/client';
+import { positiveQueryId } from '@/lib/url-state';
+import { GuideBody, GuideNote, GuideTimeline } from '@/components/guides/GuideReadout';
+import { GuideReasonChip, GuideStateChip, guideLessonLabel, guideTeacherLabel } from '@/components/guides/GuideStatus';
+import type { Guide, TeacherGuideStudent } from '@/api/types';
+import { hm, md } from '@/components/teacher/format';
+import { DiagnosticForm } from '@/components/teacher/DiagnosticForm';
+import { GuideDiagnosticSummary } from '@/components/guides/GuideDiagnosticSummary';
+import { TeacherPolicyBar } from '@/components/teacher/TeacherPolicyBar';
+import { ScreenHeader } from '@/components/teacher/ScreenHeader';
+import { useLessonName } from '@/components/teacher/lesson-name';
+import { BookChangeRequestButton } from '@/components/teacher/BookChangeRequestButton';
+import { HandoverNoteList } from '@/components/lesson/HandoverNotes';
+import { bookLevelPresentation } from '@/lib/book-presentation';
+import { MaterialRequestDraft } from '@/components/materials/MaterialRequests';
+import { useSession } from '@/store/useSession';
+
+const addDays = (iso: string, n: number): string => {
+  const d = new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000);
+  return d.toISOString().slice(0, 10);
+};
+
+/** stu.lang 원문 → 칩 라벨. 값이 없거나 낯설면 원문 그대로 보여 준다 — 화면이 다시 판정하지 않는다. */
+const LANG_LABEL: Record<string, string> = { ko: '한국어 수업', en: '영어로만 수업', mix: '혼용 수업' };
+
+function StudentRow({ s, active, onPick }: { s: TeacherGuideStudent; active: boolean; onPick: () => void }) {
+  const lessonName = useLessonName();
+  const subjects = [...new Set(s.lessons.map((l) => lessonName(l)))].join(', ');
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onPick}
+        aria-pressed={active}
+        className={`flex w-full items-center gap-3 border-b border-line px-3 py-3 text-left last:border-b-0 ${active ? 'bg-primary/10' : ''}`}
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-inset text-[12px] font-bold text-primary">
+          {s.name.slice(1) || s.name}
+        </span>
+        <span className="min-w-0 grow">
+          <span className="flex items-center gap-1.5">
+            <b className="text-[13.5px] text-fg">{s.name}</b>
+            {s.grade ? (
+              <Chip size="compact" tone="info">
+                {s.grade}
+              </Chip>
+            ) : null}
+          </span>
+          <span className="mt-0.5 block truncate text-[12px] text-fg-subtle">{subjects || '과목 미정'}</span>
+        </span>
+        <span className="shrink-0 text-[12px] font-bold text-fg-subtle">주 {s.weekCount}회</span>
+      </button>
+    </li>
+  );
+}
+
+type TeacherBook = TeacherGuideStudent['books'][number];
+
+/** 배부 상태 → 칩 — 낱말은 서버 `stateLabel`(서가와 같은 표)이고 여기서는 색만 고른다 (D-R18) */
+function bookStateTone(state: TeacherBook['state']): 'success' | 'neutral' | 'info' {
+  if (state === 'ok') return 'success';
+  if (state === 'returned') return 'neutral';
+  return 'info';
+}
+
+/**
+ * 학생 교재 한 줄 — 강사 덱 §27 「① 학생 교재 · 사용 중 / 변경 요청 · 교재 변경 요청 및 변경 이력(빗금 + 교재 완료)」.
+ * 상태는 서버 낱말(`state`)로 가른다 — 전에는 회수일 유무로만 갈라 배부 전(승인·전달 대기) 줄이 「사용 중」으로 섰다.
+ * 재배부 계보(`reissuedFrom` · `reissuedTo`)는 **같은 목록의 형제 줄**로 잇는다 — 옛 줄에는 「→ 재배부」, 새 줄에는 「이전 배부에서 재배부」
+ * (TEACHER-LINEAGE 2026-09-29 · 다른 교재로 바꾼 것은 원장에 링크가 없어 잇지 않는다 · N-134).
+ */
+function BookCard({
+  book,
+  siblings,
+  action,
+}: {
+  book: TeacherBook;
+  /** 같은 학생의 교재 목록 — 재배부 계보의 상대 줄을 찾는다 */
+  siblings: TeacherBook[];
+  /** 사용 중 칩 옆 「변경 요청」 자리 (N-99) */
+  action?: ReactNode;
+}) {
+  const { code, title, level, seTe, state, stateLabel, issuedOn, returnedOn } = book;
+  const done = state === 'returned';
+  const inUse = state === 'ok';
+  const shown = level ? bookLevelPresentation(level) : null;
+  const from = book.reissuedFrom == null ? null : siblings.find((b) => b.issueId === book.reissuedFrom) ?? null;
+  const to = book.reissuedTo == null ? null : siblings.find((b) => b.issueId === book.reissuedTo) ?? null;
+  return (
+    <div data-book-card={state} className={`flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3 ${done ? 'opacity-60' : ''}`}>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fg text-[12px] font-bold text-card">
+        {seTe}
+      </span>
+      <div className="min-w-0 grow">
+        {/* 제목 앞 레벨 사각 — 관리 §44 교재 줄과 같은 선택기 · 같은 크기(F 빨강 · P 주황 · M 초록 · 그 밖 원문은 중립) */}
+        <div className="flex min-w-0 items-center gap-1.5">
+          {shown ? (
+            <span data-level-marker title={shown.label}
+              className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded px-1 text-[12px] font-black text-white ${shown.bandClass}`}>
+              {shown.marker}
+            </span>
+          ) : null}
+          <span className={`truncate text-[13.5px] font-bold text-fg ${done ? 'line-through' : ''}`}>{title}</span>
+        </div>
+        <div className="text-[12px] text-fg-subtle">
+          {code} · {issuedOn ? `${issuedOn}부터` : '배부 전'}{done && returnedOn ? ` ~ ${returnedOn} 회수` : ''}
+        </div>
+        {/* 재배부 계보 — 서버 id 둘을 형제 줄과 잇는다 · 없으면 줄 자체가 없다 */}
+        {from || to ? (
+          <div className="text-[12px] text-fg-subtle" data-book-lineage>
+            {from ? `이전 배부(${from.issuedOn ?? '배부 전'}${from.returnedOn ? ` ~ ${from.returnedOn}` : ''})에서 재배부` : null}
+            {to ? `→ ${to.issuedOn ?? '배부 전'} 재배부됨` : null}
+          </div>
+        ) : null}
+      </div>
+      {done ? (
+        <Chip size="compact" tone="neutral">
+          교재 완료
+        </Chip>
+      ) : (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Chip size="compact" tone={bookStateTone(state)}>
+            {inUse ? '사용 중' : stateLabel}
+          </Chip>
+          {inUse ? action : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 수신 GUIDE의 선택·명시 확인만 소유한다. 현재 학생 교재/진단 권한을 이 목록에서 유도하지 않는다. */
+function ReceivedGuidesSection() {
+  const query = useReceivedGuides();
+  const ack = useAcknowledgeGuide();
+  const router = useRouter();
+  const search = useSearchParams();
+  const requested = search.getAll('guideId');
+  const requestedId = requested.length === 1 ? positiveQueryId(requested[0]) : null;
+  // 선택 id는 URL 한 곳에서 읽는다. 뒤로가기 때 이전 로컬 선택이 URL을 덮지 않는다.
+  const confirming = useRef(false);
+  const pick = (id: number) => {
+    if (confirming.current) return;
+    ack.reset();
+    router.replace(`/teacher/guides?guideId=${id}`, { scroll: false });
+  };
+  const confirm = (guide: Guide) => {
+    if (confirming.current || !guide.canAck || query.isError) return;
+    confirming.current = true;
+    ack.mutate(guide.id, { onSettled: () => { confirming.current = false; } });
+  };
+  return (
+    <Panel title="받은 안내" sub="수신한 내용을 읽고 확인해 주세요." className="mb-4 min-w-0">
+      <QueryState query={query} isEmpty={() => false}>
+        {({ items }) => {
+          const selectedId = requested.length ? requestedId : items[0]?.id;
+          const selected = items.find((guide) => guide.id === selectedId);
+          return (
+            <>
+              {items.length ? <ul className="mb-3 flex flex-wrap gap-2" aria-label="받은 안내 목록">
+                {items.map((guide) => <li key={guide.id} className="min-w-0 max-w-full">
+                  <Button variant={selected?.id === guide.id ? 'primary' : 'ghost'} disabled={ack.isPending}
+                    aria-pressed={selected?.id === guide.id} className="min-h-11 max-w-full whitespace-normal break-words text-left"
+                    onClick={() => pick(guide.id)}>
+                    {guide.studentName ?? '학생 미상'} · {guide.eventOn ?? guide.dueOn ?? '날짜 미정'}
+                  </Button>
+                </li>)}
+              </ul> : null}
+              {selected ? <article className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <GuideStateChip state={selected.state} /><GuideReasonChip reason={selected.reason} />
+                  <b className="min-w-0 break-words text-[13px]">{selected.studentName ?? '학생 미상'} · {guideLessonLabel(selected)}</b>
+                </div>
+                {/* 강사 교체 안내 — 누구에게서 넘겨받는지(서버가 장부에서 되짚은 이전 강사 · TEACHER-LINEAGE). 첫 수업 안내에는 줄이 없다 */}
+                {selected.previousTeacherName ? (
+                  <p className="mt-2 text-[12px] text-fg-subtle" data-teacher-lineage>
+                    이전 강사 <b className="text-fg">{guideTeacherLabel(selected, '나')}</b>
+                  </p>
+                ) : null}
+                <GuideBody body={selected.body} />
+                {/* 관리자가 적은 두 상자 — 서버가 받는 강사에게만 싣는다(g4 §44-3). 비었으면 상자가 「적지 않음」이라 말한다 */}
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <GuideNote label="지도 방향" text={selected.direction} tone="info" />
+                  <GuideNote label="관리자 코멘트 · 강사만" text={selected.adminNote} tone="warning" />
+                </div>
+                <GuideTimeline guide={selected} />
+                <Button className="mt-3 min-h-11" disabled={!selected.canAck || ack.isPending}
+                  onClick={() => confirm(selected)}>
+                  {ack.isPending ? '확인 중…' : selected.state === 'read' ? '확인 완료' : '확인했습니다'}
+                </Button>
+              </article> : requested.length ? (
+                <Banner tone="warning">선택한 안내를 확인할 수 없습니다. 목록에서 안내를 골라 주세요.</Banner>
+              ) : <p className="text-[12px] text-fg-subtle">받은 안내가 없습니다.</p>}
+              {ack.isError && ack.variables === selected?.id ? <Banner tone="danger" className="mt-3">{apiMessage(ack.error)}</Banner> : null}
+            </>
+          );
+        }}
+      </QueryState>
+    </Panel>
+  );
+}
+
+export default function TeacherGuidesPage() {
+  const lessonName = useLessonName();
+  const router = useRouter();
+  const search = useSearchParams();
+  const viewerId = useSession((state) => state.me?.id ?? null);
+  const [week, setWeek] = useState<string | undefined>(undefined);
+  const [pickedId, setPickedId] = useState<number | null>(null);
+  /** 진단을 쓰고 있는 학생 — 한 번에 한 명 (화면이 두 폼을 들고 있으면 어느 쪽을 저장했는지 흐려진다) */
+  const [writing, setWriting] = useState<number | null>(null);
+  const q = useTeacherGuides(week);
+  const requestedStudents = search.getAll('studentId');
+  const focusRequestId = positiveQueryId(search.get('request'));
+  const requestedStudentId = requestedStudents.length === 1 ? positiveQueryId(requestedStudents[0]) : null;
+  return (
+    <RequireAuth>
+      <AppShell>
+        {/* 강사 정책은 화면 최상단 (대표 결정 2026-09-25) — 강사로 로그인했을 때만 선다 */}
+        <TeacherPolicyBar screen="guides" className="mb-3" />
+        {/* 화면 이름은 셸 머리줄이 말한다 — 강사 표면에서 같은 h1 을 두 번 세우지 않는다 */}
+        <ScreenHeader title="수업 안내" />
+        <ReceivedGuidesSection />
+        <MaterialRequestDraft viewerId={viewerId} focusRequestId={focusRequestId} />
+        {/* 빈 주에도 주 내비는 살아 있어야 한다 — QA C28: isEmpty 로 좌측 레일까지 삼키면
+            materialization horizon 밖 주에서 과거 주로 돌아갈 길이 없다. 빈 목록은 레일 안에서 말한다. */}
+        <QueryState query={q} isEmpty={() => false}>
+          {(d) => {
+            // BOC-04D-03b 권고안: 교재 배정 알림의 학생 id는 정확히 한 개일 때만 연다.
+            // 잘못됐거나 현재 주 담당이 아니면 첫 학생으로 대체해 다른 학생 정보를 노출하지 않는다.
+            const requested = requestedStudents.length > 0;
+            const picked = requested
+              ? d.students.find((s) => s.studentId === requestedStudentId)
+              : d.students.find((s) => s.studentId === pickedId) ?? d.students[0];
+            return (
+              <>
+                <p className="text-[12px] text-fg-subtle">{md(d.weekFrom)} – {md(d.weekTo)} · 담당 학생 {d.students.length}명</p>
+                {requested && !picked ? (
+                  <Banner tone="warning" className="mt-3">요청한 학생을 이 주의 담당 학생에서 확인할 수 없습니다.</Banner>
+                ) : null}
+                <div className="mt-3 flex flex-col gap-4 lg:flex-row">
+                  <aside className="w-full shrink-0 lg:w-[300px]">
+                    <div className="rounded-t-xl bg-fg px-4 py-3 text-card">
+                      <div className="text-[13px] font-bold">이번 주 담당 학생</div>
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <Button size="sm" onClick={() => setWeek(addDays(d.weekFrom, -7))}>
+                          ‹
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={week === undefined ? 'primary' : 'secondary'}
+                          onClick={() => setWeek(undefined)}
+                        >
+                          이번 주
+                        </Button>
+                        <Button size="sm" onClick={() => setWeek(addDays(d.weekFrom, 7))}>
+                          ›
+                        </Button>
+                        <span className="ml-auto text-[12px] opacity-80">
+                          {d.weekFrom.slice(5).replace('-', '/')}–{d.weekTo.slice(5).replace('-', '/')}
+                        </span>
+                      </div>
+                    </div>
+                    <ul className="rounded-b-xl border border-t-0 border-line bg-card">
+                      {d.students.length === 0 ? (
+                        <li className="px-3 py-6 text-center text-[12.5px] text-fg-subtle">이 주에는 담당 수업이 없습니다.</li>
+                      ) : (
+                        d.students.map((s) => (
+                          <StudentRow
+                            key={s.studentId}
+                            s={s}
+                            active={picked?.studentId === s.studentId}
+                            onPick={() => {
+                              setPickedId(s.studentId);
+                              router.replace(`/teacher/guides?studentId=${s.studentId}`, { scroll: false });
+                            }}
+                          />
+                        ))
+                      )}
+                    </ul>
+                  </aside>
+
+                  {picked ? (
+                    <div className="min-w-0 grow">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-[22px] font-bold text-fg">{picked.name}</h2>
+                        {picked.grade ? <Chip tone="info">{picked.grade}</Chip> : null}
+                        {picked.school ? <span className="text-[12px] text-fg-subtle">{picked.school}</span> : null}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <span className="text-[12px] text-fg-subtle">지도 강도</span>
+                          <Chip size="compact" tone={picked.guidance ? 'info' : 'neutral'}>
+                            {picked.guidance ?? '미설정'}
+                          </Chip>
+                          <span className="ml-2 text-[12px] text-fg-subtle">수업 언어</span>
+                          <Chip size="compact" tone={picked.lang ? 'info' : 'neutral'}>
+                            {picked.lang ? (LANG_LABEL[picked.lang] ?? picked.lang) : '미설정'}
+                          </Chip>
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-fg-subtle">
+                        {picked.lessons.map((l) => (
+                          <span key={`${l.onDate}-${l.startMin}`}>
+                            {/* 실제 수업일 — 옮긴 회차는 옮긴 날 (onDate 는 키 · MEETING-MOVE) */}
+                            {md(l.date)} {hm(l.startMin)} <b className="text-fg">{lessonName(l)}</b>
+                          </span>
+                        ))}
+                      </div>
+
+                      <Panel className="mt-4" title="학생 교재" sub="교체·종료 이력이 계속 쌓입니다">
+                        {picked.books.length === 0 ? (
+                          <p className="px-1 py-5 text-center text-[13px] text-fg-subtle">배부된 교재가 없습니다.</p>
+                        ) : (
+                          <div className="flex flex-col gap-2.5">
+                            {picked.books.map((b) => (
+                              <BookCard
+                                key={b.issueId}
+                                book={b}
+                                siblings={picked.books}
+                                action={<BookChangeRequestButton studentId={picked.studentId} studentName={picked.name} book={b} />}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        <p className="mt-3 text-[12px] text-fg-subtle">교재 변경 요청은 관리자 승인 뒤 처리되고 결과는 알림으로 옵니다.</p>
+                      </Panel>
+
+                      <Panel
+                        className="mt-4"
+                        title="진단 요약"
+                        sub={
+                          picked.diag?.onDate
+                            ? `${picked.diag.onDate} 기록${picked.diag.byName ? ` · ${picked.diag.byName}` : ''}`
+                            : '최근 진단 기록'
+                        }
+                        right={
+                          writing === picked.studentId ? null : (
+                            <Button size="sm" variant="primary" onClick={() => setWriting(picked.studentId)}>
+                              {picked.diag ? '다시 진단' : '진단 쓰기'}
+                            </Button>
+                          )
+                        }
+                      >
+                        {writing === picked.studentId ? (
+                          <DiagnosticForm
+                            studentId={picked.studentId}
+                            studentName={picked.name}
+                            serId={picked.lessons[0]?.serId ?? null}
+                            onDone={() => setWriting(null)}
+                            onCancel={() => setWriting(null)}
+                          />
+                        ) : (
+                          <GuideDiagnosticSummary diagnostic={picked.diag} />
+                        )}
+                        {writing === picked.studentId ? null : (
+                          <p className="mt-3 border-t border-line pt-2 text-[12px] text-fg-subtle">
+                            영역별 스타일 평가는 저장처 확정 전이라 싣지 않습니다 — 진단 기록 원문을 그대로 보여 줍니다.
+                          </p>
+                        )}
+                      </Panel>
+
+                      {/* 인수인계 메모 (N-36 ② · 강사 덱 27 「이전 강사 인수인계」) — 관리자 · 매니저가 §79 에서 남긴 줄을 읽기만 한다 */}
+                      <Panel className="mt-4" title="인수인계 메모" sub="관리자가 남긴 줄 · 최근 것부터 · 학부모에게 나가지 않습니다">
+                        <HandoverNoteList notes={picked.notes} empty="남겨진 인수인계 메모가 없습니다." />
+                      </Panel>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            );
+          }}
+        </QueryState>
+      </AppShell>
+    </RequireAuth>
+  );
+}

@@ -1,0 +1,156 @@
+/** @file-guide
+ * 목적: `/books`가 최신 수정사항의 진행도 우선 다섯 화면을 올바른 순서로 조립하는지 검증한다.
+ * 책임/재사용: route 조립만 시험하고 도메인 동작은 각 컴포넌트 테스트에 맡긴다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import type { ReactNode } from 'react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+
+const state = vi.hoisted(() => ({
+  canGpaPack: true, search: '', replace: vi.fn(), packsEnabled: vi.fn(), packFocus: vi.fn(), requestFocus: vi.fn(), trackingProps: vi.fn(),
+}));
+
+vi.mock('@/components/shell/AppShell', () => ({ AppShell: ({ children }: { children: ReactNode }) => children }));
+vi.mock('@/components/shell/RequireAuth', () => ({ RequireAuth: ({ children }: { children: ReactNode }) => children }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: state.replace }),
+  useSearchParams: () => new URLSearchParams(state.search),
+}));
+vi.mock('@/api/queries', () => ({
+  useBooks: () => ({ data: { items: Array(14).fill({}), newerCount: 20, noFileCount: 10 } }),
+  useBookTracking: () => ({ data: { students: Array(5).fill({}), states: [{ key: 'wait', count: 9 }] } }),
+  useBookPacks: (enabled: boolean) => {
+    state.packsEnabled(enabled);
+    return { data: { items: [{ state: 'delivered' }, { state: 'received' }] } };
+  },
+  useBookHistory: () => ({ data: { total: 18 } }),
+  useDrawer: () => ({ data: { workSummary: { total: 16, now: 6, items: [] } } }),
+}));
+vi.mock('@/store/useSession', () => ({
+  useSession: (select: (session: { me: { canGpaPack: boolean } }) => unknown) => select({ me: state }),
+}));
+vi.mock('@/components/books/BookTracking', () => ({
+  BookTracking: (props: unknown) => {
+    state.trackingProps(props);
+    return <p>트래킹 본문</p>;
+  },
+}));
+vi.mock('@/components/books/BookShelf', () => ({ BookShelf: () => <p>서가 본문</p> }));
+vi.mock('@/components/books/BookPacks', () => ({
+  BookPacks: ({ focusPackId }: { focusPackId?: number | null }) => {
+    state.packFocus(focusPackId);
+    return <p>자료 요청 본문</p>;
+  },
+}));
+vi.mock('@/components/materials/MaterialRequests', () => ({
+  MaterialRequestBoard: ({ focusRequestId }: { focusRequestId?: number | null }) => {
+    state.requestFocus(focusRequestId);
+    return <p>강사 자료 요청 보드 · {focusRequestId ?? '없음'}</p>;
+  },
+}));
+vi.mock('@/components/books/BookVersions', () => ({ BookHistory: () => <p>이력 본문</p> }));
+
+import BooksPage from './page';
+
+afterEach(() => {
+  cleanup();
+  state.canGpaPack = true;
+  state.search = '';
+  state.replace.mockReset();
+  state.packsEnabled.mockReset();
+  state.packFocus.mockReset();
+  state.requestFocus.mockReset();
+  state.trackingProps.mockReset();
+});
+
+it('최신 수정사항 순서의 다섯 탭과 서버 건수를 표시하고 화면을 전환한다', () => {
+  const view = render(<BooksPage />);
+  expect([...view.getAllByRole('tab')].map((tab) => tab.textContent)).toEqual([
+    expect.stringContaining('진행도'),
+    expect.stringContaining('트래킹 보드'),
+    expect.stringContaining('서가'),
+    expect.stringContaining('자료 요청'),
+    expect.stringContaining('이력'),
+  ]);
+  expect(view.getByRole('button', { name: '경고 6' })).toBeTruthy();
+  expect(view.queryByRole('button', { name: '경고 39' })).toBeNull();
+  expect(view.getByText('트래킹 본문')).toBeTruthy();
+  expect(state.trackingProps).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'progress' }));
+  fireEvent.click(view.getByRole('tab', { name: /트래킹 보드/ }));
+  expect(state.trackingProps).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'tracking' }));
+  expect(state.replace).toHaveBeenLastCalledWith('/books?tab=tracking', { scroll: false });
+  fireEvent.click(view.getByRole('tab', { name: /자료 요청/ }));
+  expect(view.getByText('자료 요청 본문')).toBeTruthy();
+  expect(state.replace).toHaveBeenLastCalledWith('/books?tab=requests', { scroll: false });
+  fireEvent.click(view.getByRole('tab', { name: /이력/ }));
+  expect(view.getByText('이력 본문')).toBeTruthy();
+  expect(state.replace).toHaveBeenLastCalledWith('/books?tab=history', { scroll: false });
+});
+
+it('canGpaPack이 없어도 일반 자료 요청은 보이고 기존 GPA 자료 전달만 조회하지 않는다', () => {
+  state.canGpaPack = false;
+  state.search = 'tab=requests';
+  const view = render(<BooksPage />);
+  expect(view.getByRole('tab', { name: /자료 요청/ })).toBeTruthy();
+  expect(view.getByText(/강사 자료 요청 보드/)).toBeTruthy();
+  expect(state.packsEnabled).toHaveBeenCalledWith(false);
+  expect(view.queryByText('자료 요청 본문')).toBeNull();
+});
+
+it('기존 자료 전달 접기 action은 44px 높이 계약을 유지한다', () => {
+  state.search = 'tab=requests';
+  const view = render(<BooksPage />);
+  const summary = [...view.container.querySelectorAll('summary')].find((node) => node.textContent?.includes('과거 자료 전달'));
+  expect(summary?.className).toContain('h-11');
+});
+
+it('URL tab을 첫 화면에 반영하고 선택·브라우저 이동을 양방향 동기화한다', () => {
+  state.search = 'student=3&tab=requests';
+  const view = render(<BooksPage />);
+  expect(view.getByText('자료 요청 본문')).toBeTruthy();
+  fireEvent.click(view.getByRole('tab', { name: /서가/ }));
+  expect(state.replace).toHaveBeenLastCalledWith('/books?student=3&tab=shelf', { scroll: false });
+  state.search = 'student=3&tab=history';
+  view.rerender(<BooksPage />);
+  expect(view.getByText('이력 본문')).toBeTruthy();
+});
+
+it('잘못된 URL tab은 안전하게 첫 진행도 화면으로 되돌린다', () => {
+  state.search = 'tab=unknown';
+  const view = render(<BooksPage />);
+  expect(view.getByText('트래킹 본문')).toBeTruthy();
+  expect(state.trackingProps).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'progress' }));
+});
+
+it('자료 요청 deep link의 pack identity를 도메인 컴포넌트에 전달한다', () => {
+  state.search = 'tab=requests&pack=7';
+  render(<BooksPage />);
+  expect(state.packFocus).toHaveBeenLastCalledWith(7);
+});
+
+it('일반 자료 요청 deep link의 identity를 신규 보드에 전달한다', () => {
+  state.search = 'tab=requests&request=11';
+  render(<BooksPage />);
+  expect(state.requestFocus).toHaveBeenLastCalledWith(11);
+});
+
+it('학생 허브 배부 deep link를 exact student target으로 트래킹에 전달한다', () => {
+  state.search = 'tab=tracking&studentId=21&create=issue';
+  render(<BooksPage />);
+  expect(state.trackingProps).toHaveBeenLastCalledWith(expect.objectContaining({
+    createRequest: 1,
+    requestedStudentId: 21,
+    targetRequested: true,
+  }));
+});
+
+it.each(['studentId=abc&create=issue', 'create=issue'])('잘못되거나 빠진 학생 deep link도 일반 생성으로 대체하지 않는다: %s', (search) => {
+  state.search = search;
+  render(<BooksPage />);
+  expect(state.trackingProps).toHaveBeenLastCalledWith(expect.objectContaining({
+    createRequest: 1,
+    requestedStudentId: null,
+    targetRequested: true,
+  }));
+});

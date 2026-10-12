@@ -1,0 +1,168 @@
+/** @file-guide
+ * 목적: report-detail.test.tsx (test)
+ * 책임/재사용: 기존 대상 함수를 import하여 정상/거절/경계 회귀를 검증한다. 테스트 안에 제품 규칙을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useReportDetail, useReportReview, useReportWrite, useReports, useReportDelivery, useReportDeliveryHistory, useReportDeliverySend, useReportReminder } from './queries';
+import type { ReportQuery } from './types';
+import { ApiError } from './client';
+
+const { get, put, post } = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }));
+vi.mock('./client', async (original) => ({ ...await original<typeof import('./client')>(), api: { get, put, post } }));
+vi.mock('@/store/useSession', () => ({
+  useSession: (select: (state: { me: { id: number } }) => unknown) => select({ me: { id: 6 } }),
+}));
+
+let client: QueryClient;
+beforeEach(() => {
+  vi.useFakeTimers();
+  get.mockReset();
+  put.mockReset(); post.mockReset();
+  focusManager.setFocused(true);
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, refetchOnWindowFocus: false } } });
+});
+afterEach(() => { cleanup(); client.clear(); focusManager.setFocused(undefined); vi.useRealTimers(); });
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+it.each([false, true])('독촉 요청 실패=%s에도 리포트와 알림 서랍을 서버 상태로 맞춘다', async (failed) => {
+  const key = '00000000-0000-4000-8000-000000000047';
+  const error = new ApiError('REPORT_REMINDER_STALE', '대상이 바뀌었습니다', 409);
+  if (failed) post.mockRejectedValueOnce(error);
+  else post.mockResolvedValueOnce({ data: { requestKey: key, items: [] } });
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const view = renderHook(() => useReportReminder(), { wrapper });
+
+  await act(async () => {
+    await view.result.current.mutateAsync({ requestKey: key, teacherId: 6 }).catch((cause) => {
+      expect(cause).toBe(error);
+    });
+    await vi.advanceTimersByTimeAsync(1);
+  });
+
+  expect(post).toHaveBeenCalledWith('/reports/reminders', { requestKey: key, teacherId: 6 });
+  expect(invalidate.mock.calls.map(([filter]) => filter?.queryKey)).toEqual([['drawer']]);
+});
+
+it.each([false, true])('발송 실패=%s에도 기존 onSettled로 큐/이력을 재조회하고 서버 revision을 그대로 전송한다', async (failed) => {
+  const date = '2026-09-10';
+  get.mockImplementation(async (path: string) => ({ data: path.endsWith('/history') ? { items: [] }
+    : { onDate: date, total: 0, remaining: 0, blocked: 0, students: [] } }));
+  const view = renderHook(() => ({ queue: useReportDelivery(date), history: useReportDeliveryHistory({ onDate: date }),
+    send: useReportDeliverySend() }), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(get).toHaveBeenCalledTimes(2);
+  const body = { requestKey: '00000000-0000-4000-8000-000000000001', onDate: date, studentId: 4,
+    files: [{ repId: 9, fileName: 'server.png', revision: 'a'.repeat(64), pngDataUrl: 'data:image/png;base64,iVBORw0KGgo=' }] };
+  const error = new ApiError('REPORT_DELIVERY_FILES_MISMATCH', '출력이 바뀌었습니다', 400);
+  if (failed) post.mockRejectedValueOnce(error);
+  else post.mockResolvedValueOnce({ data: { item: { id: 8 } } });
+  await act(async () => {
+    await view.result.current.send.mutateAsync(body).catch((e) => { expect(e).toBe(error); });
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post).toHaveBeenCalledWith('/reports/deliveries', body);
+  expect(view.result.current.send.isError).toBe(failed);
+  expect(view.result.current.send.isSuccess).toBe(!failed);
+  expect(get.mock.calls.filter(([path]) => path === '/reports/deliveries')).toHaveLength(2);
+  expect(get.mock.calls.filter(([path]) => path === '/reports/deliveries/history')).toHaveLength(2);
+});
+
+it('목록/발송은 실제 날짜 query를 보내고 상세는 응답의 원래 회차키를 사용한다', async () => {
+  const params: ReportQuery = { from: '2026-09-08', to: '2026-09-08', teacherId: 6, state: 'wait' };
+  const row = { serId: 50, date: '2026-09-08', onDate: '2026-09-07' };
+  get.mockResolvedValue({ data: { items: [row] } });
+  const view = renderHook(() => ({ list: useReports(params),
+    queue: useReportDelivery(params.from), history: useReportDeliveryHistory({ onDate: params.from, repId: 9 }),
+    detail: useReportDetail(row.serId, row.onDate) }), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(view.result.current.list.data?.items[0]).toEqual(row);
+  expect(get).toHaveBeenCalledWith('/reports', { params });
+  expect(get).toHaveBeenCalledWith('/reports/deliveries', { params: { onDate: '2026-09-08' } });
+  expect(get).toHaveBeenCalledWith('/reports/deliveries/history', { params: { onDate: '2026-09-08', repId: 9 } });
+  expect(get).toHaveBeenCalledWith('/reports/50/2026-09-07');
+  expect(get).toHaveBeenCalledTimes(4);
+  view.rerender();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(get).toHaveBeenCalledTimes(4);
+});
+
+it('열어 둔 예정 리포트는 서버에서 종료를 확인하면 작성 가능해지고 주기 조회를 멈춘다', async () => {
+  get.mockResolvedValueOnce({ data: { minutesSinceEnd: -1, canEdit: false } })
+    .mockResolvedValue({ data: { minutesSinceEnd: 0, canEdit: true } });
+  const view = renderHook(() => useReportDetail(50, '2026-09-07'), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(view.result.current.data?.canEdit).toBe(false);
+  expect(get).toHaveBeenCalledOnce();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(view.result.current.data?.canEdit).toBe(true);
+  expect(get).toHaveBeenCalledTimes(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(get).toHaveBeenCalledTimes(2);
+});
+
+it('닫힌 리포트는 주기 조회하지 않는다', async () => {
+  renderHook(() => useReportDetail(undefined, undefined), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+  expect(get).not.toHaveBeenCalled();
+});
+
+it('탭 복귀 때 오래된 상세 권한을 다시 조회한다', async () => {
+  get.mockResolvedValue({ data: { minutesSinceEnd: 1, canEdit: true } });
+  renderHook(() => useReportDetail(50, '2026-09-07'), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); focusManager.setFocused(false); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); focusManager.setFocused(true); });
+  expect(get).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  ['write', 'REPORT_CANCELED', 400], ['write', 'REPORT_NOT_ENDED', 400],
+  ['write', 'REPORT_NOT_ALLOWED', 400], ['write', 'REPORT_FORBIDDEN', 403],
+  ['write', 'REPORT_NOT_FOUND', 404], ['write', 'REPORT_LOCKED', 409],
+  ['write', 'REPORT_VERSION_CONFLICT', 409], ['write', 'REPORT_FORM_CHANGED', 409],
+  ['write', 'REPORT_STUDENTS_CHANGED', 409], ['write', 'REPORT_MATERIAL_CHANGED', 409],
+  ['review', 'REPORT_NOT_WAITING', 409], ['review', 'REPORT_REVIEW_FORBIDDEN', 403],
+] as const)('%s의 %s/%i는 상세를 재조회하여 최신 서버 가능 여부를 소비한다', async (kind, code, status) => {
+  const error = new ApiError(code, '변경된 상태', status);
+  put.mockRejectedValue(error); post.mockRejectedValue(error);
+  get.mockResolvedValueOnce({ data: { minutesSinceEnd: 1, canEdit: true, canReview: true } })
+    .mockResolvedValue({ data: { minutesSinceEnd: 1, canEdit: false, canReview: false } });
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const view = renderHook(() => ({ detail: useReportDetail(50, '2026-09-07'),
+    write: useReportWrite(), review: useReportReview() }), { wrapper });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  await act(async () => {
+    const target = { serId: 50, onDate: '2026-09-07' };
+    await expect(kind === 'write'
+      ? view.result.current.write.mutateAsync({ ...target, action: 'draft', body: { content: '내용', progress: '진도', homework: '숙제' } })
+      : view.result.current.review.mutateAsync({ ...target, body: { decision: 'approve', expectedVersion: 1 } })).rejects.toBe(error);
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(view.result.current.detail.data).toMatchObject({ canEdit: false, canReview: false });
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(invalidate.mock.calls.map(([filter]) => filter?.queryKey)).toEqual([
+    ['reports'], ['schedule', 'occurrences'], ['teacher', 'lesson-hub'], ['accounting'], ['board'], ['exec'], ['drawer'],
+  ]);
+});
+
+it.each(['REPORT_FIELD_REQUIRED', 'REJECT_REASON_REQUIRED', 'NETWORK'])('%s는 입력/네트워크 오류로 유지하고 재조회하지 않는다', async (code) => {
+  const error = new ApiError(code, '저장 실패', code === 'NETWORK' ? 0 : 400);
+  put.mockRejectedValue(error); post.mockRejectedValue(error);
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  const view = renderHook(() => ({ write: useReportWrite(), review: useReportReview() }), { wrapper });
+  await act(async () => {
+    const target = { serId: 50, onDate: '2026-09-07' };
+    await expect(code === 'REJECT_REASON_REQUIRED'
+      ? view.result.current.review.mutateAsync({ ...target, body: { decision: 'reject', reason: '', expectedVersion: 1 } })
+      : view.result.current.write.mutateAsync({ ...target, action: 'draft', body: { content: '', progress: '', homework: '' } })).rejects.toBe(error);
+  });
+  expect(invalidate).not.toHaveBeenCalled();
+});

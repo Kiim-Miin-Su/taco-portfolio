@@ -1,0 +1,113 @@
+/** @file-guide
+ * 목적: tokens.css (style)
+ * 책임/재사용: 기존 styles/tokens.css와 Tailwind 매핑을 재사용한다. 화면별 색/상태 사전을 중복 정의하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 디자인 토큰 — **색의 유일한 출처**.
+ *
+ * 출처: 개발 명세서 v2 §84~90 (디자인 시스템 탭) · docs/spec/MERGE-2026-08-27.md
+ * 규칙 D-R41 — 전역은 CSS Modules, 컴포넌트는 Tailwind. **색은 여기 한 곳에서만 정의한다.**
+ *
+ * tailwind.config.ts 는 이 변수를 **읽기만** 한다. Tailwind 에 색을 새로 적으면
+ * 토큰이 두 벌이 되고, 명세서와 화면이 조용히 어긋난다.
+ *
+ * ⚠️ `.tsx` 안에 `#rrggbb` 를 쓰지 않는다 — eslint 가 막는다.
+ */
+
+:root {
+  /* ── 관리자 바탕 · 글자 — 원본 v2 §85 ─────────────────────── */
+  --bg: #F6F3F1;
+  --card: #FFFFFF;
+  --line: #E3D9D3;
+  --fg: #2A2320;
+  --fg-subtle: #615650;
+  /* 원본 9색에 별도 단계가 없는 기존 소비자는 의미를 공유한다. */
+  --inset: var(--bg);
+  --line-2: var(--line);
+  --fg-2: var(--fg-subtle);
+
+  /* ── 관리자 강조 · 상태 — 원본 v2 §85 기반 ─────────────────
+     2026-09-10: 대비 미달 예외 철회. 공용 Button/Chip의 작은 글자와
+     10% soft/5% 알림 바탕에서 4.5:1 이상이 되도록 기존 색상 계열을 보강한다.
+     KIND/SUB 및 사용자 지정 자원색은 이 공용 UI 교정 범위 밖이다. */
+  --primary: #83624D;
+  --red: #8E4A45;
+  --green: #4D6654;
+  --amber: #7D5A2D;
+  --violet: #6C5B72;
+  /* 예정/오늘 표시의 파랑은 관리자 primary와 다른 의미다. */
+  --blue: #2157D0;
+  /* 청록 · 주황 · 분홍 — 원문 컷의 단계·분류·영역 색(§23 2차 대기/2차 상담 · §55·§57 진단/응시료/컨설팅 · §69 운영/마케팅).
+     컷 실측(#0891B2 · #EA580C · #DB2777)은 작은 글자에서 4.5:1 이 안 된다. 위 다섯 색과 같은 2026-09-10 대비 교정 규칙으로
+     **색상(hue)·채도는 그대로 두고 명도만** 10% soft · 5% 알림 바탕에서 4.5:1 이 되는 값으로 낮췄다(tokens.test.ts).
+     빌려 쓰던 수업 종류 색(kind-mock · kind-consult · kind-consulting)은 수업 종류의 의미라 여기와 섞지 않는다. */
+  --teal: #066A82;
+  --orange: #A83F09;
+  --pink: #B61E62;
+
+  /* 원본 §07·34 헤더 픽셀. 기본 primary와 섞지 않는다. */
+  --header: #332B27;
+  --header-active: #4A403B;
+  --header-line: #413936;
+  --header-tool: #16202E;
+  --header-tool-line: #2B3648;
+  --header-home: #1D4ED8;
+  --header-approval: #3B2F12;
+
+  /* ── 수업 종류 (KIND) — 명세서 v2 §85. 8종 ──────────────────
+     v1 에서 전부 어두워졌다. 이 값이 v2 정본이다.               */
+  --kind-class: #4A5461;
+  --kind-mock: #BC7855;
+  --kind-gpa: #816BB0;
+  --kind-study: #59988B;
+  --kind-consult: #52969C;
+  --kind-diagx: #6F798A;
+  --kind-consulting: #AC6287;
+  --kind-meeting: #736CAE;
+
+  /* ── 과목 (SUB) — 명세서 v2 §86. 21종 ────────────────────── */
+  --sub-map-read: #A85764;
+  --sub-map-math: #B57046;
+  --sub-sat-read: #4A827B;
+  --sub-sat-math: #9C7A38;
+  --sub-writing: #736CAE;
+  --sub-vocab: #6F8F52;
+  --sub-ap-chem: #5677A5;
+  --sub-interview: #AC6287;
+  --sub-read-lab: #568A9F;
+  --sub-study-room: #59988B;
+  --sub-gpa-care: #816BB0;
+  --sub-mock-sat: #BE8551;
+  --sub-mock-map: #8D6B48;
+  --sub-diag: #6F798A;
+  --sub-intake: #52969C;
+  --sub-admissions: #955675;
+  --sub-mt-pl: #6E6098;
+  --sub-mt-cs: #477785;
+  --sub-mt-mk: #9A5B71;
+  --sub-mt-dv: #546FA2;
+  --sub-mt-pg: #856C4A;
+
+  /* ── 치수 ────────────────────────────────────────────────── */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --gap: 12px;
+  --pad: 16px;
+  --hour-h: 56px;
+  --side-w: 240px;
+  --side-rail-w: 56px;
+  --top-h: 50px;
+
+  /* ── 글꼴 ────────────────────────────────────────────────── */
+  /* Pretendard 는 next/font 가 실어 나른다 (app/layout.tsx) — 여기서는 그 변수를 맨 앞에 둔다.
+     폰트가 아직 안 왔거나 못 읽어도 뒤의 시스템 글꼴로 떨어지므로 화면이 깨지지 않는다. */
+  --f-sans: var(--f-pretendard), 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --f-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
+
+/* 강사 표면 팔레트 — 2026-09-12 파이프라인 결정(v2.pptx→Figma→components→Next.js)으로
+   Figma 강사 페이지의 웜 브랜드(:root 파일 브랜드와 동일 계열)를 그대로 쓴다.
+   이전 슬레이트 오버라이드(#F4F6FA·#0F172A·primary=blue)는 M4-b(C25)에서 제거 —
+   AppShell 의 data-ui='teacher' 후크는 향후 의도적 분화를 위해 유지한다. */

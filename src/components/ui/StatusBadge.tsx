@@ -1,0 +1,35 @@
+/** @file-guide
+ * 목적: StatusBadge.tsx — StatusBadge (ui)
+ * 책임/재사용: props와 공용 시각 토큰으로 표현한다. 업무 권한·정산 판정, Axios 호출, 서버 캐시를 소유하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * Data/Status Badge — Figma `Data/Status Badge` (6 변형).
+ *
+ * **리포트 상태 하나에 배지 하나.** 화면마다 상태를 색으로 다시 매기지 않는다 —
+ * 그렇게 하면 §07 캘린더와 §47 독촉 목록이 같은 회차를 다른 색으로 그린다.
+ */
+import { Chip, type ChipTone, type Tone } from './Chip';
+import type { RepState } from '@/api/types';
+
+const LABEL: Record<string, string> = {
+  // 컷 §47 상태 칸의 낱말이다 — 탭 이름 「안 쓴 리포트」와 칸의 「미작성」은 서로 다른 자리다
+  na: '해당 없음', plan: '예정', none: '미작성', draft: '작성 중',
+  wait: '승인 대기', ok: '승인', rej: '반려',
+};
+const TONE: Record<string, Tone> = {
+  na: 'neutral', plan: 'neutral', none: 'danger', draft: 'warning',
+  wait: 'info', ok: 'success', rej: 'purple',
+};
+
+/**
+ * 점 모양(§47 상태 칸 「● 미작성」 · 「● 반려」)의 톤. 컷 §47 은 반려가 **주황**이다.
+ * 알약 모양의 반려 보라는 §07 범례 등 다른 컷과 함께 정할 일이라(g5 47-06) 여기서만 주황으로 둔다.
+ */
+const DOT_TONE: Record<string, ChipTone> = { ...TONE, rej: 'orange' };
+
+export function StatusBadge({ state, dot = false }: { state: RepState | string; dot?: boolean }) {
+  if (dot) return <Chip tone={DOT_TONE[state] ?? 'neutral'} styleKind="dot">{LABEL[state] ?? state}</Chip>;
+  return <Chip tone={TONE[state] ?? 'neutral'}>{LABEL[state] ?? state}</Chip>;
+}

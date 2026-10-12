@@ -1,0 +1,230 @@
+/** @file-guide
+ * 목적: AttendanceControl.test.tsx (test)
+ * 책임/재사용: 기존 대상 함수를 import하여 정상/거절/경계 회귀를 검증한다. 테스트 안에 제품 규칙을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import { fireEvent, render } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Occurrence } from '@/api/types';
+
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+
+vi.mock('@/api/queries', () => ({
+  useAttendanceWrite: () => ({ mutate, isPending: false }),
+}));
+
+import { AttendanceControl } from './AttendanceControl';
+
+const occurrence: Occurrence = {
+  serId: 3,
+  date: '2026-09-03',
+  onDate: '2026-09-03',
+  startMin: 600,
+  endMin: 660,
+  extra: false,
+  kindKey: 'class',
+  subKey: 'ap-chem',
+  title: 'AP Chemistry',
+  teacherId: 7,
+  teacherName: '강사',
+  roomId: 1,
+  roomName: '강의실 1',
+  zaccId: null,
+  mode: 'offline',
+  canceled: false,
+  hasException: false,
+  recurring: true,
+  repState: 'none', ended: true,
+  written: false,
+  attendanceMode: 'manage',
+  attendance: null,
+  students: [
+    { id: 11, name: '김학생', grade: '고1', droppedOnce: false, paused: false, late: false },
+    { id: 12, name: '이학생', grade: '고2', droppedOnce: false, paused: false, late: false },
+  ],
+};
+
+describe('AttendanceControl', () => {
+  beforeEach(() => mutate.mockReset());
+
+  it('취소 사유를 고르기 전 저장을 막고 생성 DTO 그대로 보낸다', () => {
+    const view = render(<AttendanceControl occ={occurrence} />);
+    fireEvent.click(view.getByRole('button', { name: '출결 확정' }));
+    fireEvent.click(view.getByRole('button', { name: /^취소 시수/ }));
+    expect((view.getByRole('button', { name: '취소로 확정' }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(view.getByRole('button', { name: '학생 결석' }));
+    fireEvent.click(view.getByRole('button', { name: '취소로 확정' }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      {
+        action: 'save', serId: 3, onDate: '2026-09-03',
+        body: { result: 'canceled', reason: 'student_absent' },
+      },
+      expect.any(Object),
+    );
+  });
+
+  it('강사 읽기 전용은 수정 버튼 없이 서버 현재값을 보여준다', () => {
+    const view = render(
+      <AttendanceControl
+        occ={{
+          ...occurrence,
+          attendanceMode: 'readonly',
+          attendance: {
+            id: 9,
+            result: 'completed',
+            reason: null,
+            confirmedBy: 5,
+            confirmedByName: '이매니저',
+            confirmedAt: '2026-09-03T03:00:00.000Z',
+            countsForPay: true,
+            lateStudents: [],
+          },
+        }}
+      />,
+    );
+    expect(view.getByText('수업 완료로 확정되었습니다.')).toBeTruthy();
+    expect(view.getByText('출결 변경은 관리자 이상만 할 수 있습니다.')).toBeTruthy();
+    expect(view.queryByRole('button', { name: '출결 정정' })).toBeNull();
+  });
+
+  it('롤링 배포 중 구 API가 lateStudents를 생략해도 출결 현재값을 그린다', () => {
+    const legacyAttendance = {
+      id: 9,
+      result: 'completed' as const,
+      reason: null,
+      confirmedBy: 5,
+      confirmedByName: '이매니저',
+      confirmedAt: '2026-09-03T03:00:00.000Z',
+      countsForPay: true,
+    } as Occurrence['attendance'];
+    const view = render(<AttendanceControl occ={{ ...occurrence, attendance: legacyAttendance }} />);
+    expect(view.getByText('수업 완료로 확정되었습니다.')).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: '출결 정정' }));
+    expect((view.getByRole('checkbox', { name: '김학생 · 고1' }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('관리자는 현재값을 초기화하는 단일 명령을 보낸다', () => {
+    const view = render(
+      <AttendanceControl
+        occ={{
+          ...occurrence,
+          attendance: {
+            id: 9,
+            result: 'canceled',
+            reason: 'holiday',
+            confirmedBy: 5,
+            confirmedByName: '이매니저',
+            confirmedAt: '2026-09-03T03:00:00.000Z',
+            countsForPay: false,
+            lateStudents: [],
+          },
+        }}
+      />,
+    );
+    fireEvent.click(view.getByRole('button', { name: '초기화' }));
+    expect(mutate).toHaveBeenCalledWith(
+      { action: 'clear', serId: 3, onDate: '2026-09-03' },
+      expect.any(Object),
+    );
+  });
+
+  it('완료 출결은 체크한 학생 ID를 보내고 빈 배열도 정정값으로 보낸다', () => {
+    const view = render(<AttendanceControl occ={occurrence} />);
+    fireEvent.click(view.getByRole('button', { name: '출결 확정' }));
+    fireEvent.click(view.getByRole('checkbox', { name: '김학생 · 고1' }));
+    fireEvent.click(view.getByRole('button', { name: '완료로 확정' }));
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      {
+        action: 'save', serId: 3, onDate: '2026-09-03',
+        body: { result: 'completed', lateStudentIds: [11] },
+      },
+      expect.any(Object),
+    );
+
+    mutate.mockReset();
+    const saved = {
+      ...occurrence,
+      attendance: {
+        id: 9,
+        result: 'completed' as const,
+        reason: null,
+        confirmedBy: 5,
+        confirmedByName: '이매니저',
+        confirmedAt: '2026-09-03T03:00:00.000Z',
+        countsForPay: true,
+        lateStudents: [{
+          studentId: 11, studentName: '김학생', confirmedBy: 5, confirmedByName: '이매니저',
+          confirmedAt: '2026-09-03T03:00:00.000Z',
+        }],
+      },
+      students: occurrence.students.map((student) => ({ ...student, late: student.id === 11 })),
+    };
+    view.rerender(<AttendanceControl occ={saved} />);
+    expect(view.getByLabelText('지각 학생').textContent).toContain('김학생');
+    fireEvent.click(view.getByRole('button', { name: '출결 정정' }));
+    const checked = view.getByRole('checkbox', { name: '김학생 · 고1' }) as HTMLInputElement;
+    expect(checked.checked).toBe(true);
+    fireEvent.click(checked);
+    fireEvent.click(view.getByRole('button', { name: '완료로 확정' }));
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      {
+        action: 'save', serId: 3, onDate: '2026-09-03',
+        body: { result: 'completed', lateStudentIds: [] },
+      },
+      expect.any(Object),
+    );
+  });
+
+  it('그날 빠짐·휴원 학생은 지각 입력을 막고 취소 저장에는 lateStudentIds를 싣지 않는다', () => {
+    const view = render(<AttendanceControl occ={{
+      ...occurrence,
+      students: [
+        { ...occurrence.students[0], droppedOnce: true },
+        { ...occurrence.students[1], paused: true },
+      ],
+    }} />);
+    fireEvent.click(view.getByRole('button', { name: '출결 확정' }));
+    expect((view.getByRole('checkbox', { name: /김학생.*그날 빠짐/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((view.getByRole('checkbox', { name: /이학생.*휴원/ }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(view.getByRole('button', { name: /^취소 시수/ }));
+    expect(view.queryByText('지각 학생')).toBeNull();
+    fireEvent.click(view.getByRole('button', { name: '공휴일' }));
+    fireEvent.click(view.getByRole('button', { name: '취소로 확정' }));
+    expect(mutate.mock.calls.at(-1)?.[0]).toEqual({
+      action: 'save', serId: 3, onDate: '2026-09-03', body: { result: 'canceled', reason: 'holiday' },
+    });
+  });
+
+  it('이후 빠짐 상태가 된 기존 지각 학생은 체크를 풀어 정정할 수 있다', () => {
+    const view = render(<AttendanceControl occ={{
+      ...occurrence,
+      attendance: {
+        id: 9,
+        result: 'completed',
+        reason: null,
+        confirmedBy: 5,
+        confirmedByName: '이매니저',
+        confirmedAt: '2026-09-03T03:00:00.000Z',
+        countsForPay: true,
+        lateStudents: [{
+          studentId: 11, studentName: '김학생', confirmedBy: 5, confirmedByName: '이매니저',
+          confirmedAt: '2026-09-03T03:00:00.000Z',
+        }],
+      },
+      students: [{ ...occurrence.students[0], droppedOnce: true, late: true }],
+    }} />);
+    fireEvent.click(view.getByRole('button', { name: '출결 정정' }));
+    const checkbox = view.getByRole('checkbox', { name: /김학생.*그날 빠짐/ }) as HTMLInputElement;
+    expect(checkbox.disabled).toBe(false);
+    fireEvent.click(checkbox);
+    fireEvent.click(view.getByRole('button', { name: '완료로 확정' }));
+    expect(mutate.mock.calls.at(-1)?.[0]).toEqual({
+      action: 'save', serId: 3, onDate: '2026-09-03', body: { result: 'completed', lateStudentIds: [] },
+    });
+  });
+});

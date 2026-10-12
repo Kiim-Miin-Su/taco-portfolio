@@ -1,0 +1,338 @@
+/** @file-guide
+ * 목적: page.tsx — TeacherHistoryPage (route)
+ * 책임/재사용: 기존 셸/도메인 컴포넌트를 조립하고 화면 선택·초안만 소유한다. API DTO는 생성 타입, 서버 데이터는 Query 캐시를 사용한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 수업 히스토리 — 강사 덱 §29~31 · Figma 「웹 · 수업 히스토리」(8027:44990·8056:48153·8562:42504).
+ * 월 기록 + 본인 정산. 금액·차감·인정 판정은 전부 GET /teacher/history 가 한다 (D-R7·D-R32·D-15).
+ * 가산(N-93 · W11 M2)은 대표의 정리 · 기준 › 가산 규칙을 대표 시트와 **같은 함수**가 더한 값이다 — 화면은 받은 `bonus` 와
+ * 오늘 걸린 규칙(`bonusRules`)을 그리기만 한다(Kinder는 명시 표식의 일반 class 1명에만 기본 시급+시간 가산).
+ * 확정된 달은 지급 확정 근거 줄의 굳은 값이고, 확정 뒤에 쓴 회차는 「확정된 달 — 다음 달 보정」 · 다음 달에는 「보정 · M월 회차」다(N-51).
+ * 특이사항은 구조화 학생 identity·원래 회차일로 전용 관리자 원장에 저장하고 강사에게는 본문 없는 영수증만 보여 준다(BOC-09D-03).
+ */
+'use client';
+import { useState } from 'react';
+import { AppShell } from '@/components/shell/AppShell';
+import { RequireAuth } from '@/components/shell/RequireAuth';
+import { Button, Chip, LinkButton, Panel, QueryState, type Tone } from '@/components/ui';
+import { useMeta, useTeacherHistory } from '@/api/queries';
+import type { TeacherHistoryLesson } from '@/api/types';
+import { won } from '@/lib/money';
+import { LATE_TONE, REP, dowOf, hm, hours } from '@/components/teacher/format';
+import { TeacherPolicyBar } from '@/components/teacher/TeacherPolicyBar';
+import { ScreenHeader } from '@/components/teacher/ScreenHeader';
+import { useLessonName } from '@/components/teacher/lesson-name';
+import { TeacherPrivateNoteDraft } from '@/components/teacher/TeacherPrivateNoteDraft';
+
+function kindChips(l: TeacherHistoryLesson): Array<{ label: string; tone: Tone }> {
+  const out: Array<{ label: string; tone: Tone }> = [];
+  if (l.kindKey === 'mock') out.push({ label: '모의수업', tone: 'info' });
+  if (l.kindKey === 'diagx') out.push({ label: '진단고사', tone: 'info' });
+  if (l.studentCount > 1) out.push({ label: `그룹 ${l.studentCount}명`, tone: 'warning' });
+  return out;
+}
+
+function reportStateLabel(repState: TeacherHistoryLesson['repState'], label: string): string {
+  if (repState === 'plan') return '리포트 작성 예정';
+  if (repState === 'none' || repState === 'na') return label;
+  return `리포트 ${label}`;
+}
+
+function StatCard({ tag, value, sub, tint, action }: {
+  tag: string; value: string; sub: string; tint?: 'success' | 'danger'; action?: React.ReactNode;
+}) {
+  const tone = tint === 'success' ? 'border-green/40 bg-green/5' : tint === 'danger' ? 'border-red/40 bg-red/5' : 'border-line bg-card';
+  return (
+    <div className={`min-w-0 grow basis-52 rounded-xl border p-4 ${tone}`}>
+      <Chip size="compact" tone={tint === 'success' ? 'success' : tint === 'danger' ? 'danger' : 'neutral'}>{tag}</Chip>
+      <div className="mt-2 text-[22px] font-bold leading-none text-fg">{value}</div>
+      <div className="mt-1.5 text-[12px] text-fg-subtle">{sub}</div>
+      {action ? <div className="mt-2">{action}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * 정산 패널 한 줄 — 왼쪽 항목·가운데 산식·오른쪽 금액.
+ *
+ * 좁은 화면에서는 셋을 한 줄에 넣을 수 없다. 산식을 줄여 없애는 대신 **아래로 접는다** —
+ * 「제출 인정 9…」처럼 잘린 산식은 금액이 어디서 나왔는지 말해 주지 못한다 (원본 모바일 §30).
+ */
+function SRow({ name, how, amount }: { name: string; how?: string; amount: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 border-b border-card/15 py-2.5 text-[13px] last:border-b-0 sm:flex-nowrap">
+      <span className="shrink-0 font-bold sm:w-40">{name}</span>
+      <b className="ml-auto shrink-0 text-[14px] sm:order-last">{amount}</b>
+      {how ? <span className="min-w-0 w-full grow opacity-75 sm:w-auto sm:truncate">{how}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * 수업 기록 한 줄.
+ *
+ * 웹은 한 줄(시각·학생·과목·대면·시수·상태·금액)이고, **모바일은 세 줄로 접는다** —
+ * 원본 모바일(§30·§31)이 그렇게 보여 준다. 같은 값을 같은 순서로 두되 줄만 나눈다:
+ *   ① 시각 · 학생 · 시수   ② 과목 + 종류 배지   ③ 대면/비대면 · 리포트 상태 · 금액
+ *
+ * 접지 않으면 금액 칸(`w-28`)이 393px 밖으로 나가 **본문 전체가 가로로 밀린다**
+ * (실측 scrollWidth 513). 가로로 밀린 화면에서는 오른쪽 금액을 볼 수가 없다.
+ */
+function Row({ l, onNote }: { l: TeacherHistoryLesson; onNote: (lesson: TeacherHistoryLesson, subject: string) => void }) {
+  const lessonName = useLessonName();
+  const state = l.canceled
+    ? { label: '취소', tone: 'neutral' as Tone }
+    : l.settle === 'upcoming'
+      ? { label: '예정', tone: 'info' as Tone }
+      : { label: '진행 완료', tone: 'success' as Tone };
+  const rep = l.canceled ? undefined : REP[l.repState];
+  const who = l.students
+    ? `${l.students.split(', ')[0]}${l.studentCount > 1 ? ` 외 ${l.studentCount - 1}명` : ''}`
+    : '미배정';
+  const subject = lessonName(l);
+  const canWritePrivateNote = !l.canceled && l.settle !== 'upcoming' && l.studentItems.length > 0;
+  const money = l.canceled ? (
+    <div className="text-[12px] text-fg-subtle">— · 시수·정산 제외</div>
+  ) : l.pay !== null && l.pay !== undefined ? (
+    <>
+      <div className="text-[13px] font-bold text-fg">{won(l.pay)}</div>
+      {/* 가산(N-93) — 규칙이 그 날짜에 붙인 돈. 수업료와 따로 적고 두 값의 합이 그 회차의 돈이다(서버 값 그대로) */}
+      {l.bonus ? <div className="text-[12px] font-bold text-green">+{won(l.bonus)} 가산</div> : null}
+      {l.lateCut ? <div className="text-[12px] font-bold text-red">−{won(l.lateCut)} 지각</div> : null}
+    </>
+  ) : l.penaltyIfNow !== null && l.penaltyIfNow !== undefined ? (
+    <>
+      <div className="text-[13px] font-bold text-fg">보류</div>
+      <div className="text-[12px] font-bold text-red">
+        {l.penaltyIfNow > 0 ? `−${won(l.penaltyIfNow)} 지각` : '지금 쓰면 차감 없음'}
+      </div>
+    </>
+  ) : (
+    <div className="text-[13px] text-fg-subtle">—</div>
+  );
+
+  return (
+    <li className={`border-b border-line px-1 py-3 last:border-b-0 ${l.canceled ? 'opacity-55' : ''}`}>
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        {/* ① 시각 · 학생 · 시수 — 웹에서는 `contents` 로 풀려 한 줄에 합류한다 */}
+        <div className="flex items-center gap-3 sm:contents">
+          <div className="w-14 shrink-0 text-[13px] font-bold text-fg sm:order-1">{hm(l.startMin)}</div>
+          <div className="min-w-0 grow truncate text-[13px] font-bold text-fg sm:order-2 sm:w-24 sm:grow-0">{who}</div>
+          <div className="shrink-0 text-right text-[13px] font-bold text-fg sm:order-5 sm:w-10">
+            {l.canceled ? '0h' : `${hours(l.durMin)}h`}
+          </div>
+        </div>
+
+        {/* ② 과목 */}
+        <div className="flex min-w-0 items-center gap-2 sm:order-3 sm:grow">
+          <span className={`truncate text-[14px] font-bold text-fg ${l.canceled ? 'line-through' : ''}`}>
+            {subject}
+          </span>
+          {kindChips(l).map((c) => <Chip key={c.label} size="compact" tone={c.tone}>{c.label}</Chip>)}
+          {/* N-51 — 보정 줄(앞선 확정 달 회차가 이 달 정산에 얹힘) · 확정 뒤에 써서 다음 달 보정으로 간 회차. 낱말은 서버 */}
+          {l.settle === 'correction' || l.settle === 'late'
+            ? <Chip size="compact" tone={l.settle === 'correction' ? 'info' : 'warning'}>{l.settleLabel}</Chip>
+            : null}
+        </div>
+
+        {/* ③ 대면 · 상태 · 금액 — 웹 순서(대면 → 시수 → 상태 → 금액)는 order 로 그대로 지킨다 */}
+        <div className="flex items-center gap-2 sm:contents">
+          <span className="sm:order-4"><Chip size="compact" tone="neutral">{l.canceled ? '취소' : l.mode === 'online' ? '비대면' : '대면'}</Chip></span>
+          <span className="flex flex-wrap items-center gap-1 sm:order-6">
+            <Chip size="compact" tone={state.tone}>{state.label}</Chip>
+            {rep ? <Chip size="compact" tone={rep.tone}>{reportStateLabel(l.repState, rep.label)}</Chip> : null}
+          </span>
+          <div className="ml-auto shrink-0 text-right sm:order-7 sm:ml-0 sm:w-28">{money}</div>
+        </div>
+      </div>
+      {canWritePrivateNote ? (
+        <div className="mt-2 flex justify-end">
+          <Button size="sm" className="!h-11" onClick={() => onNote(l, subject)}>특이사항 남기기</Button>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+export default function TeacherHistoryPage() {
+  const q = useTeacherHistory();
+  const meta = useMeta();
+  const [privateNote, setPrivateNote] = useState<{ lesson: TeacherHistoryLesson; subject: string } | null>(null);
+  return (
+    <RequireAuth>
+      <AppShell>
+        {/* 강사 정책은 화면 최상단 (대표 결정 2026-09-25) — 강사로 로그인했을 때만 선다 */}
+        <TeacherPolicyBar screen="history" className="mb-3" />
+        <QueryState query={q} isEmpty={() => false}>
+          {(d) => {
+            const s = d.settlement;
+            const nowCut = d.lessons.reduce((a, l) => a + (l.penaltyIfNow ?? 0), 0);
+            const groups: Array<{ date: string; rows: TeacherHistoryLesson[] }> = [];
+            for (const l of d.lessons) {
+              const g = groups[groups.length - 1];
+              // 날짜 묶음은 **실제 수업일**(date)로 — 옮긴 회차는 옮긴 날 아래에 선다 (onDate 는 키 · MEETING-MOVE)
+              if (g && g.date === l.date) g.rows.push(l);
+              else groups.push({ date: l.date, rows: [l] });
+            }
+            const ymLabel = `${Number(d.month.slice(0, 4))}년 ${Number(d.month.slice(5, 7))}월`;
+            return (
+              <>
+                <ScreenHeader
+                  title="수업 히스토리"
+                  sub={`${ymLabel} · 종료 ${d.stats.doneCount}건 · 리포트 완료 ${d.stats.writtenCount} · 미작성 ${d.stats.unwrittenCount}`}
+                />
+                <div className="mt-3 flex flex-col gap-4 lg:flex-row">
+                  <div className="min-w-0 grow">
+                    <div className="flex flex-wrap gap-3">
+                      <StatCard tag="진행 수업" value={`${d.stats.doneCount}건`} sub={`시수 ${hours(d.stats.doneMinutes)}시간 · 종료된 수업 기준`} />
+                      <StatCard tag="리포트 완료" tint="success" value={`${d.stats.writtenCount}건`}
+                        sub={`시수 ${hours(d.stats.writtenMinutes)}시간 · 정산 ${s.confirmed ? '확정' : '반영'}`} />
+                      <StatCard tag="리포트 미작성" tint="danger" value={`${d.stats.unwrittenCount}건`}
+                        sub={`시수 ${hours(d.stats.unwrittenMinutes)}시간 · 정산 보류`} />
+                      <StatCard tag="내 기본 시급" value={d.wageRate === null || d.wageRate === undefined ? '—' : won(d.wageRate)}
+                        sub={`${d.wageFrom ?? '—'} 적용 · 나만 볼 수 있습니다`}
+                        action={<LinkButton size="sm" className="!h-11" href="/teacher?setting=wage#my-settings">시급 변경 신청</LinkButton>} />
+                    </div>
+
+                    <div className="mt-4 rounded-xl bg-fg p-5 text-card">
+                      <div className="mb-1 flex items-center gap-2">
+                        <h3 className="grow text-[15px] font-bold">{ymLabel} 정산</h3>
+                        {/*
+                          확정 여부는 서버가 `confirmed_by` 로 낸 결론 하나만 쓴다 (N-27 · 대표 결정).
+                          전에는 `payout.state` 낱말로 셋을 갈랐는데 그 낱말에 정본이 없어,
+                          마감 작성 중인 정산이 「확정」으로 보였다. 「지급 완료」는 낱말이 정해지면
+                          그때 다시 만든다 — 지금 없는 구분을 있는 척 보여 주지 않는다.
+                        */}
+                        {/* 어두운 판(bg-fg) 위라 옅은 바탕 칩(soft)은 글자가 묻힌다(2.3:1 · P-159 all160 QA) — 채운 칩(solid · 흰 글자)으로 */}
+                        <Chip size="compact" styleKind="solid" tone={s.confirmed ? 'success' : 'info'}>
+                          {s.confirmed ? '확정' : s.saved ? '마감 작성 중' : '실시간 계산'}
+                        </Chip>
+                      </div>
+                      {s.breakdown
+                        .filter((row) => row.key !== 'other' || row.lessonCount > 0 || row.amount !== 0 || row.note)
+                        .map((row) => (
+                          <SRow key={row.key} name={row.label}
+                            how={`${row.lessonCount}건 · ${hours(row.minutes)}시간${row.note ? ` · ${row.note}` : ''}`}
+                            amount={won(row.amount)} />
+                        ))}
+                      <SRow
+                        name="수업료 합계"
+                        how={`제출 인정 ${hours(s.writtenMinutes)}시간 (리포트 쓴 수업만)${s.bonus > 0 ? ` · 가산 ${won(s.bonus)} 포함` : ''}`}
+                        amount={won(s.gross)}
+                      />
+                      {s.breakdownUnallocatedAmount !== 0 ? (
+                        <SRow name="저장값과 현재 근거 차이" how="종류별 근거가 없는 옛 저장 정산입니다"
+                          amount={`${s.breakdownUnallocatedAmount > 0 ? '+' : '−'}${won(Math.abs(s.breakdownUnallocatedAmount))}`} />
+                      ) : null}
+                      <SRow name="리포트 지각 제출 차감" how="수업 종료 시각 기준 두 구간" amount={s.lateCut > 0 ? `−${won(s.lateCut)}` : '없음'} />
+                      <SRow name="원천징수" how="소득세 3% + 지방소득세 · 각각 절사" amount={`−${won(s.incomeTax + s.localTax)}`} />
+                      <div className="mt-2 flex items-baseline justify-between border-t border-card/25 pt-3">
+                        <b className="text-[14px]">{s.confirmed ? '실지급액' : '실지급 예정액'}</b>
+                        <b className="text-[24px]">{won(s.net)}</b>
+                      </div>
+                      {/* 확정 · 보정 안내 한 문장 — 서버가 만든다 (N-51 「확정된 달 — 다음 달 보정」) */}
+                      {s.note ? (
+                        <p className="mt-3 rounded-lg border border-card/35 px-3 py-2 text-[12.5px] font-bold">{s.note}</p>
+                      ) : null}
+                      {s.unwrittenCount > 0 ? (
+                        <div className="mt-3 flex flex-col gap-2">
+                          <div className="flex items-center justify-between rounded-lg border border-card/35 px-3 py-2 text-[12.5px]">
+                            <span className="font-bold">리포트 미작성 {s.unwrittenCount}건 · {hours(s.unwrittenMinutes)}시간은 아직 빠져 있습니다</span>
+                            <b>{won(s.unwrittenAmount)}</b>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-card/35 px-3 py-2 text-[12.5px]">
+                            <span className="font-bold">지금 쓰시면 지각 차감이 함께 붙습니다</span>
+                            <b>{nowCut > 0 ? `−${won(nowCut)}` : '차감 없음'}</b>
+                          </div>
+                        </div>
+                      ) : null}
+                      <p className="mt-3 text-[12px] leading-relaxed opacity-70">
+                        이 정산 내역은 본인만 볼 수 있습니다. 리포트를 쓴 수업만 정산에 들어가며, 승인 여부로 깎이지 않습니다.
+                        가산은 오른쪽 가산 규칙대로 붙고 수업료 안에 들어 있습니다. 확정된 달은 바뀌지 않습니다.
+                        {s.remainingCount > 0 ? ` 이 달 남은 예정 수업 ${s.remainingCount}건 · ${hours(s.remainingMinutes)}시간 (예상 ${won(s.remainingAmount)}).` : ''}
+                      </p>
+                    </div>
+
+                    <Panel
+                      className="mt-4"
+                      title={`${ymLabel} 수업 기록`}
+                      right={
+                        <Chip size="compact" tone="info">KST 전월 고정 조회</Chip>
+                      }
+                    >
+                      {groups.length === 0
+                        ? <p className="px-1 py-6 text-center text-[13px] text-fg-subtle">이 달에는 수업 기록이 없습니다.</p>
+                        : groups.map((g) => {
+                            const live = g.rows.filter((l) => !l.canceled);
+                            const canceled = g.rows.length - live.length;
+                            return (
+                              <div key={g.date}>
+                                <div className="flex items-center gap-2 rounded-md bg-inset px-2 py-1.5 text-[12px]">
+                                  {/* 보정 줄은 앞선 달의 회차라 달을 같이 적는다 — 이 달 같은 날짜와 헷갈리지 않게 */}
+                                  <b className="text-fg">
+                                    {g.date.slice(0, 7) !== d.month ? `${Number(g.date.slice(5, 7))}월 ` : ''}{Number(g.date.slice(8, 10))}일 ({dowOf(g.date)})
+                                  </b>
+                                  <span className="text-fg-subtle">{live.length}건{canceled ? ` · 취소 ${canceled}건` : ''}</span>
+                                  <span className="ml-auto text-fg-subtle">{hours(live.reduce((a, l) => a + l.durMin, 0))}시간</span>
+                                </div>
+                                <ul>{g.rows.map((l) => (
+                                  <Row key={`${l.serId}-${l.onDate}-${l.startMin}`} l={l}
+                                    onNote={(lesson, subject) => setPrivateNote({ lesson, subject })} />
+                                ))}</ul>
+                              </div>
+                            );
+                          })}
+                    </Panel>
+                  </div>
+
+                  <aside className="w-full shrink-0 lg:w-[344px]">
+                    <Panel title="리포트 지각 차감 규칙" sub="연강은 마지막 수업 종료부터 수업 수 × 1시간 유예">
+                      <ul className="flex flex-col gap-2">
+                        {/* 구간·금액·낱말은 서버 판정 정본(/meta lateReportTiers) — 화면에 금액 사본을 두지 않는다 (2026-09-25) */}
+                        {(meta.data?.lateReportTiers ?? []).map((r) => (
+                          <li key={r.fromMinutes} className="flex items-center justify-between gap-2 text-[13px]">
+                            <span className="text-fg">{r.range}</span>
+                            <Chip size="compact" tone={LATE_TONE[r.tone]}>{r.cut}</Chip>
+                          </li>
+                        ))}
+                      </ul>
+                      {/* 가산 규칙 (N-93) — 대표 정리 · 기준 탭의 칸 그대로 · 오늘 걸린 금액. 낱말 · 금액 · 셈에 드는가 전부 서버 값 */}
+                      {d.bonusRules.length > 0 ? (
+                        <ul aria-label="가산 규칙" className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+                          {d.bonusRules.map((r) => (
+                            <li key={r.label} className="flex flex-col gap-0.5">
+                              <span className="flex items-center justify-between gap-2 text-[13px]">
+                                <span className="text-fg">{r.label}</span>
+                                <Chip size="compact" tone={r.amount === null || !r.applied ? 'neutral' : 'success'}>
+                                  {r.amount === null ? `${r.hint} · 없음` : `${r.hint} +${won(r.amount)}`}
+                                </Chip>
+                              </span>
+                              {r.note ? <span className="text-[12px] text-amber">{r.note}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <p className="mt-3 border-t border-line pt-2 text-[12px] text-fg-subtle">
+                        차감액은 서버가 최초 제출 시각으로 확정합니다. 가산은 리포트를 쓴 수업에만 붙고, 규칙이 바뀌면 그 날짜의 수업부터입니다.
+                      </p>
+                    </Panel>
+                  </aside>
+                </div>
+                {privateNote ? (
+                  <TeacherPrivateNoteDraft
+                    key={`${privateNote.lesson.serId}-${privateNote.lesson.onDate}`}
+                    lesson={privateNote.lesson}
+                    subject={privateNote.subject}
+                    onClose={() => setPrivateNote(null)}
+                  />
+                ) : null}
+              </>
+            );
+          }}
+        </QueryState>
+      </AppShell>
+    </RequireAuth>
+  );
+}

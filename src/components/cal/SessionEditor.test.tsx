@@ -1,0 +1,535 @@
+/** @file-guide
+ * 목적: 새 일정 창 — 겹침으로 막히면 「누구와 · 어느 수업」까지 말한다 (QA-a · B-17 · B-18 · D-R43).
+ * 책임/재사용: 실제 SessionEditor/useScheduleWrite/conflictLines 를 쓰고 네트워크만 어댑터로 갈아 끼운다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
+import type { Meta, Occurrence } from '@/api/types';
+import { SessionEditor } from './SessionEditor';
+
+const meta = {
+  kinds: [{ key: 'class', name: '수업', cap: 4, rep: true, grp: 'lesson', grpLabel: '수업', color: '#111', extra: false }],
+  subs: [{ key: 'vocab', name: 'Vocabulary', color: '#222' }],
+  staff: [{ id: 7, name: '체험인물11', role: 'teacher', canAdminPage: false, canGpaPack: false, title: null }],
+  rooms: [{ id: 1, name: '1호' }],
+  students: [{ id: 1, name: '체험인물09', grade: '고1' }],
+  zaccs: [], invTypes: [], cancelReasons: [], cancelTreats: [],
+} as unknown as Meta;
+
+const originalAdapter = api.defaults.adapter;
+const clients: QueryClient[] = [];
+const got: string[] = [];
+afterEach(() => { cleanup(); clients.splice(0).forEach((c) => c.clear()); api.defaults.adapter = originalAdapter; got.length = 0; });
+
+function setup(conflicts: unknown[]) {
+  api.defaults.adapter = (async (config: { url?: string; method?: string }) => {
+    if (config.method === 'post') {
+      return Promise.reject(Object.assign(new Error('conflict'), {
+        response: { status: 409, data: { code: 'RESOURCE_CONFLICT', message: '같은 시간에 강사·강의실·줌이 이미 잡혀 있습니다' } },
+      }));
+    }
+    got.push(config.url ?? '');
+    return { config, status: 200, statusText: 'OK', headers: {}, data: { conflicts } };
+  }) as never;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor
+        draft={{ date: '2026-09-28', startMin: 570, endMin: 660, roomId: 1 }}
+        meta={meta}
+        onClose={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+  return view;
+}
+
+it('겹쳐서 막히면 원래 문구 뒤에 누구와·어느 수업인지 붙는다 (B-17·B-18)', async () => {
+  const view = setup([
+    { serId: 9, onDate: '2026-09-28', startMin: 570, endMin: 660, title: 'MAP Reading', with: 'room', whoName: '1호' },
+  ]);
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(view.getByText(/같은 시간에/)).toBeTruthy());
+  await waitFor(() => expect(view.getByText(/\[강의실\] 1호 · 2026-09-28 09:30–11:00 · MAP Reading/)).toBeTruthy());
+  // 설명은 **막힌 뒤 한 번**만 묻는다 — 미리 물어 비었다고 저장을 건너뛰면 그 사이에 남이 그 자리를 잡는다
+  expect(got.filter((u) => u === '/schedule/conflicts').length).toBe(1);
+});
+
+it('설명을 못 가져와도 원래 문구는 남는다 — 실패가 실패를 덮지 않는다', async () => {
+  const view = setup([]);
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(view.getByText(/같은 시간에/)).toBeTruthy());
+  expect(view.queryByText(/\[강의실\]/)).toBeNull();
+});
+
+function setupCreateMode(draft = { date: '2026-09-28', startMin: 570, endMin: 660, roomId: 1 }) {
+  const sent: Array<Record<string, unknown>> = [];
+  api.defaults.adapter = (async (config: { data?: string }) => {
+    sent.push(config.data ? JSON.parse(config.data) : {});
+    return { config, status: 201, statusText: 'Created', headers: {}, data: { effScope: 'this', log: [], projected: 1, serIds: [9], unavailable: [] } };
+  }) as never;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor draft={draft} meta={meta} onClose={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  return { view, sent, room: view.getByLabelText('강의실 · 형태') as HTMLSelectElement };
+}
+
+it('새 일정은 분 단위 시간 선택기를 쓰고 24:00 종료를 명시적으로 골라 전송한다 (UX-13A)', async () => {
+  const { view, sent } = setupCreateMode({ date: '2026-09-28', startMin: 1380, endMin: 1440, roomId: 1 });
+  const start = view.getByLabelText('시작') as HTMLInputElement;
+  const end = view.container.querySelector('#se-end') as HTMLInputElement;
+  const midnight = view.getByRole('checkbox', { name: '24:00 (자정에 종료)' }) as HTMLInputElement;
+  expect(start.type).toBe('time');
+  expect(end.type).toBe('time');
+  expect(start.step).toBe('60');
+  expect(end.step).toBe('60');
+  expect(start.value).toBe('23:00');
+  expect(midnight.checked).toBe(true);
+  expect(end.hidden).toBe(true);
+  expect(end.tabIndex).toBe(-1);
+  expect(view.getByRole('status', { name: '끝 시각' }).textContent).toBe('24:00');
+  fireEvent.click(midnight);
+  expect(midnight.checked).toBe(false);
+  expect(end.value).toBe('');
+  expect(end.hidden).toBe(false);
+  expect(view.getByLabelText('끝')).toBe(end);
+  fireEvent.click(midnight);
+  expect(midnight.checked).toBe(true);
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ startMin: 1380, endMin: 1440 });
+});
+
+it('선택기에서도 00:00 시작은 유지하고 잘못된 시각·빈 시각·10분 미만은 보내지 않는다 (UX-13A)', async () => {
+  const { view, sent } = setupCreateMode();
+  const start = view.getByLabelText('시작') as HTMLInputElement;
+  const end = view.getByLabelText('끝') as HTMLInputElement;
+  fireEvent.change(start, { target: { value: '25:99' } });
+  expect(start.value).toBe('');
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  expect(await view.findByText('시작과 끝 시각을 골라 주세요')).toBeTruthy();
+  expect(sent).toHaveLength(0);
+  fireEvent.change(start, { target: { value: '00:00' } });
+  fireEvent.change(end, { target: { value: '00:09' } });
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  expect(await view.findByText(/길이는 10분에서 8시간 사이/)).toBeTruthy();
+  expect(sent).toHaveLength(0);
+  fireEvent.change(end, { target: { value: '00:10' } });
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ startMin: 0, endMin: 10 });
+});
+
+it('시간 선택기에서 10:07 같은 비정각 분을 선택해도 정수 분으로 보낸다 (UX-13A)', async () => {
+  const { view, sent } = setupCreateMode();
+  const start = view.getByLabelText('시작') as HTMLInputElement;
+  const end = view.getByLabelText('끝') as HTMLInputElement;
+  fireEvent.change(start, { target: { value: '10:07' } });
+  fireEvent.change(end, { target: { value: '10:17' } });
+  expect(start.validity.stepMismatch).toBe(false);
+  expect(end.validity.stepMismatch).toBe(false);
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ startMin: 607, endMin: 617 });
+});
+
+it('새 일정도 온라인으로 바꾸면 강의실을 비우고 선택을 막는다 — 대면으로 돌아가면 다시 명시적으로 고른다', async () => {
+  const { view, sent, room } = setupCreateMode();
+  expect(room.value).toBe('1');
+  fireEvent.click(view.getByRole('button', { name: '대면' }));
+  expect(room.value).toBe('');
+  expect(room.disabled).toBe(true);
+  fireEvent.click(view.getByRole('button', { name: '줌' }));
+  expect(room.value).toBe('');
+  expect(room.disabled).toBe(false);
+  fireEvent.change(room, { target: { value: '1' } });
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ mode: 'offline', roomId: 1 });
+});
+
+it('온라인 생성 payload는 오래된 강의실 폼 값이 남아도 null로 보낸다', async () => {
+  const { view, sent, room } = setupCreateMode();
+  fireEvent.click(view.getByRole('button', { name: '대면' }));
+  // UI 비활성화와 별도로 저장 경계도 지킨다 — 폼에 남은 이전 값을 모사하는 단위 회귀다.
+  fireEvent.change(room, { target: { value: '1' } });
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ mode: 'online', roomId: null });
+});
+
+/* ── 개인표에서 연 새 일정 (원문 §10·§11 본문 「일정 추가 시 학생/강사가 자동으로 채워집니다」) ── */
+
+it('초안에 학생·강사가 들어 있으면 그대로 골라진 채 열리고 만들기 계약에 실린다 (§10·§11)', async () => {
+  const sent: Array<{ method?: string; url?: string; data?: unknown }> = [];
+  api.defaults.adapter = (async (config: { url?: string; method?: string; data?: string }) => {
+    sent.push({ method: config.method, url: config.url, data: config.data ? JSON.parse(config.data) : undefined });
+    return { config, status: 201, statusText: 'Created', headers: {}, data: { effScope: 'this', log: [], projected: 1, serIds: [9], unavailable: [] } };
+  }) as never;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor draft={{ date: '2026-09-28', startMin: 570, endMin: 660, roomId: null, studentIds: [1], teacherId: 7 }}
+        meta={meta} onClose={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  expect((view.getByLabelText('강사') as HTMLSelectElement).value).toBe('7');
+  expect(view.getByText(/수강 학생 · 1명/)).toBeTruthy();
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent.some((r) => r.method === 'post')).toBe(true));
+  expect(sent.find((r) => r.method === 'post')!.data).toMatchObject({ teacherId: 7, studentIds: [1], fromDate: '2026-09-28' });
+});
+
+it('매일 반복은 종료일을, 격주는 고른 요일과 /2 간격을 생성 계약에 싣는다', async () => {
+  const sent: Array<Record<string, unknown>> = [];
+  api.defaults.adapter = (async (config: { data?: string }) => {
+    sent.push(config.data ? JSON.parse(config.data) : {});
+    return { config, status: 201, statusText: 'Created', headers: {}, data: { effScope: 'this', log: [], projected: 1, serIds: [9], unavailable: [] } };
+  }) as never;
+  const renderEditor = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    clients.push(qc);
+    return render(
+      <QueryClientProvider client={qc}>
+        <SessionEditor draft={{ date: '2026-09-28', startMin: 570, endMin: 660, roomId: 1 }} meta={meta} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+  };
+
+  const daily = renderEditor();
+  fireEvent.click(daily.getByRole('button', { name: '매일' }));
+  fireEvent.change(daily.getByLabelText('반복 종료일'), { target: { value: '2026-10-31' } });
+  fireEvent.click(daily.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ fromDate: '2026-09-28', toDate: '2026-10-31', rrule: 'DAILY' });
+  daily.unmount();
+
+  const biweekly = renderEditor();
+  fireEvent.click(biweekly.getByRole('button', { name: '격주' }));
+  fireEvent.click(biweekly.getByRole('button', { name: '월' }));
+  fireEvent.click(biweekly.getByRole('button', { name: '수' }));
+  fireEvent.click(biweekly.getByRole('button', { name: '만들기' }));
+  await waitFor(() => expect(sent).toHaveLength(2));
+  expect(sent[1]).toMatchObject({ fromDate: '2026-09-28', toDate: null, rrule: 'WEEKLY:MO,WE/2' });
+});
+
+it('매주·격주는 요일 없이 보내지 않고 반복 종료일이 시작일보다 앞서도 보내지 않는다', async () => {
+  const sent: unknown[] = [];
+  api.defaults.adapter = (async (config: { data?: string }) => {
+    sent.push(config.data);
+    return { config, status: 201, statusText: 'Created', headers: {}, data: {} };
+  }) as never;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor draft={{ date: '2026-09-28', startMin: 570, endMin: 660, roomId: 1 }} meta={meta} onClose={vi.fn()} />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(view.getByRole('button', { name: '매주' }));
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  expect(await view.findByText('매주·격주 일정은 요일을 하나 이상 골라 주세요')).toBeTruthy();
+  expect(sent).toHaveLength(0);
+
+  fireEvent.click(view.getByRole('button', { name: '매일' }));
+  const toDate = view.getByLabelText('반복 종료일') as HTMLInputElement;
+  fireEvent.change(toDate, { target: { value: '2026-09-27' } });
+  fireEvent.click(view.getByRole('button', { name: '만들기' }));
+  expect(toDate.validity.rangeUnderflow).toBe(true);
+  expect(sent).toHaveLength(0);
+});
+
+/* ── 일정 수정 — 수업 상세의 「일정 수정」 (원문 §12 · OccurrencePatchDto) ── */
+
+const lesson: Occurrence = {
+  serId: 3, date: '2026-09-28', onDate: '2026-09-28', startMin: 600, endMin: 660,
+  kindKey: 'class', extra: false, subKey: 'vocab', title: null,
+  teacherId: 7, teacherName: '체험인물11', roomId: 1, roomName: '1호', zaccId: null, mode: 'offline',
+  canceled: false, hasException: false, recurring: false, repState: 'plan', ended: false, written: false,
+  attendanceMode: 'manage', attendance: null, students: [],
+};
+const editMeta = {
+  ...meta,
+  kinds: [...meta.kinds, { key: 'meeting', name: '회의', cap: 10, rep: false, grp: 'meeting', grpLabel: '회의', color: '#333', extra: false }],
+  subs: [...meta.subs, { key: 'writing', name: 'Writing', color: '#444' }],
+  staff: [...meta.staff, { id: 8, name: '이다현', role: 'teacher', canAdminPage: false, canGpaPack: false, title: null }],
+  rooms: [...meta.rooms, { id: 2, name: '2호' }],
+  zaccs: [{ id: 5, label: 'TN Zoom 1' }],
+} as unknown as Meta;
+
+function setupEdit(occ: Occurrence, reply: 'ok' | 'conflict' = 'ok', freeLine: string | null = null) {
+  const sent: Array<{ method?: string; url?: string; data?: Record<string, unknown>; params?: Record<string, unknown> }> = [];
+  api.defaults.adapter = (async (config: { url?: string; method?: string; data?: string; params?: Record<string, unknown> }) => {
+    sent.push({ method: config.method, url: config.url, data: config.data ? JSON.parse(config.data) : undefined, params: config.params });
+    if (config.method === 'patch') {
+      if (reply === 'conflict') {
+        return Promise.reject(Object.assign(new Error('conflict'), {
+          response: { status: 409, data: { code: 'RESOURCE_CONFLICT', message: '같은 시간에 강사·강의실·줌이 이미 잡혀 있습니다' } },
+        }));
+      }
+      return { config, status: 200, statusText: 'OK', headers: {}, data: { effScope: 'this', log: [], projected: 1, serIds: [3], unavailable: [], undoToken: 'u1' } };
+    }
+    return { config, status: 200, statusText: 'OK', headers: {}, data: { conflicts: [
+      { serId: 9, onDate: '2026-09-28', startMin: 630, endMin: 690, title: 'MAP Reading', with: 'teacher', whoName: '체험인물11' },
+    ], freeLine } };
+  }) as never;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const onSaved = vi.fn();
+  const onClose = vi.fn();
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor edit={{ occ, name: 'Vocabulary' }} meta={editMeta} onClose={onClose} onSaved={onSaved} />
+    </QueryClientProvider>,
+  );
+  return { view, sent, onSaved, onClose, patches: () => sent.filter((r) => r.method === 'patch') };
+}
+
+it('기존 24:00 회차를 수정할 때 종료값을 보존하고 해제 후에는 종료 시각을 다시 고르게 한다 (UX-13A)', async () => {
+  const { view, patches } = setupEdit({ ...lesson, startMin: 1380, endMin: 1440 });
+  const start = view.getByLabelText('시작') as HTMLInputElement;
+  const end = view.container.querySelector('#se-end') as HTMLInputElement;
+  const midnight = view.getByRole('checkbox', { name: '24:00 (자정에 종료)' }) as HTMLInputElement;
+  expect(start.type).toBe('time');
+  expect(end.type).toBe('time');
+  expect(midnight.checked).toBe(true);
+  expect(end.hidden).toBe(true);
+  fireEvent.change(start, { target: { value: '22:37' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ startMin: 1357, endMin: 1440, scope: 'this', onDate: '2026-09-28' });
+
+  fireEvent.click(midnight);
+  expect(midnight.checked).toBe(false);
+  expect(end.value).toBe('');
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  expect(await view.findByText('시작과 끝 시각을 골라 주세요')).toBeTruthy();
+  expect(patches()).toHaveLength(1);
+});
+
+it('편집은 지금 값으로 채워 열리고, 바꾼 칸만 PATCH 로 보낸다 — 단발은 범위를 묻지 않는다', async () => {
+  const { view, patches, onSaved, onClose } = setupEdit(lesson);
+  expect(view.getByRole('dialog', { name: '일정 수정 — Vocabulary · 2026-09-28' })).toBeTruthy();
+  expect((view.getByLabelText('날짜') as HTMLInputElement).value).toBe('2026-09-28');
+  expect((view.getByLabelText('시작') as HTMLInputElement).value).toBe('10:00');
+  expect((view.getByLabelText('끝') as HTMLInputElement).value).toBe('11:00');
+  expect((view.getByLabelText('강사') as HTMLSelectElement).value).toBe('7');
+  expect((view.getByLabelText('강의실') as HTMLSelectElement).value).toBe('1');
+  expect((view.getByLabelText('종류') as HTMLSelectElement).value).toBe('class');
+  expect((view.getByLabelText('과목') as HTMLSelectElement).value).toBe('vocab');
+  expect(view.getByRole('group', { name: '반복 주기' })).toBeTruthy();
+
+  fireEvent.change(view.getByLabelText('시작'), { target: { value: '10:30' } });
+  fireEvent.change(view.getByLabelText('끝'), { target: { value: '11:30' } });
+  fireEvent.change(view.getByLabelText('강사'), { target: { value: '8' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].url).toBe('/schedule/3');
+  expect(patches()[0].data).toEqual({ startMin: 630, endMin: 690, teacherId: 8, scope: 'this', onDate: '2026-09-28' });
+  expect(view.queryByRole('dialog', { name: /반복 수업입니다/ })).toBeNull();
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+  expect(onSaved.mock.calls[0][0]).toMatchObject({ undoToken: 'u1' });
+  expect(onClose).toHaveBeenCalled();
+});
+
+it('종류·과목·제목·반복 규칙은 시리즈 수정으로 보내며 반복 수업에서는 향후/모두만 고른다', async () => {
+  const recurring = {
+    ...lesson, recurring: true, rrule: 'WEEKLY:MO,WE', fromDate: '2026-09-01', toDate: '2026-10-31',
+  };
+  const { view, patches } = setupEdit(recurring);
+  fireEvent.change(view.getByLabelText('종류'), { target: { value: 'meeting' } });
+  fireEvent.change(view.getByLabelText('과목'), { target: { value: 'writing' } });
+  fireEvent.change(view.getByLabelText('제목 (선택)'), { target: { value: '격주 Writing 회의' } });
+  fireEvent.click(view.getByRole('button', { name: '격주' }));
+  fireEvent.click(view.getByRole('button', { name: '반복 월요일' }));
+  fireEvent.click(view.getByRole('button', { name: '반복 수요일' }));
+  fireEvent.click(view.getByRole('button', { name: '반복 금요일' }));
+  fireEvent.change(view.getByLabelText('반복 종료일'), { target: { value: '2026-12-31' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  expect(await view.findByText(/시리즈 값이라 이번만에는 저장할 수 없습니다/)).toBeTruthy();
+  expect(view.queryByRole('button', { name: /^이번만/ })).toBeNull();
+  fireEvent.click(view.getByRole('button', { name: /^향후/ }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({
+    kindKey: 'meeting', subKey: 'writing', title: '격주 Writing 회의',
+    rrule: 'WEEKLY:FR/2', toDate: '2026-12-31', scope: 'future', onDate: '2026-09-28',
+  });
+});
+
+it('간편 선택 밖 반복 규칙은 제목만 고칠 때 그대로 보존한다', async () => {
+  const { view, patches } = setupEdit({
+    ...lesson, recurring: true, rrule: 'DAILY/3', fromDate: '2026-09-01', toDate: null,
+  });
+  expect(view.getByText(/현재 규칙 DAILY\/3은 간편 선택 밖/)).toBeTruthy();
+  fireEvent.change(view.getByLabelText('제목 (선택)'), { target: { value: '3일마다 수업' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  fireEvent.click(await view.findByRole('button', { name: /^향후/ }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ title: '3일마다 수업', scope: 'future', onDate: '2026-09-28' });
+});
+
+it('간편 선택 밖 반복 규칙은 종료일만 고쳐도 /3 간격을 덮어쓰지 않는다', async () => {
+  const { view, patches } = setupEdit({
+    ...lesson, recurring: true, rrule: 'DAILY/3', fromDate: '2026-09-01', toDate: '2026-10-31',
+  });
+  fireEvent.change(view.getByLabelText('반복 종료일'), { target: { value: '2026-12-31' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  fireEvent.click(await view.findByRole('button', { name: /^향후/ }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ toDate: '2026-12-31', scope: 'future', onDate: '2026-09-28' });
+});
+
+it('반복 수업은 저장 직전에 범위를 한 번 묻고 고른 범위를 싣는다 — 다른 날·미정 강사도 계약 그대로', async () => {
+  const { view, patches } = setupEdit({ ...lesson, recurring: true });
+  fireEvent.change(view.getByLabelText('날짜'), { target: { value: '2026-09-30' } });
+  fireEvent.change(view.getByLabelText('강사'), { target: { value: '' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  // 고르기 전에는 아무것도 보내지 않는다
+  const future = await view.findByRole('button', { name: /향후/ });
+  expect(patches()).toHaveLength(0);
+  fireEvent.click(future);
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ date: '2026-09-30', teacherId: null, scope: 'future', onDate: '2026-09-28' });
+});
+
+it('바뀐 것이 없거나 시각이 틀리면 보내지 않는다 — 겹침이 아니면 「강행할 수 없습니다」 안내를 붙이지 않는다', async () => {
+  const { view, patches } = setupEdit(lesson);
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  expect(await view.findByText('바뀐 것이 없습니다')).toBeTruthy();
+  expect(view.queryByText(/강행할 수 없습니다/)).toBeNull();
+  fireEvent.change(view.getByLabelText('끝'), { target: { value: '10:05' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  expect(await view.findByText(/길이는 10분에서 8시간 사이/)).toBeTruthy();
+  expect(patches()).toHaveLength(0);
+});
+
+it('코드표에 없는 지금 강사·강의실도 그대로 골라진 채 열린다 — 모르는 값을 「미정」으로 바꿔 보내지 않는다', async () => {
+  // 그만둔 강사처럼 목록(meta.staff)에 없는 사람이 맡은 회차 — 목록에 없다고 빈 값이 되면 저장이 강사를 지운다
+  const { view, patches } = setupEdit({ ...lesson, teacherId: 99, teacherName: '옛 강사', roomId: 77, roomName: '옛 강의실' });
+  expect((view.getByLabelText('강사') as HTMLSelectElement).value).toBe('99');
+  expect((view.getByLabelText('강의실') as HTMLSelectElement).value).toBe('77');
+  fireEvent.change(view.getByLabelText('끝'), { target: { value: '11:30' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ startMin: 600, endMin: 690, scope: 'this', onDate: '2026-09-28' });
+});
+
+it('겹쳐서 막히면 새 일정과 같은 ConflictGuard 로 누구와를 붙인다 — 자기 회차는 겹침에서 뺀다', async () => {
+  const { view, sent, onSaved } = setupEdit(lesson, 'conflict');
+  fireEvent.change(view.getByLabelText('시작'), { target: { value: '10:30' } });
+  fireEvent.change(view.getByLabelText('끝'), { target: { value: '11:30' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  await waitFor(() => expect(view.getByText(/같은 시간에/)).toBeTruthy());
+  await waitFor(() => expect(view.getByText(/\[강사\] 체험인물11 · 2026-09-28 10:30–11:30 · MAP Reading/)).toBeTruthy());
+  expect(view.getByText(/강행할 수 없습니다/)).toBeTruthy();
+  const probe = sent.filter((r) => r.url === '/schedule/conflicts');
+  expect(probe).toHaveLength(1);
+  expect(probe[0].params).toMatchObject({ date: '2026-09-28', startMin: 630, endMin: 690, teacherId: 7, roomId: 1, exceptSerId: 3 });
+  expect(onSaved).not.toHaveBeenCalled();
+  expect(view.getByRole('dialog', { name: /^일정 수정/ })).toBeTruthy();
+});
+
+/* ── W11 — 회차 방식 전환(N-56) · 회차 메모(N-57) · 409 뒤 빈 자원 한 줄(N-70) ── */
+
+it('온라인으로 바꾸면 강의실은 보내지 않고 고른 줌 계정만 싣는다 — 부르는 쪽에 「방식을 바꿨다」를 알린다', async () => {
+  const { view, patches, onSaved } = setupEdit(lesson);
+  // 이미 온라인인 회차가 아니면 줌 칸은 온라인을 고른 뒤에만 선다
+  expect(view.queryByLabelText('줌 계정')).toBeNull();
+  fireEvent.click(view.getByRole('button', { name: '온라인' }));
+  expect((view.getByLabelText('강의실') as HTMLSelectElement).disabled).toBe(true);
+  expect(view.getByRole('status').textContent).toContain('강의실을 비웁니다');
+  fireEvent.change(view.getByLabelText('줌 계정'), { target: { value: '5' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ mode: 'online', zaccId: 5, scope: 'this', onDate: '2026-09-28' });
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+  expect(onSaved.mock.calls[0][1]).toEqual({ modeChanged: true, memoOnly: false });
+});
+
+it('줌 계정을 고르지 않고 온라인으로 바꾸면 방식만 보낸다 — 계정을 지어내 붙이지 않는다', async () => {
+  const { view, patches } = setupEdit(lesson);
+  fireEvent.click(view.getByRole('button', { name: '온라인' }));
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ mode: 'online', scope: 'this', onDate: '2026-09-28' });
+});
+
+it('현장으로 바꾸면 강의실을 고를 수 있고 그 강의실만 싣는다 — 줌 칸은 서지 않는다', async () => {
+  const { view, patches } = setupEdit({ ...lesson, mode: 'online', roomId: null, roomName: null, zaccId: 5 });
+  expect((view.getByLabelText('강의실') as HTMLSelectElement).disabled).toBe(true);
+  fireEvent.click(view.getByRole('button', { name: '현장' }));
+  expect(view.queryByLabelText('줌 계정')).toBeNull();
+  const room = view.getByLabelText('강의실') as HTMLSelectElement;
+  expect(room.disabled).toBe(false);
+  fireEvent.change(room, { target: { value: '2' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0].data).toEqual({ mode: 'offline', roomId: 2, scope: 'this', onDate: '2026-09-28' });
+});
+
+it('온라인 전환이 막히면 줌 계정 자리를 다시 묻고, 서버의 빈 자원 한 줄을 붙인다 (N-70)', async () => {
+  const { view, sent } = setupEdit(lesson, 'conflict', '그 시각 비어 있는 줌 계정 — TN Zoom 2');
+  fireEvent.click(view.getByRole('button', { name: '온라인' }));
+  fireEvent.change(view.getByLabelText('줌 계정'), { target: { value: '5' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+
+  await waitFor(() => expect(view.getByText(/그 시각 비어 있는 줌 계정 — TN Zoom 2/)).toBeTruthy());
+  const probe = sent.filter((r) => r.url === '/schedule/conflicts');
+  expect(probe).toHaveLength(1);
+  // 온라인이면 강의실이 아니라 줌 계정을 묻는다 — 비운 강의실(null)은 싣지 않는다
+  expect(probe[0].params).toMatchObject({ zaccId: 5, teacherId: 7, exceptSerId: 3 });
+  expect(probe[0].params).not.toHaveProperty('roomId');
+});
+
+it('메모만 고치면 반복이어도 범위를 묻지 않는다 — 부르는 쪽에 「메모만」을 알린다 (N-57)', async () => {
+  const { view, patches, onSaved } = setupEdit({ ...lesson, recurring: true, memo: null });
+  fireEvent.change(view.getByLabelText('회차 메모 (이번 회차만)'), { target: { value: '오답 리뷰' } });
+  fireEvent.click(view.getByRole('button', { name: '저장' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(view.queryByRole('button', { name: /향후/ })).toBeNull();
+  expect(patches()[0].data).toEqual({ memo: '오답 리뷰', scope: 'this', onDate: '2026-09-28' });
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+  expect(onSaved.mock.calls[0][1]).toEqual({ modeChanged: false, memoOnly: true });
+});
+
+it('프로그램별 과목 계약이 있으면 종류 변경 시 맞지 않는 과목을 비우고 해당 프로그램 과목만 보인다', () => {
+  const linked = {
+    ...meta,
+    kinds: [
+      ...meta.kinds,
+      { key: 'diag', name: '진단', cap: 4, rep: true, grp: 'intake', grpLabel: '상담', color: '#333', extra: false },
+    ],
+    subs: [
+      { key: 'vocab', name: 'Vocabulary', color: '#222', kindKey: 'class' },
+      { key: 'diagnostic', name: 'Diagnostic', color: '#444', kindKey: 'diag' },
+    ],
+  } as unknown as Meta;
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(qc);
+  const view = render(
+    <QueryClientProvider client={qc}>
+      <SessionEditor edit={{ occ: lesson, name: 'Vocabulary' }} meta={linked} onClose={vi.fn()} />
+    </QueryClientProvider>,
+  );
+
+  expect((view.getByLabelText('과목') as HTMLSelectElement).value).toBe('vocab');
+  fireEvent.change(view.getByLabelText('종류'), { target: { value: 'diag' } });
+  const subject = view.getByLabelText('과목') as HTMLSelectElement;
+  expect(subject.value).toBe('');
+  expect(within(subject).getAllByRole('option').map((option) => option.textContent)).toEqual(['—', 'Diagnostic']);
+});

@@ -1,0 +1,116 @@
+/** @file-guide
+ * 목적: §21 줌 계정 서랍 — 원문의 격자 한 판과 숫자 둘이 화면에 있는가 (C72).
+ * 책임/재사용: 실제 ZoomPane/ZoomGrid 를 그대로 그린다. 낱말과 셈을 테스트에 다시 적지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import type { AnchorHTMLAttributes, ReactNode } from 'react';
+import { cleanup, render } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { ZoomAccount, ZoomBoard } from '@/api/types';
+import { ZoomPane } from './panes';
+
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode } & AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
+}));
+
+afterEach(cleanup);
+
+const LABELS = ['Boarding', 'Consulting', 'TN', 'Study', 'Jkim'];
+
+const rows: ZoomAccount[] = LABELS.map((label, i) => ({
+  id: i + 1, label, joinUrl: `https://zoom.us/j/${i + 1}`, active: true, assigned: 3, overlaps: 0,
+}));
+
+/** 원문 §21 의 배치 — 다섯 계정 모두 낮에 붉은 칸이 있는데도 「지금 가능」은 5 다 */
+const board: ZoomBoard = {
+  onDate: '2026-08-21', fromHour: 8, toHour: 21,
+  accounts: [],
+  rows: LABELS.map((label, i) => ({
+    zaccId: i + 1, label,
+    slots: Array.from({ length: 14 }, (_, h) => ({ hour: 8 + h, busy: 8 + h === 20 ? 1 : 0 })),
+  })),
+  nowHour: 12, freeNow: 5, freeLabels: LABELS, fullHours: 1,
+};
+
+it('격자는 서버가 준 시간 범위를 그대로 그린다 — 계정 × 08~21', () => {
+  const view = render(<ZoomPane rows={rows} board={board} />);
+  const heads = [...view.container.querySelectorAll('th')].map((h) => h.textContent);
+  expect(heads).toEqual(['계정', ...Array.from({ length: 14 }, (_, i) => String(8 + i).padStart(2, '0'))]);
+  LABELS.forEach((l) => expect(view.getAllByText(l).length).toBeGreaterThan(0));
+});
+
+it('「지금 가능」과 「만석 시간대」는 서버가 센 값이다 — 큰 숫자 위 · 라벨 아래 · 보조 문구 없음 (g2 21-2)', () => {
+  const view = render(<ZoomPane rows={rows} board={board} />);
+  const text = view.container.textContent ?? '';
+  expect(text).toContain('지금 가능');
+  expect(text).toContain('만석 시간대');
+  const box = view.getByText('지금 가능').parentElement!;
+  expect(box.className).toContain('text-center');
+  expect(box.firstElementChild?.textContent).toBe('5');
+  // 오늘이면 보조 문구가 없다 — 원문 상자는 숫자와 라벨 둘뿐이다
+  expect(text).not.toContain('12시 기준');
+  expect(text).not.toContain('한 계정도 안 남은 시간');
+});
+
+/* g2 대조 21-3 — 원문 §21 칸에는 경고 상자가 없다. 로그인 정보를 안 내리는 규칙은 서버가 지킨다 */
+it('로그인 정보 경고 상자를 서랍에 달지 않는다', () => {
+  const view = render(<ZoomPane rows={rows} board={board} />);
+  expect(view.container.textContent).not.toContain('로그인 정보');
+});
+
+it('지금 쓸 수 있는 계정은 서버가 준 **이름 그대로**다 — 화면이 고르지 않는다', () => {
+  const view = render(<ZoomPane rows={rows} board={{ ...board, freeNow: 2, freeLabels: ['TN', 'Jkim'] }} />);
+  const text = (view.container.textContent ?? '').replace(/\s+/g, ' ');
+  expect(text).toContain('지금 쓸 수 있는 계정 — TN · Jkim');
+});
+
+it('오늘이 아니면 「지금」 칸을 비운다 — 없는 셈을 지어내지 않는다', () => {
+  const view = render(
+    <ZoomPane rows={rows} board={{ ...board, nowHour: null, freeNow: 0, freeLabels: [] }} />,
+  );
+  const text = (view.container.textContent ?? '').replace(/\s+/g, ' ');
+  expect(text).toContain('오늘만 셉니다');
+  expect(text).not.toContain('지금 쓸 수 있는 계정');
+});
+
+it('머리줄은 켜진 계정 수를 한도로 말한다 — 꺼진 계정은 한도에 들지 않는다', () => {
+  const off = [...rows.slice(0, 4), { ...rows[4], active: false }];
+  const view = render(<ZoomPane rows={off} board={board} />);
+  const text = (view.container.textContent ?? '').replace(/\s+/g, ' ');
+  // 달력과 같은 날짜 낱말이다 — 이 칸만 ISO 를 쓰지 않는다
+  expect(text).toContain('8/21 (금) 기준 · 동시 4개가 한도입니다');
+});
+
+it('겹침은 이름만 말한다 — 건수를 두 곳에서 적지 않는다 (D-R22)', () => {
+  const bad = [...rows.slice(0, 4), { ...rows[4], overlaps: 2 }];
+  const view = render(<ZoomPane rows={bad} board={board} />);
+  const text = (view.container.textContent ?? '').replace(/\s+/g, ' ');
+  expect(text).toContain('1개 계정이 같은 시간에 두 수업을 잡고 있습니다');
+  expect(text).not.toContain('Jkim · 2건');
+});
+
+it('점유를 아직 못 받았으면 격자 자리를 비워 둔다 — 빈 격자를 그리지 않는다', () => {
+  const view = render(<ZoomPane rows={rows} loading />);
+  expect(view.container.querySelector('table')).toBeNull();
+  expect((view.container.textContent ?? '')).toContain('점유를 세는 중입니다');
+});
+
+/* g2 대조 21-1 — 원문 §21 격자: 빈 칸은 연초록 바탕 + 초록 테두리 · 찬 칸은 짙은 붉은 칸 · 지금 시각 머리는 빨강 ·
+   왼쪽 위 머리 글자는 보이지 않는다(보조기기에는 「계정」 열 이름이 남는다) */
+it('격자 칸과 머리는 원문 색이다 — 지금 시각만 붉고, 왼쪽 위 머리는 화면에서 숨는다 (21-1)', () => {
+  const view = render(<ZoomPane rows={rows} board={board} />);
+  const heads = [...view.container.querySelectorAll('th')];
+  expect(heads[0].textContent).toBe('계정');
+  expect(heads[0].querySelector('.sr-only')?.textContent).toBe('계정');
+  const now = heads.find((h) => h.textContent === '12')!;
+  expect(now.className).toContain('text-red');
+  expect(heads.find((h) => h.textContent === '13')!.className).not.toContain('text-red');
+  const cells = [...view.container.querySelectorAll('td div[title]')];
+  const busy = cells.find((c) => c.getAttribute('title') === '20시 · 1건')!;
+  expect(busy.className.split(/\s+/)).toContain('bg-red');
+  const free = cells.find((c) => c.getAttribute('title') === '08시 · 0건')!;
+  expect(free.className).toContain('bg-green/5');
+  expect(free.className).toContain('border-green/30');
+});

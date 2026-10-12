@@ -1,0 +1,108 @@
+/** @file-guide
+ * 목적: page.tsx — 개발명세서 v2 §43~§45 수업 안내 라우트의 탭과 공용 작업 버튼을 조립한다.
+ * 책임/재사용: 화면 선택만 소유하고 데이터·업무 판정·세부 상호작용은 GuidesTodo/GuideHistory/GuideStudents에 위임한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useGuides } from '@/api/queries';
+import { GuideHistory } from '@/components/guides/GuideHistory';
+import { GuideStudents } from '@/components/guides/GuideStudents';
+import { GuidesTodo } from '@/components/guides/GuidesTodo';
+import { AppShell } from '@/components/shell/AppShell';
+import { RequireAuth } from '@/components/shell/RequireAuth';
+import { Button, LinkButton } from '@/components/ui/Button';
+import { QueryState } from '@/components/ui/QueryState';
+import { TabCards } from '@/components/ui/TabCards';
+import { positiveQueryId, queryEnum } from '@/lib/url-state';
+
+type GuidePageTab = 'todo' | 'history' | 'students';
+const GUIDE_TABS = ['todo', 'history', 'students'] as const;
+
+export default function GuidesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryTab = queryEnum(searchParams.get('tab'), GUIDE_TABS) ?? 'todo';
+  const rawStudentId = searchParams.get('studentId');
+  const requestedStudentId = positiveQueryId(rawStudentId);
+  const targetRequested = queryTab === 'students' && rawStudentId !== null;
+  const [tab, setTab] = useState<GuidePageTab>(queryTab);
+  useEffect(() => setTab(queryTab), [queryTab]);
+  const guides = useGuides();
+  const selectTab = (next: GuidePageTab) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 'todo') params.delete('tab');
+    else params.set('tab', next);
+    if (next !== 'students') params.delete('studentId');
+    const query = params.toString();
+    router.replace(query ? `/guides?${query}` : '/guides', { scroll: false });
+  };
+
+  return (
+    <RequireAuth>
+      <AppShell>
+        {/* 원문 §43 머리 — 제목 · 탭 카드 · 단추가 한 줄 (교재 화면과 같은 배치 · g4 §43-8) */}
+        <div className="mb-4 flex flex-wrap items-start gap-4">
+          <div className="min-w-[220px]">
+            <h1 className="text-[20px] font-bold text-fg">수업 안내</h1>
+            <p className="mt-1 text-[12px] text-fg-subtle">한 번 신규·강사 교체 · 매번 온라인 줌 계정</p>
+          </div>
+          <TabCards<GuidePageTab>
+            label="수업 안내 화면"
+            value={tab}
+            onChange={selectTab}
+            options={[
+              { value: 'todo', label: '할 일', sub: '한 번 + 매번', badge: guides.data?.todoCount },
+              { value: 'history', label: '이력', sub: '기간별 기록' },
+              { value: 'students', label: '학생별', sub: '최신 안내' },
+            ]}
+          />
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <LinkButton href="/zoom" size="sm">
+                줌 계정 관리
+              </LinkButton>
+              <LinkButton href="/phrases" size="sm">
+                문구 관리
+              </LinkButton>
+              <LinkButton href="/schedule" size="sm">
+                + 수업 추가
+              </LinkButton>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  selectTab('todo');
+                  requestAnimationFrame(() => document.getElementById('guide-once')?.scrollIntoView({ behavior: 'smooth' }));
+                }}
+              >
+                + 안내 작성
+              </Button>
+          </div>
+        </div>
+
+        {tab === 'todo' ? (
+          <QueryState query={guides} isEmpty={() => false}>
+            {(data) => <GuidesTodo data={data} />}
+          </QueryState>
+        ) : tab === 'history' ? (
+          <GuideHistory />
+        ) : (
+          <GuideStudents
+            requestedStudentId={requestedStudentId}
+            targetRequested={targetRequested}
+            onStudentChange={(studentId) => {
+              const params = new URLSearchParams(searchParams.toString());
+              params.set('tab', 'students');
+              params.set('studentId', String(studentId));
+              router.replace(`/guides?${params.toString()}`, { scroll: false });
+            }}
+          />
+        )}
+      </AppShell>
+    </RequireAuth>
+  );
+}

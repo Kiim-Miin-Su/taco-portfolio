@@ -1,0 +1,310 @@
+/** @file-guide
+ * 목적: ApprovalsPane.test.tsx (test)
+ * 책임/재사용: 기존 대상 함수를 import하여 정상/거절/경계 회귀를 검증한다. 테스트 안에 제품 규칙을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * §14 승인 대기함 — **줄마다 반려·승인** (C41).
+ *
+ * 원문 §14 는 줄마다 두 단추를 갖고 D-R13 의 절 칸에도 14 가 들어 있다. 다만
+ * **적용 경로가 있는 갈래만** 여기서 처리한다 — 그 판정은 서버의 `canAct` 다.
+ * 화면이 종류를 보고 스스로 정하면, 적용 경로가 없는 갈래에 눌러도 아무 일이 없는
+ * 단추가 생긴다.
+ */
+import { cleanup, fireEvent, render, within } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { ApFlow, ApRow, DrawerTodo } from '@/api/types';
+import { ApprovalsPane } from './panes';
+
+vi.mock('next/link', () => ({
+  default: ({ children, ...rest }: { children: React.ReactNode }) => <a {...rest}>{children}</a>,
+}));
+
+afterEach(cleanup);
+
+const row = (over: Partial<ApRow> = {}): ApRow => ({
+  kind: 'req', id: 1, title: '시급 변경 요청', sub: '42,000원/시간 → 45,000원/시간',
+  byId: 6, byName: '이다현', at: '2026-09-12 10:00', state: 'waiting', why: null, go: '/ops',
+  reqType: 'wage_change', asked: '42,000원/시간 → 45,000원/시간', canAct: true,
+  category: 'wage_change', categoryLabel: '시급 변경', ...over,
+});
+const flow = (waiting: ApRow[]): ApFlow => ({
+  back: [], waiting, mine: [], inbox: waiting, count: waiting.length, inboxCount: waiting.length,
+  categories: [
+    { key: 'schedule_change', label: '스케줄 변경', count: waiting.filter((r) => r.category === 'schedule_change').length },
+    { key: 'book_change', label: '교재 변경', count: 0 },
+    { key: 'tz_change', label: '시간대 변경', count: waiting.filter((r) => r.category === 'tz_change').length },
+    { key: 'wage_change', label: '시급 변경', count: waiting.filter((r) => r.category === 'wage_change').length },
+    { key: 'suggestion', label: '건의 사항', count: 0 },
+    { key: 'gpa_request', label: 'GPA 요청', count: 0 },
+    { key: 'missing', label: '빠진 것', count: waiting.filter((r) => r.category === 'missing').length },
+    { key: 'other', label: '기타', count: 0 },
+  ],
+  missingKinds: [],
+});
+
+function panel(waiting: ApRow[], onReview = vi.fn()) {
+  const view = render(<ApprovalsPane flow={flow(waiting)} onGo={vi.fn()} onReview={onReview} />);
+  return { view, onReview };
+}
+
+it('처리할 수 있는 줄에만 단추가 붙는다 — 나머지는 그 화면으로 보내는 링크 그대로다', () => {
+  const { view } = panel([row(), row({ kind: 'missing', id: 2, title: '줌 계정 미배정', canAct: false, reqType: null, category: 'missing', categoryLabel: '빠진 것' })]);
+  const cards = view.getAllByRole('listitem');
+  expect(within(cards[0]).getByRole('button', { name: '승인' })).toBeTruthy();
+  expect(within(cards[1]).queryByRole('button', { name: '승인' })).toBeNull();
+  expect(within(cards[1]).getByRole('link')).toBeTruthy();
+  // 무엇을 바라는지 줄에 적혀 있다 — 근거를 안 보고 누르는 승인이 되지 않게
+  expect(cards[0].textContent).toContain('42,000원/시간 → 45,000원/시간');
+});
+
+it('승인은 두 번 눌러야 나간다', () => {
+  const { view, onReview } = panel([row()]);
+  const approve = view.getByRole('button', { name: '승인' });
+  fireEvent.click(approve);
+  expect(onReview).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole('button', { name: '한 번 더 누르면 승인' }));
+  expect(onReview).toHaveBeenCalledWith({ id: 1, kind: 'req', decision: 'approve', reason: undefined });
+});
+
+/* g2 대조 14-5 — 원문 처리 줄에는 「반려」·「승인」 두 단추만 있다. 사유 칸은 「반려」를 누른 뒤에만 펼쳐진다 */
+it('처음에는 두 단추만 있고 사유 칸이 없다 — 「반려」를 눌러야 펼쳐진다', () => {
+  const { view } = panel([row()]);
+  expect(view.queryByLabelText('사유')).toBeNull();
+  expect(view.queryByRole('textbox')).toBeNull();
+  expect(view.getByRole('button', { name: '반려' }).hasAttribute('disabled')).toBe(false);
+  fireEvent.click(view.getByRole('button', { name: '반려' }));
+  expect(view.getByLabelText('사유')).toBeTruthy();
+});
+
+it('반려는 사유를 적어야 확정이 열린다 (D-R13) — 그리고 적은 사유가 그대로 간다', () => {
+  const { view, onReview } = panel([row()]);
+  fireEvent.click(view.getByRole('button', { name: '반려' }));
+  const confirm = view.getByRole('button', { name: '한 번 더 누르면 반려' });
+  expect(confirm.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(confirm);
+  expect(onReview).not.toHaveBeenCalled();
+  fireEvent.change(view.getByLabelText('사유'), { target: { value: '3개월 뒤 재검토' } });
+  fireEvent.click(view.getByRole('button', { name: '한 번 더 누르면 반려' }));
+  expect(onReview).toHaveBeenCalledWith({ id: 1, kind: 'req', decision: 'reject', reason: '3개월 뒤 재검토' });
+});
+
+it('펼친 사유 칸은 「취소」로 접고, 접힌 글자는 승인에 실리지 않는다', () => {
+  const { view, onReview } = panel([row()]);
+  fireEvent.click(view.getByRole('button', { name: '반려' }));
+  fireEvent.change(view.getByLabelText('사유'), { target: { value: '재검토' } });
+  fireEvent.click(view.getByRole('button', { name: '취소' }));
+  expect(view.queryByLabelText('사유')).toBeNull();
+  fireEvent.click(view.getByRole('button', { name: '승인' }));
+  fireEvent.click(view.getByRole('button', { name: '한 번 더 누르면 승인' }));
+  expect(onReview).toHaveBeenCalledWith({ id: 1, kind: 'req', decision: 'approve', reason: undefined });
+});
+
+/* g2 대조 14-3 — 원문 카드: 색 채운 분류 배지 + 요청자 이름(굵게) · 오른쪽 YYYY-MM-DD HH:MM / 회색 상자 「지금 → 바라는 것」 */
+it('§14 카드는 요청자 이름을 먼저, 날짜는 연도까지, 바라는 것은 따로 상자에 적는다', () => {
+  const { view } = panel([row()]);
+  const card = view.getAllByRole('listitem')[0]!;
+  const who = within(card).getByText('이다현');
+  expect(who.className).toContain('font-bold');
+  expect(within(card).getByText('2026-09-12 10:00')).toBeTruthy();
+  const box = within(card).getByText('42,000원/시간 → 45,000원/시간');
+  expect(box.tagName).toBe('P');
+  // 이름과 바라는 것이 한 줄로 이어 붙지 않는다(옛 「이다현 · 42,000원…」 한 줄)
+  expect(within(card).queryByText(/이다현 · 42,000/)).toBeNull();
+  // 배지는 분류의 색이다 — 시급 변경은 원문 분홍(#DB2777 → 토큰 pink) (g2 14-8 · 분류 → 결 대응은 ApprovalRowContent 한 곳)
+  expect(within(card).getByText('시급 변경').className).toContain('bg-pink');
+});
+
+it('서버가 거절하면 그 말을 그대로 띄운다', () => {
+  const view = render(
+    <ApprovalsPane flow={flow([row()])} onGo={vi.fn()} onReview={vi.fn()} error="이미 승인된 요청입니다" />,
+  );
+  expect(view.container.textContent).toContain('이미 승인된 요청입니다');
+});
+
+it('처리할 줄이 하나도 없으면 안내는 예전대로 「그 화면에서」만 말한다', () => {
+  const view = render(
+    <ApprovalsPane flow={flow([row({ canAct: false })])} onGo={vi.fn()} onReview={vi.fn()} />,
+  );
+  expect(view.container.textContent).toContain('줄을 눌러 그 화면에서');
+  expect(view.container.textContent).not.toContain('반려에도 사유가 남');
+  // 처리할 줄이 없으면 되돌릴 처리도 없다 — 되돌리기 절도 적지 않는다
+  expect(view.container.textContent).not.toContain('되돌리기');
+});
+
+it('변경 요청 줄도 같은 자리에서 처리한다 — 갈래는 서버가 준 kind 그대로 넘어간다 (C42)', () => {
+  const onReview = vi.fn();
+  const view = render(
+    <ApprovalsPane
+      flow={flow([row({
+        kind: 'chreq', id: 7, title: '강사 변경 요청',
+        sub: 'MAP Reading · 2026-08-28 · 강사 → KJ · (이 회차만)',
+        asked: '강사 → KJ', reqType: 'teacher', category: 'schedule_change', categoryLabel: '스케줄 변경',
+      })])}
+      onGo={vi.fn()} onReview={onReview}
+    />,
+  );
+  expect(view.container.textContent).toContain('강사 → KJ');
+  fireEvent.click(view.getByRole('button', { name: '승인' }));
+  fireEvent.click(view.getByRole('button', { name: '한 번 더 누르면 승인' }));
+  expect(onReview).toHaveBeenCalledWith({ id: 7, kind: 'chreq', decision: 'approve', reason: undefined });
+});
+
+it('반영 경로가 없는 줄은 단추를 그리지 않는다 — 줌 계정 변경 (C42 경계)', () => {
+  const view = render(
+    <ApprovalsPane
+      flow={flow([row({ kind: 'chreq', id: 8, title: '강의실 변경 요청', canAct: false, category: 'schedule_change', categoryLabel: '스케줄 변경' })])}
+      onGo={vi.fn()} onReview={vi.fn()}
+    />,
+  );
+  expect(view.queryByRole('button', { name: '승인' })).toBeNull();
+  expect(view.getByRole('link')).toBeTruthy();
+});
+
+/**
+ * **시급 요청의 단추는 시급 권한까지 본다** (S5 · D-R39).
+ *
+ * 쓰기는 `WAGE_REVIEW_FORBIDDEN` 으로 막는데 줄은 「결재할 수 있는 사람인가」만 보고 단추를
+ * 세워, 시급 예외가 걸린 매니저에게 **눌러야만 403** 인 승인 단추가 있었다. 판정은 서버의
+ * `canAct` 하나이고, 못 하는 이유도 서버 문장 그대로 줄에 적는다.
+ */
+it('시급 권한이 없으면 승인 단추 대신 이유가 줄에 적힌다 (S5)', () => {
+  const { view } = panel([row({ canAct: false, actBlockedReason: '시급을 다룰 권한이 필요합니다' })]);
+  const card = view.getAllByRole('listitem')[0]!;
+  expect(within(card).queryByRole('button', { name: '승인' })).toBeNull();
+  expect(card.textContent).toContain('시급을 다룰 권한이 필요합니다');
+  expect(within(card).getByRole('link').getAttribute('title')).toBe('시급을 다룰 권한이 필요합니다');
+});
+
+const todo = (over: Partial<DrawerTodo> = {}): DrawerTodo => ({
+  id: 21, title: '교재 두 권 확인', fromId: 8, fromName: '체험인물08', toId: 7, toName: '체험인물10',
+  dueOn: '2026-10-06', done: false, src: 'lesson', srcLabel: '수업', overdueDays: 0,
+  go: '/schedule?serId=31&onDate=2026-10-06', clearable: true, clearBlockedReason: null,
+  ...over,
+});
+
+it('받은 미완료 할 일만 승인 대기함에 보이고 완료와 원 업무 열기를 기존 값으로 위임한다 (A07)', () => {
+  const onTodoToggle = vi.fn();
+  const view = render(
+    <ApprovalsPane
+      flow={flow([])} onGo={vi.fn()}
+      todos={[
+        todo(),
+        todo({ id: 22, title: '남에게 간 할 일', toId: 9, toName: '다른 사람' }),
+        todo({ id: 23, title: '이미 끝난 할 일', done: true }),
+      ]}
+      meId={7} members={[]} onTodoToggle={onTodoToggle} onTodoCreate={vi.fn()}
+    />,
+  );
+  expect(view.getByText('교재 두 권 확인')).toBeTruthy();
+  expect(view.queryByText('남에게 간 할 일')).toBeNull();
+  expect(view.queryByText('이미 끝난 할 일')).toBeNull();
+  expect(view.getByRole('link', { name: '원본' }).getAttribute('href')).toBe('/schedule?serId=31&onDate=2026-10-06');
+  fireEvent.click(view.getByLabelText('교재 두 권 확인 완료'));
+  expect(onTodoToggle).toHaveBeenCalledWith(21, true);
+});
+
+it('건의는 대기함 카드에서 15자 이상만 답변하고 짧은 입력 이유를 표시한다 (A07)', () => {
+  const onSuggestionReply = vi.fn();
+  const suggestion = row({
+    kind: 'suggestion', id: 31, title: '건의 사항', sub: '수업 자료 위치를 바꿔 주세요',
+    reqType: null, asked: null, canAct: false, category: 'suggestion', categoryLabel: '건의 사항',
+  });
+  const view = render(
+    <ApprovalsPane flow={flow([suggestion])} onGo={vi.fn()} canReplySuggestions onSuggestionReply={onSuggestionReply} />,
+  );
+  fireEvent.click(view.getByRole('button', { name: '답변하기' }));
+  const input = view.getByRole('textbox', { name: '이다현 건의 답변' });
+  fireEvent.change(input, { target: { value: '12345678901234' } });
+  expect(view.getByText('답변은 15자 이상 적어 주세요.')).toBeTruthy();
+  expect((view.getByRole('button', { name: '답변 보내기' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(input, { target: { value: '123456789012345' } });
+  fireEvent.click(view.getByRole('button', { name: '답변 보내기' }));
+  expect(onSuggestionReply).toHaveBeenCalledWith(31, '123456789012345');
+});
+
+it('건의 답변 권한이 없으면 인라인 입력을 만들지 않고 기존 원 업무 링크만 유지한다', () => {
+  const suggestion = row({
+    kind: 'suggestion', id: 31, title: '건의 사항', sub: '수업 자료 위치를 바꿔 주세요',
+    reqType: null, asked: null, canAct: false, category: 'suggestion', categoryLabel: '건의 사항',
+  });
+  const view = render(<ApprovalsPane flow={flow([suggestion])} onGo={vi.fn()} canReplySuggestions={false} />);
+  expect(view.queryByRole('button', { name: '답변하기' })).toBeNull();
+  expect(view.getByRole('link')).toBeTruthy();
+});
+
+/* g2 대조 14-4 — 원문 카드에는 올린 사람이 자기 말로 적은 **사유 인용 줄**(분류 색 세로 띠)이 있다 */
+it('§14 카드는 올린 사람의 사유를 분류 색 세로 띠로 인용한다 — 서버가 안 주면 줄이 없다', () => {
+  const { view } = panel([
+    row({ reason: '근속 2년차입니다' }),
+    row({ id: 2, kind: 'chreq', reqType: 'cancel', title: '휴강 요청', category: 'schedule_change', categoryLabel: '스케줄 변경', reason: null }),
+  ]);
+  const [first, second] = view.getAllByRole('listitem');
+  const quote = within(first!).getByText('근속 2년차입니다');
+  expect(quote.className).toContain('border-l-2');
+  // 띠는 분류의 색이다 — 시급 변경은 원문 분홍 (14-8)
+  expect(quote.className).toContain('border-l-pink');
+  expect(second!.querySelector('.border-l-2')).toBeNull();
+});
+
+/* g2 대조 14-9 — 원문 머리는 평문이고 건수를 말한다. 결정 번호를 사용자 문장에 적지 않는다(C-7) */
+it('머리는 평문으로 대기 건수를 말하고 내부 번호가 없다', () => {
+  const { view } = panel([row(), row({ id: 2 })]);
+  const text = view.container.textContent ?? '';
+  expect(text).toContain('강사·코디네이터가 올린 요청이 2건 대기 중입니다.');
+  expect(text).not.toMatch(/D-R\d|N-\d/);
+});
+
+/* 원문 §14 머리 둘째 문장 — 결재 되돌리기(N-84)가 생겨 원문 그대로 적는다. 굵은 낱말은 「되돌리기」 하나다 */
+it('머리는 원문대로 「반려에도 사유가 남고, 모든 처리는 되돌리기로 취소됩니다」를 말한다 (N-84)', () => {
+  const { view } = panel([row()]);
+  const head = view.container.querySelector('p')!;
+  expect(head.textContent).toContain('반려에도 사유가 남고, 모든 처리는 되돌리기로 취소됩니다.');
+  expect(Array.from(head.querySelectorAll('b')).map((b) => b.textContent)).toEqual(['1건', '되돌리기']);
+});
+
+/* g2 대조 14-8 — 분류 칩 앞에 카드 배지와 같은 색 점이 있고, 「전체」에는 없다 */
+it('분류 칩 앞에 같은 색 점이 서고 「전체」에는 점이 없다', () => {
+  const { view } = panel([row()]);
+  const group = view.getByRole('group', { name: '승인 요청 분류' });
+  const dot = (name: string) => within(group).getByRole('button', { name }).querySelector<HTMLElement>('[data-chip-dot]');
+  expect(dot('전체 1')).toBeNull();
+  // 원문 §14 칩 점 일곱 색(픽셀): 스케줄 #2563EB · 교재 #D97706 · 시간대 #0891B2 · 시급 #DB2777 · 건의/GPA #7C3AED · 빠진 것 #DC2626
+  expect(dot('시급 변경 1')?.style.backgroundColor).toBe('var(--pink)');
+  expect(dot('스케줄 변경 0')?.style.backgroundColor).toBe('var(--blue)');
+  expect(dot('시간대 변경 0')?.style.backgroundColor).toBe('var(--teal)');
+  expect(dot('교재 변경 0')?.style.backgroundColor).toBe('var(--amber)');
+  expect(dot('빠진 것 0')?.style.backgroundColor).toBe('var(--red)');
+});
+
+/* W11 7-3 — §14 칩은 공용 칩 줄이다: 눌린 칩은 진한 채움(ink), 누른 칩을 다시 누르면 「전체」로 돌아간다 */
+it('분류 칩은 공용 칩 줄의 진한 채움으로 눌리고 그 분류만 남긴다', () => {
+  const { view } = panel([row(), row({ id: 2, kind: 'chreq', reqType: 'cancel', title: '휴강 요청', category: 'schedule_change', categoryLabel: '스케줄 변경' })]);
+  const group = view.getByRole('group', { name: '승인 요청 분류' });
+  const all = within(group).getByRole('button', { name: '전체 2' });
+  expect(all.getAttribute('aria-pressed')).toBe('true');
+  expect(all.querySelector('[data-chip-pressed="ink"]')).toBeTruthy();
+  const wage = within(group).getByRole('button', { name: '시급 변경 1' });
+  fireEvent.click(wage);
+  expect(wage.getAttribute('aria-pressed')).toBe('true');
+  expect(view.getAllByRole('listitem')).toHaveLength(1);
+  fireEvent.click(wage);
+  expect(all.getAttribute('aria-pressed')).toBe('true');
+  expect(view.getAllByRole('listitem')).toHaveLength(2);
+});
+
+/* 시간대 변경 카드도 같은 색 — 배지(채움) · 사유 띠가 한 결이다 */
+it('시간대 변경 배지와 사유 띠는 청록이다 (14-8)', () => {
+  const { view } = panel([row({ reqType: 'tz_change', category: 'tz_change', categoryLabel: '시간대 변경', reason: '현지 학교 일정' })]);
+  const card = view.getAllByRole('listitem')[0]!;
+  expect(within(card).getByText('시간대 변경').className).toContain('bg-teal');
+  expect(within(card).getByText('현지 학교 일정').className).toContain('border-l-teal');
+});
+
+/* g2 대조 14-10 — 「반려」는 흰 바탕에 붉은 글자, 「승인」은 갈색 채움 */
+it('「반려」는 붉은 글자 테두리, 「승인」은 갈색 채움이다', () => {
+  const { view } = panel([row()]);
+  expect(view.getByRole('button', { name: '반려' }).className).toContain('!text-red');
+  expect(view.getByRole('button', { name: '승인' }).className).toContain('bg-primary');
+});

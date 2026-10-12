@@ -1,0 +1,88 @@
+/** @file-guide
+ * 목적: Table.tsx — Column, TableProps, Table (ui)
+ * 책임/재사용: props와 공용 시각 토큰으로 표현한다. 업무 권한·정산 판정, Axios 호출, 서버 캐시를 소유하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 표 — Figma 의 `Data/List Row` 를 표 한 벌로 묶은 것.
+ * 화면마다 <table> 을 새로 그리면 줄 높이와 테두리가 조금씩 달라진다.
+ */
+import type { ReactNode } from 'react';
+import { cn } from './cn';
+
+export interface Column<T> {
+  key: string;
+  head: ReactNode;
+  width?: number;
+  align?: 'left' | 'right' | 'center';
+  cell: (row: T, index: number) => ReactNode;
+}
+
+export interface TableProps<T> {
+  columns: Array<Column<T>>;
+  rows: T[];
+  rowKey: (row: T, index: number) => string | number;
+  onRowClick?: (row: T) => void;
+  /**
+   * 줄 하나의 **바탕**을 바꿀 클래스 — 원문 §54 넘길 돈 줄(옅은 바탕) · §62 기한 지난 줄(분홍) · §53 「자세히 ›」로 온 줄 강조 (x5).
+   * 판정은 부르는 쪽(서버 값)이 한다. 기본 없음 = 지금 모양.
+   */
+  rowClassName?: (row: T, index: number) => string | undefined;
+  empty?: ReactNode;
+  className?: string;
+}
+
+export function Table<T>({ columns, rows, rowKey, onRowClick, rowClassName, empty, className }: TableProps<T>) {
+  return (
+    <div className={cn('overflow-hidden rounded-xl border border-line bg-card', className)}>
+      <table className="w-full border-collapse text-[12px]">
+        <thead>
+          <tr className="bg-inset">
+            {columns.map((c) => (
+              <th
+                key={c.key}
+                style={c.width ? { width: c.width } : undefined}
+                className={cn(
+                  'border-b border-line px-3 py-2 text-[12px] font-bold text-fg-subtle',
+                  c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left',
+                )}
+              >
+                {c.head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-10 text-center text-fg-subtle">
+                {empty ?? '없습니다'}
+              </td>
+            </tr>
+          ) : (
+            rows.map((r, i) => (
+              <tr
+                key={rowKey(r, i)}
+                onClick={onRowClick ? () => onRowClick(r) : undefined}
+                className={cn('border-b border-line last:border-0', onRowClick && 'cursor-pointer hover:bg-inset', rowClassName?.(r, i))}
+              >
+                {columns.map((c) => (
+                  <td
+                    key={c.key}
+                    className={cn(
+                      'px-3 py-2.5 align-middle text-fg',
+                      c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left',
+                    )}
+                  >
+                    {c.cell(r, i)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}

@@ -1,0 +1,90 @@
+/** @file-guide
+ * 목적: tailwind.config.ts (config)
+ * 책임/재사용: 기존 런타임/빌드/검사 설정을 유지한다. 의존성·배포·비밀값 변경은 별도 근거와 검증 없이는 추가하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+import type { Config } from 'tailwindcss';
+
+/**
+ * Tailwind — **색을 정의하지 않는다.** src/styles/tokens.css 의 변수를 읽기만 한다.
+ *
+ * 대표 결정 (D-R41): "스타일: 전역 - CSS Modules, 컴포넌트 - tailwind"
+ * 두 벌이 되지 않게 선을 긋는다 (docs/contracts/STACK.md §2.2):
+ *   토큰 → tokens.css 한 곳
+ *   전역 · 레이아웃 → *.module.css
+ *   컴포넌트 낱개 → Tailwind 유틸리티
+ *
+ * 이 파일은 dbml 처럼 생성물이다 — 색을 늘리려면 tokens.css 를 먼저 고친다.
+ */
+const v = (name: string) => `var(--${name})`;
+
+/** CSS 변수 색에도 `bg-blue/10` 같은 Tailwind 투명도 수식이 실제로 적용되게 한다. */
+const withAlpha = (name: string) => `rgb(from ${v(name)} r g b / <alpha-value>)`;
+
+export default {
+  content: ['./src/**/*.{ts,tsx,mdx}'],
+  theme: {
+    extend: {
+      colors: {
+        header: {
+          DEFAULT: v('header'), active: v('header-active'), line: v('header-line'),
+          tool: v('header-tool'), 'tool-line': v('header-tool-line'),
+          home: v('header-home'), approval: v('header-approval'),
+        },
+        bg: v('bg'), card: v('card'), inset: v('inset'),
+        line: { DEFAULT: v('line'), 2: v('line-2') },
+        /*
+         * `fg` 도 투명도 수식을 탄다 — 공용 Dialog·Drawer 스크림(`bg-fg/30`·`bg-fg/25`)이 이것을 쓴다.
+         * `v('fg')` 로 두면 Tailwind 가 `/N` 을 붙일 수 없어 **클래스 자체를 만들지 않았고**
+         * 스크림이 `rgba(0,0,0,0)` — 모달 뒤가 투명했다 (g2 대조 C-6 · 실측). 값·이름은 그대로다.
+         */
+        fg: { DEFAULT: withAlpha('fg'), 2: v('fg-2'), subtle: v('fg-subtle') },
+        primary: withAlpha('primary'),
+        blue: withAlpha('blue'), red: withAlpha('red'), green: withAlpha('green'),
+        amber: withAlpha('amber'), violet: withAlpha('violet'),
+        /** 청록 · 주황 · 분홍 — 원문 단계·분류·영역 색(값은 tokens.css · 대비 교정) */
+        teal: withAlpha('teal'), orange: withAlpha('orange'), pink: withAlpha('pink'),
+        /** 수업 종류 8종 — 명세서 v2 §85 */
+        kind: {
+          'class': v('kind-class'),
+          'mock': v('kind-mock'),
+          'gpa': v('kind-gpa'),
+          'study': v('kind-study'),
+          'consult': v('kind-consult'),
+          'diagx': v('kind-diagx'),
+          'consulting': v('kind-consulting'),
+          'meeting': v('kind-meeting'),
+        },
+        /** 과목 21종 — 명세서 v2 §86 */
+        sub: {
+          'map-read': v('sub-map-read'),
+          'map-math': v('sub-map-math'),
+          'sat-read': v('sub-sat-read'),
+          'sat-math': v('sub-sat-math'),
+          'writing': v('sub-writing'),
+          'vocab': v('sub-vocab'),
+          'ap-chem': v('sub-ap-chem'),
+          'interview': v('sub-interview'),
+          'read-lab': v('sub-read-lab'),
+          'study-room': v('sub-study-room'),
+          'gpa-care': v('sub-gpa-care'),
+          'mock-sat': v('sub-mock-sat'),
+          'mock-map': v('sub-mock-map'),
+          'diag': v('sub-diag'),
+          'intake': v('sub-intake'),
+          'admissions': v('sub-admissions'),
+          'mt-pl': v('sub-mt-pl'),
+          'mt-cs': v('sub-mt-cs'),
+          'mt-mk': v('sub-mt-mk'),
+          'mt-dv': v('sub-mt-dv'),
+          'mt-pg': v('sub-mt-pg'),
+        },
+      },
+      borderRadius: { sm: v('r-sm'), md: v('r-md') },
+      spacing: { gap: v('gap'), pad: v('pad') },
+      fontFamily: { sans: [v('f-sans')], mono: [v('f-mono')] },
+    },
+  },
+  plugins: [],
+} satisfies Config;

@@ -1,0 +1,28 @@
+# @file-guide
+# 목적: .gitignore (config)
+# 책임/재사용: 기존 런타임/빌드/검사 설정을 유지한다. 의존성·배포·비밀값 변경은 별도 근거와 검증 없이는 추가하지 않는다.
+# 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+
+node_modules/
+.next/
+# NEXT_DIST_DIR 로 돌린 임시 빌드 산출물 — next.config.mjs 가 그 환경변수를 받는다.
+# 릴리스의 git add -A 가 빌드 찌꺼기를 커밋에 쓸어 담는 사고를 막는 자리다.
+.next-*/
+out/
+.env
+.env.local
+.env.*
+*.tsbuildinfo
+.vercel/
+coverage/
+_to_delete/
+
+# NEXT_DIST_DIR 에 절대경로를 주면 여기에 폴더가 생긴다 (상대경로만 허용)
+/sessions/
+
+# Demo backend build output and private local verification files
+backend/dist/
+backend/.spike*/
+*.log
+.vercel
+.env*

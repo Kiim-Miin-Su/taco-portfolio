@@ -1,0 +1,60 @@
+/** @file-guide
+ * 목적: SettlementLines.tsx — LineType, SettlementLine, SettlementLines (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * Data/Settlement Line — 정산 명세 (item · bonus · cut · total · tax).
+ * 「왜 이 금액인가」를 강사가 직접 검산할 수 있어야 한다.
+ */
+import { cn } from '../ui/cn';
+import { won } from '@/lib/money';
+
+export type LineType = 'item' | 'bonus' | 'cut' | 'sub' | 'tax' | 'total';
+
+export interface SettlementLine {
+  type: LineType;
+  label: string;
+  detail?: string;
+  amount: number | null;
+}
+
+
+export function SettlementLines({ lines }: { lines: SettlementLine[] }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {lines.map((l, i) => {
+        const total = l.type === 'total';
+        const cut = l.type === 'cut' || l.type === 'tax';
+        return (
+          <div
+            key={`${l.label}-${i}`}
+            className={cn(
+              'flex items-center justify-between gap-3 rounded-lg px-3 py-2.5',
+              total ? 'bg-fg text-white' : l.type === 'sub' ? 'bg-inset' : 'border border-line bg-card',
+            )}
+          >
+            <div className="min-w-0">
+              <div className={cn('text-[12px] font-bold', total ? 'text-white' : cut ? 'text-red' : 'text-fg')}>
+                {l.label}
+              </div>
+              {l.detail ? (
+                <div className={cn('mt-0.5 text-[12px]', total ? 'text-line-2' : cut ? 'text-red' : 'text-fg-subtle')}>
+                  {l.detail}
+                </div>
+              ) : null}
+            </div>
+            <div className={cn(
+              'shrink-0 font-bold',
+              total ? 'text-[16px] text-white' : cut ? 'text-[12.5px] text-red' : 'text-[12.5px] text-fg',
+            )}>
+              {/* 차감 · 세금의 부호도 `lib/money` 가 붙인다 — 손으로 붙인 하이픈은 「-₩」가 되어 원문 「−₩」와 갈린다 (N-92) */}
+              {cut && l.amount !== null && l.amount > 0 ? won(-l.amount) : won(l.amount)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

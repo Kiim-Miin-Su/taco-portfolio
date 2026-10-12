@@ -1,0 +1,170 @@
+/** @file-guide
+ * 목적: CalCell.tsx — CalCellProps, CalCell (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 달력 칸 **하나**. 일간·주간·월간·학생별·선생님별이 **전부 이것만** 쓴다.
+ *
+ * 격자마다 칸을 따로 만들면 테두리 · 오늘 표시 · 빈 칸 클릭 · 넘침 접기가
+ * 다섯 벌 생기고, 한 곳만 고쳐진다. 격자는 **배치만** 하고 칸의 생김새와 행동은 여기 있다.
+ *
+ * 칸이 아는 것은 셋뿐이다 — 날짜 · 그날 블록들 · 빈 곳을 눌렀을 때.
+ * 과목색·취소·온라인 표현은 `EventBlock`이 갖는다 (관리자 v2 §07~11).
+ */
+'use client';
+import { useId, type ReactNode } from 'react';
+import { useDroppable } from '@dnd-kit/core';
+import { cn } from '../ui/cn';
+import { EventBlock } from './EventBlock';
+import { KO_DOW, dowOf, occurrenceKey, todayKst, type SelectMode } from '@/lib/calendar';
+import type { Occurrence } from '@/api/types';
+import type { CalendarColorOf } from '@/lib/tokens';
+
+export interface CalCellProps {
+  /** 분할 표에서 같은 날짜의 드롭 대상도 어느 표인지 구별한다. */
+  paneId?: number;
+  /** 이 칸의 날짜 — 오늘이면 스스로 표시한다 */
+  date: string;
+  /** 왼쪽 위 라벨. 월간은 날짜 숫자, 주간은 요일, 일간 격자는 없음 */
+  head?: ReactNode;
+  /** 이 칸에 그릴 회차 */
+  items: Occurrence[];
+  /** 과목 이름 — 코드표에서 온다. 화면이 색·이름을 만들지 않는다 (D-R18) */
+  subName?: (o: Occurrence) => string | undefined;
+  /** 종류 이름 — 과목·제목이 없는 회차의 제목 자리 (코드값을 찍지 않는다 · D-R18) */
+  kindName?: (o: Occurrence) => string | undefined;
+  colorOf?: CalendarColorOf;
+  /** 몇 개까지 보이고 나머지는 「+N건 더」로 접는다 (§9 · §36) */
+  max?: number;
+  onOpen?: (o: Occurrence) => void;
+  onSelect?: (o: Occurrence, mode: SelectMode) => void;
+  selected?: ReadonlySet<string>;
+  /** 빈 곳을 더블클릭하거나 Enter를 누르면 그 날짜로 일정 추가 (§7) */
+  onAdd?: (date: string) => void;
+  /** 빈 곳을 단일클릭하면 날짜만 선택한다. */
+  onSelectDate?: (date: string) => void;
+  /** 날짜 머리 선택 — 월간 날짜와 더보기가 같은 일간 진입을 사용한다 (§9) */
+  onPickDate?: (date: string) => void;
+  /** 접힌 것을 눌렀을 때 — 보통 그날 일간으로 간다 */
+  onMore?: (date: string) => void;
+  compact?: boolean;
+  className?: string;
+  /** 이 달 밖의 날짜 — 월간 격자에서 흐리게 */
+  muted?: boolean;
+  /** 앱 내부 붙여넣기 커서가 놓인 날짜 */
+  active?: boolean;
+  /** 날짜 드롭 타깃으로 등록한다 — 주간·월간은 칸이 곧 날짜다 (TBO-41 · §5) */
+  droppable?: boolean;
+  /** 칸 안의 블록을 잡을 수 있는가 */
+  draggable?: boolean;
+  /** 그날의 공휴일 이름 — 원문 §09 「광복절」·「광복절 대체」 칩 (서버 표 HOLIDAY) */
+  holidays?: readonly string[];
+  children?: ReactNode;
+}
+
+export function CalCell({
+  paneId = 0, date, head, items, subName, kindName, colorOf, max, onOpen, onSelect, selected, onAdd, onSelectDate, onPickDate, onMore, compact, className, muted, active,
+  droppable, draggable, holidays, children,
+}: CalCellProps) {
+  const instanceId = useId();
+  const drop = useDroppable({
+    id: `day|${instanceId}|${date}`,
+    data: { type: 'day', paneId, date },
+    disabled: !droppable,
+  });
+  const isToday = date === todayKst();
+  const shown = max ? items.slice(0, max) : items;
+  const hidden = items.length - shown.length;
+
+  return (
+    <div
+      ref={drop.setNodeRef}
+      role="group"
+      aria-label={`${date} 날짜 칸${onSelectDate ? ' — 클릭으로 선택' : ''}${onAdd ? ' · 더블클릭 또는 Enter로 새 일정' : ''}`}
+      tabIndex={onAdd ? 0 : undefined}
+      className={cn(
+        'relative flex min-h-[78px] flex-col gap-1 border-b border-r border-line p-1.5',
+        muted && 'bg-inset/40',
+        // 원문 §09 오늘 칸 — 칸 전체가 옅은 주황이고 날짜 옆에 빨간 「오늘」
+        isToday && 'bg-amber/[0.07]',
+        active && 'z-[1] ring-2 ring-inset ring-blue',
+        onAdd && 'cursor-cell',
+        drop.isOver && 'bg-blue/10',
+        className,
+      )}
+      onClick={(e) => {
+        // 블록을 눌렀을 때는 칸이 반응하지 않는다 — 두 동작이 겹치면 오작동으로 읽힌다
+        if (e.target !== e.currentTarget) return;
+        onSelectDate?.(date);
+      }}
+      onDoubleClick={(e) => {
+        if (e.target === e.currentTarget) onAdd?.(date);
+      }}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onAdd?.(date);
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          onSelectDate?.(date);
+        }
+      }}
+    >
+      {head !== undefined ? (
+        <div className={cn('flex items-center gap-1 text-[12px]', muted ? 'text-line-2' : 'text-fg-subtle')}>
+          {onPickDate ? (
+            <button type="button" onClick={() => onPickDate(date)}
+              aria-label={`${date} (${KO_DOW[dowOf(date)]}) 날짜 선택`}
+              className={cn('rounded px-1 text-[13px] font-bold hover:bg-blue/10 focus-visible:outline-blue',
+                isToday ? 'text-red' : !muted && 'text-fg')}>
+              {head}{isToday ? <span className="ml-1">오늘</span> : null}
+            </button>
+          ) : (
+            <span className={cn('px-1 text-[13px] font-bold', isToday ? 'text-red' : !muted && 'text-fg')}>
+              {head}{isToday ? <span className="ml-1">오늘</span> : null}
+            </span>
+          )}
+          {/* 원문 §09 날짜 옆 공휴일 이름 칩 — 이름은 서버 표 그대로(대체공휴일 「광복절 대체」) */}
+          {holidays?.map((name) => (
+            <span key={name} data-holiday={name} title={name}
+              className="min-w-0 truncate rounded bg-red/10 px-1 text-[12px] font-bold text-red">{name}</span>
+          ))}
+          {/* 빈 날짜에는 수를 적지 않는다 — 원문 §09 의 빈 칸에는 「0건」이 없고, 있는 칸도 숫자만 적는다(「8」) */}
+          {items.length > 0 ? <span className="ml-auto" title={`${items.length}건`}>{items.length}</span> : null}
+        </div>
+      ) : null}
+
+      {shown.map((o) => (
+        <EventBlock
+          key={`${o.serId}-${o.date}-${o.startMin}`}
+          occ={o}
+          paneId={paneId}
+          subName={subName?.(o)}
+          kindName={kindName?.(o)}
+          color={colorOf?.(o)}
+          compact={compact}
+          flat
+          onClick={() => onOpen?.(o)}
+          onSelect={onSelect}
+          selected={selected?.has(occurrenceKey(o))}
+          draggable={draggable}
+        />
+      ))}
+
+      {hidden > 0 ? (
+        <button
+          type="button"
+          onClick={() => onMore?.(date)}
+          className="mt-auto rounded px-1 text-left text-[12px] font-bold text-fg-subtle hover:text-blue"
+        >
+          +{hidden}건 더
+        </button>
+      ) : null}
+
+      {children}
+    </div>
+  );
+}

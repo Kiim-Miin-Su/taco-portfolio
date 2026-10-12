@@ -1,0 +1,656 @@
+/** @file-guide
+ * 목적: calendar.ts — View, CalendarPaneState, CalendarPaneIndex, clampSplitRatio, splitPanes 등 (util)
+ * 책임/재사용: 현재 lib 계층의 순수 계산/표시 방어를 우선 재사용한다. UI·네트워크·DB 부수효과와 서버 업무 권위를 섞지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 달력 계산 — **순수 함수만.** 화면은 여기서 나온 배열을 그리기만 한다.
+ *
+ * 일간·주간·월간·학생별·선생님별 다섯 보기가 가까운 기간이면 **같은 범위를 한 번 읽고**
+ * 여기서 나눈다 (`AGENT.md §6.1-2`). 멀리 떨어진 분할 표는 각 표의 범위만 읽는다.
+ */
+import type { ConflictRow, Occurrence, StudentOverlap, UnavWarn } from '@/api/types';
+
+export type View = 'day' | 'week' | 'month' | 'student' | 'teacher';
+
+/**
+ * 일간 표의 **세로 축**. 원본 §07 은 강의실로 나누지만 §11 은 선생님으로 나눈다 —
+ * 계약(`ScheduleWrite.teacherId|roomId`)과 격자(`DropData`)는 처음부터 둘 다 받는다.
+ */
+export type CalendarColAxis = 'room' | 'teacher';
+
+/** 개인 표(학생별·선생님별)의 **기간 축** — 원본 §10·§11 개인 도구줄의 「주간 · 일간 · 월간」. */
+export type PersonPeriod = 'day' | 'week' | 'month';
+
+/** 기본/분할이 함께 쓰는 표 상태. 표마다 독립이고 페이지 reducer만 소유한다 (§4.1). */
+export interface CalendarPaneState {
+  view: View;
+  date: string;
+  personId: number | null;
+  /** 일간 보기의 세로 축. 원본은 강의실이 기본이고 선생님으로 바꿀 수 있다 (§07 · §11). */
+  dayAxis: CalendarColAxis;
+  /** 개인 표의 기간. 원본 §10·§11 은 사람 옆에서 주간/일간/월간을 고른다. 기본은 주간이다. */
+  personPeriod: PersonPeriod;
+  /** 일간 표의 세로선 표시. 기준은 dayAxis이며 기본은 날짜 한 열 + 겹침 lane이다. */
+  dayColumns: boolean;
+}
+
+/** 새 표의 기본값 한 곳. 분할·초기화가 같은 값을 두 번 적지 않는다. */
+export const INITIAL_PANE: Omit<CalendarPaneState, 'date'> = {
+  view: 'day',
+  personId: null,
+  dayAxis: 'room',
+  personPeriod: 'week',
+  dayColumns: false,
+};
+
+/**
+ * 한 시간대에 **나란히 보이는 lane 의 상한** — N-74 채택 ①.
+ * 원문 §08 주간이 보여 준 평행 lane 최대가 셋이고, §09 월간 · §36 현황판도 「최대 3건 + '+N건 더'」를 쓴다.
+ */
+export const LANE_CAP = 3;
+
+/**
+ * 겹친 묶음을 lane 으로 — **주간과 일간(날짜 한 열)이 같은 함수를 쓴다** (N-74).
+ * 상한까지는 그대로 나란히, 넘치면 상한만큼 그리고 나머지 수(「+M」)를 돌려준다. 순서는 받은 차례 그대로다.
+ */
+export function laneLayout<T>(cluster: readonly T[], cap = LANE_CAP): { shown: T[]; more: number } {
+  if (cluster.length <= cap) return { shown: [...cluster], more: 0 };
+  return { shown: cluster.slice(0, cap), more: cluster.length - cap };
+}
+
+/**
+ * 표가 **실제로 그리는 기간**. 개인 표(학생별·선생님별)는 사람이 축이고 기간은 따로 고른다 —
+ * 원본 §10·§11 의 개인 도구줄이 그 자리다. 범위·이동·집계·격자가 전부 이 하나를 본다.
+ */
+export function paneView(pane: Pick<CalendarPaneState, 'view' | 'personPeriod'>): View {
+  return pane.view === 'student' || pane.view === 'teacher' ? pane.personPeriod : pane.view;
+}
+
+export type CalendarPaneIndex = 0 | 1;
+
+/** divider 입력을 실제 컨테이너 기준 최소 pane 폭으로 제한한다 (§4.2). */
+export function clampSplitRatio(
+  ratio: number,
+  containerWidth: number,
+  minPaneWidth = 152,
+): number {
+  if (!Number.isFinite(ratio) || !Number.isFinite(containerWidth) || containerWidth <= 0) return 0.5;
+  const minRatio = Math.min(0.5, minPaneWidth / containerWidth);
+  return Math.max(minRatio, Math.min(1 - minRatio, ratio));
+}
+
+/** 분할은 현재 표 전체를 복제한다. 얕은 객체지만 값이 원시값뿐이라 두 표는 독립이다. */
+export function splitPanes(current: CalendarPaneState): [CalendarPaneState, CalendarPaneState] {
+  return [{ ...current }, { ...current }];
+}
+
+/** 분할 해제는 focus된 표 하나만 남긴다. */
+export function unsplitPanes(
+  panes: readonly CalendarPaneState[],
+  focused: CalendarPaneIndex,
+): [CalendarPaneState] {
+  return [{ ...(panes[focused] ?? panes[0]) }];
+}
+
+/** 한쪽 표를 고쳐도 반대쪽 참조가 바뀌지 않게 배열과 대상 객체만 교체한다. */
+export function updatePane(
+  panes: readonly CalendarPaneState[],
+  index: CalendarPaneIndex,
+  patch: Partial<CalendarPaneState>,
+): CalendarPaneState[] {
+  return panes.map((pane, i) => i === index ? { ...pane, ...patch } : pane);
+}
+
+/** 가까운 표는 한 번 읽고, 366일을 넘는 분할 표는 각각의 보이는 범위만 읽는다. */
+export function scheduleReadRanges(panes: readonly CalendarPaneState[]): Array<{ from: string; to: string }> {
+  if (panes.length < 1 || panes.length > 2) throw new RangeError('달력 표는 한 개 또는 두 개여야 합니다.');
+  const ranges = panes.map((pane) => boundsOf(paneView(pane), pane.date))
+    .sort((a, b) => a.from.localeCompare(b.from));
+  const merged = { from: ranges[0].from, to: ranges.reduce((max, range) => range.to > max ? range.to : max, ranges[0].to) };
+  return merged.to <= addDays(merged.from, DATE_SELECTION_MAX_DAYS - 1) ? [merged] : ranges;
+}
+
+/** KST 고정 (D-R12) — 관리자 화면의 모든 시각은 서울 시간이다 */
+export const todayKst = (now = Date.now()): string =>
+  new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
+
+export const addDays = (iso: string, n: number): string =>
+  new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+/** 날짜 피커의 연속/커스텀 선택은 명세의 bounding 조회 범위 제한을 쓴다 (§3). */
+export const DATE_SELECTION_MAX_DAYS = 366;
+const DAY_MS = 86400000;
+
+/** JS Date가 2/29 같은 잘못된 날짜를 다음 달로 보정하지 못하게 실제 ISO day만 받는다. */
+function calendarDayMs(day: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === day ? ms : null;
+}
+
+/** 기간 드래그: 양 끝 포함, 역방향도 날짜순. 무효/366일 초과면 적용하지 않는다. */
+export function selectDateRange(start: string, end: string): string[] | null {
+  const startMs = calendarDayMs(start);
+  const endMs = calendarDayMs(end);
+  if (startMs === null || endMs === null) return null;
+  const first = Math.min(startMs, endMs);
+  const count = Math.abs(endMs - startMs) / DAY_MS + 1;
+  if (count > DATE_SELECTION_MAX_DAYS) return null;
+  return Array.from({ length: count }, (_, i) => new Date(first + i * DAY_MS).toISOString().slice(0, 10));
+}
+
+/** Ctrl/Cmd+클릭: 비연속 집합을 토글한다. 마지막 하루는 해제하지 않고 입력 배열은 변경하지 않는다. */
+export function toggleCustomDate(current: readonly string[], day: string): string[] | null {
+  if (calendarDayMs(day) === null || current.some((value) => calendarDayMs(value) === null)) return null;
+  const selected = new Set(current);
+  if (selected.has(day)) {
+    if (selected.size > 1) selected.delete(day);
+  } else {
+    selected.add(day);
+  }
+  const dates = [...selected].sort();
+  const span = (calendarDayMs(dates[dates.length - 1])! - calendarDayMs(dates[0])!) / DAY_MS + 1;
+  return span <= DATE_SELECTION_MAX_DAYS ? dates : null;
+}
+
+export const dowOf = (iso: string): number => new Date(`${iso}T00:00:00Z`).getUTCDay();
+
+/** 그 주의 월요일 */
+export const mondayOf = (iso: string): string => addDays(iso, dowOf(iso) === 0 ? -6 : 1 - dowOf(iso));
+
+/** 월요일부터 7일 */
+export const weekDays = (iso: string): string[] => {
+  const m = mondayOf(iso);
+  return Array.from({ length: 7 }, (_, i) => addDays(m, i));
+};
+
+/** 달력 격자 — 그 달을 덮는 월요일 시작 6주(또는 5주) */
+export function monthGrid(iso: string): string[] {
+  const first = `${iso.slice(0, 7)}-01`;
+  const start = mondayOf(first);
+  const lastDay = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7), 0)).getUTCDate();
+  const last = `${iso.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`;
+  const end = addDays(mondayOf(last), 6);
+  const out: string[] = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+/** 월 집계 범위 — 달력 격자와 달리 앞뒤 달을 섞지 않는다. */
+export function monthBounds(iso: string): { from: string; to: string } {
+  const from = `${iso.slice(0, 7)}-01`;
+  const lastDay = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7), 0)).getUTCDate();
+  return { from, to: `${iso.slice(0, 7)}-${String(lastDay).padStart(2, '0')}` };
+}
+
+/**
+ * 보기가 필요로 하는 **하나의 범위**.
+ * 학생별·선생님별은 주간과 같은 범위를 쓴다 — 왼쪽에서 사람만 고를 뿐이다.
+ */
+export function boundsOf(view: View, date: string): { from: string; to: string } {
+  if (view === 'day') return { from: date, to: date };
+  if (view === 'month') {
+    const g = monthGrid(date);
+    return { from: g[0], to: g[g.length - 1] };
+  }
+  const w = weekDays(date);
+  return { from: w[0], to: w[6] };
+}
+
+/**
+ * **집계 범위** — 격자 범위와 같지 않은 보기가 하나 있다.
+ *
+ * 월간 격자는 그 달을 덮는 6주라서 앞뒤 달 날짜가 흐리게 섞여 있다. 상단 집계의 라벨은
+ * 「2026년 8월」이므로 집계는 **그 달**이어야 한다 — 안 그러면 화면이 「8월」이라 적어 놓고
+ * 7월 27일치를 함께 세게 된다. 나머지 보기는 보이는 범위가 곧 기간이다 (N-19).
+ */
+export function summaryBoundsOf(view: View, date: string): { from: string; to: string } {
+  return view === 'month' ? monthBounds(date) : boundsOf(view, date);
+}
+
+/** 기간 집계 한 줄 (v2 §09 상단) */
+export interface PeriodSummary {
+  /** 일정 N건 — 취소도 포함한 이 기간의 전부 */
+  total: number;
+  /** 현장 — `mode === 'offline'` */
+  onsite: number;
+  online: number;
+  /** 시수 — 취소·휴강은 뺀다 (D-R11) */
+  hours: number;
+  /** 승인 대기 — **이 기간 리포트**다. 상단 내비의 결재함 배지와 다른 수다 */
+  waiting: number;
+  /** 리포트 미제출 — 끝났는데 아직 제출하지 않은 것 */
+  unsubmitted: number;
+  /** 취소·휴강 — 건수에는 남아 있고 시수에서만 빠진 것 (D-R11) */
+  canceled: number;
+  /** 이 회차만 다름 — 예외가 붙은 회차 */
+  exceptions: number;
+  /** 리포트 쓴 수업 — 「썼다」는 제출부터다 (D-R7) */
+  written: number;
+}
+
+/**
+ * 상단 집계 — **칸에 그린 것과 같은 배열**에서 센다 (N-19).
+ *
+ * 원문 §09 는 상단에 268건이라 적어 놓고 날짜 칸 건수 합은 200이다. 그 어긋남은
+ * 상단과 칸이 서로 다른 것을 셌기 때문에 생긴다. 그래서 여기 들어오는 배열은 격자가
+ * 받는 바로 그 배열이고, 이 함수는 **새 판정을 만들지 않는다** — 현장/온라인·승인 대기·
+ * 미제출은 전부 서버가 회차에 붙여 보낸 값이다.
+ */
+export function periodSummary(items: readonly Occurrence[]): PeriodSummary {
+  let onsite = 0; let online = 0; let minutes = 0; let waiting = 0; let unsubmitted = 0;
+  let canceled = 0; let exceptions = 0; let written = 0;
+  for (const o of items) {
+    if (o.mode === 'online') online += 1; else onsite += 1;
+    // 취소·휴강은 시수에서 뺀다 (D-R11). 건수에서는 빼지 않는다 — 일정은 있었다.
+    if (o.canceled) canceled += 1; else minutes += o.endMin - o.startMin;
+    if (o.hasException) exceptions += 1;
+    if (o.written) written += 1;
+    if (o.repState === 'wait') waiting += 1;
+    // 「썼다」는 제출한 순간부터다(rules.ts REPORT_WRITTEN). 그래서 끝난 수업의 **초안**도
+    // 미제출이다 — `repState === 'none'` 으로만 세면 초안을 저장해 둔 만큼 수가 줄어든다.
+    if (o.ended && o.repState !== 'na' && !o.written) unsubmitted += 1;
+  }
+  return { total: items.length, onsite, online, hours: minutes / 60, waiting, unsubmitted, canceled, exceptions, written };
+}
+
+/** 보기를 옮길 때 날짜가 얼마나 움직이나 */
+export function step(view: View, date: string, dir: -1 | 1): string {
+  if (view === 'day') return addDays(date, dir);
+  if (view === 'month') {
+    const y = +date.slice(0, 4);
+    const m = +date.slice(5, 7) - 1 + dir;
+    const d = new Date(Date.UTC(y, m, 1));
+    return d.toISOString().slice(0, 10);
+  }
+  return addDays(date, 7 * dir);
+}
+
+export const hhmm = (m: number): string =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+export const KO_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** 'YYYY-MM-DD' → '8/31 (월)' */
+export const label = (iso: string): string =>
+  `${+iso.slice(5, 7)}/${+iso.slice(8, 10)} (${KO_DOW[dowOf(iso)]})`;
+
+/**
+ * 'YYYY-MM-DD' → '26년 9월 18일 금요일' — 원문 §34·§40·§45 의 긴 날짜 한 모양.
+ * 교재 이력·안내 이력이 같은 식을 각자 적고 있었다 — 두 벌이면 한쪽만 고쳐져 갈린다.
+ */
+export const longDateLabel = (iso: string): string =>
+  `${iso.slice(2, 4)}년 ${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 ${KO_DOW[dowOf(iso)]}요일`;
+
+/**
+ * 'YYYY-MM-DD' → '8월 20일 목요일' — 해 없는 긴 날짜. 원문 §66 회의 머리 칩 · §47 미작성 표의 날짜 칸이 같은 모양이다.
+ * 두 화면이 같은 식을 각자 적고 있었다(`dayChip` · `monthDayLabel`) — `longDateLabel` 과 같은 까닭으로 한 벌로 모았다 (W11 D).
+ */
+export const monthDayLabel = (iso: string): string =>
+  `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 ${KO_DOW[dowOf(iso)]}요일`;
+
+/**
+ * 'YYYY-MM-DD' → '8월 25일 (화)' — 강사 목록의 날짜 묶음 머리(덱 slide 18 리포트 목록 · 강사 시간표 목록).
+ * 두 목록이 같은 식을 각자 적고 있었다(`dayHead` 두 벌) — 한 벌로 모았다 (W11 D).
+ */
+export const dayHeadLabel = (iso: string): string =>
+  `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 (${KO_DOW[dowOf(iso)]})`;
+
+/**
+ * 시각(ISO) → KST 'YYYY-MM-DD HH:mm'. 서버가 어느 오프셋으로 주든 서울 시간으로 읽는다 (D-R12).
+ * 읽을 수 없는 값은 null — 화면이 ISO 원문(「…T19:00:00+09:00」)을 그대로 찍거나 날짜를 지어내지 않게 한다.
+ */
+export function kstDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return null;
+  const kst = new Date(at + 9 * 3600 * 1000).toISOString();
+  return `${kst.slice(0, 10)} ${kst.slice(11, 16)}`;
+}
+
+/** 지금이 몇 분인가 — 오늘 칸의 빨간 선 위치 (§7) */
+export const nowMinKst = (): number => {
+  const n = new Date(Date.now() + 9 * 3600 * 1000);
+  return n.getUTCHours() * 60 + n.getUTCMinutes();
+};
+
+/** 개발명세서 §07~§11의 기본 시간축. 모든 격자가 이 한 범위를 기준으로 삼는다. */
+export const SCHEDULE_BASE_TIME_RANGE = { from: 9 * 60, to: 22 * 60 } as const;
+
+/**
+ * 격자에 그릴 시간 범위.
+ *
+ * 기본 09:00~22:00은 일정 유무나 현재 시각과 관계없이 전부 남긴다. 기준 밖에 실제 수업이
+ * 있으면 그 수업을 포함하는 정시 경계까지 넓힌다 — 자동 압축 때문에 지난 시간이나 이른/늦은
+ * 수업이 사라지지 않게 하는 N-43의 단일 출처다.
+ */
+export function timeRange(mins: Array<{ startMin: number; endMin: number }>): { from: number; to: number } {
+  // 손상된 응답 한 건이 모든 슬롯 좌표를 NaN으로 만들지 않게 표시 가능한 구간만 쓴다.
+  const valid = mins.filter((m) => Number.isFinite(m.startMin) && Number.isFinite(m.endMin)
+    && m.startMin >= 0 && m.startMin < m.endMin && m.endMin <= 24 * 60);
+  if (!valid.length) return { ...SCHEDULE_BASE_TIME_RANGE };
+  const lo = Math.min(...valid.map((m) => m.startMin));
+  const hi = Math.max(...valid.map((m) => m.endMin));
+  return {
+    from: Math.min(SCHEDULE_BASE_TIME_RANGE.from, Math.floor(lo / 60) * 60),
+    to: Math.max(SCHEDULE_BASE_TIME_RANGE.to, Math.ceil(hi / 60) * 60),
+  };
+}
+
+/* ── 상호작용 산수 (TBO-41 · CALENDAR §5) — 격자·드래그가 이것만 부른다 ── */
+
+/** 스냅은 15분, 셀 실체는 30분이다 (§2.5 · §5) */
+export const SNAP_MIN = 15;
+export const SLOT_MIN = 30;
+/** 시간당 픽셀 — 헤더와 본문이 같은 값을 쓴다. 각자 계산하면 1px 씩 어긋난다 (§2.5) */
+export const HOUR_PX = 56;
+
+export const snap15 = (m: number): number => Math.round(m / SNAP_MIN) * SNAP_MIN;
+
+/** 드래그 델타(px) → 분. 15분 스냅까지 여기서 한다 — 화면이 다시 계산하지 않는다 */
+
+/** 대상 표의 실제 30분 슬롯 좌표를 쓴다. 당일 경계는 이동 검증층에서 거절하며 여기서 자르지 않는다. */
+export function slotStartMin(slotMin: number, slotTop: number, slotHeight: number, blockTop: number): number | null {
+  if (![slotMin, slotTop, slotHeight, blockTop].every(Number.isFinite) || slotHeight <= 0) return null;
+  const startMin = snap15(slotMin + (blockTop - slotTop) / slotHeight * SLOT_MIN);
+  return Number.isFinite(startMin) ? startMin : null;
+}
+
+/** 폼과 드래그가 공유하는 시간 계약 — 서버 DTO의 정수 제약과 lessonTimeIssue의 당일·길이 경계. */
+export function lessonTimeIssue(startMin: number, endMin: number): string | null {
+  if (!Number.isInteger(startMin) || !Number.isInteger(endMin)) return '수업 시각은 유효한 분 단위 정수여야 합니다';
+  if (startMin < 0 || startMin >= 1440 || endMin > 1440) return '수업 시각은 같은 날 안에 있어야 합니다';
+  const duration = endMin - startMin;
+  return duration < 10 || duration > 480 ? '길이는 10분에서 8시간 사이여야 합니다 (§5)' : null;
+}
+
+/** 블록 길이 제약 — 10~480분 (§5) · 자정을 넘지 않는다 */
+export const clampEnd = (startMin: number, endMin: number): number =>
+  Math.min(24 * 60, Math.max(startMin + 10, Math.min(startMin + 480, endMin)));
+
+export interface MoveTarget {
+  date?: string;
+  startMin?: number;
+  /** 컬럼 축이 강사면 강사가, 강의실이면 강의실이 바뀐다 (§4.4 · §2.3) */
+  teacherId?: number | null;
+  roomId?: number | null;
+}
+
+/** PATCH 에 실을 것 — **바뀐 필드만**. 무효 이동/변경 없음은 null이며 다른 필드도 일부 저장하지 않는다. */
+export function movePatch(
+  o: { date: string; startMin: number; endMin: number; teacherId?: number | null; roomId?: number | null },
+  t: MoveTarget,
+): { date?: string; startMin?: number; endMin?: number; teacherId?: number | null; roomId?: number | null } | null {
+  if (lessonTimeIssue(o.startMin, o.endMin)) return null;
+  const out: ReturnType<typeof movePatch> = {};
+  if (t.date !== undefined && t.date !== o.date) out!.date = t.date;
+  if (t.startMin !== undefined) {
+    const s = snap15(t.startMin);
+    const endMin = s + (o.endMin - o.startMin);
+    if (lessonTimeIssue(s, endMin)) return null;
+    if (s !== o.startMin) {
+      out!.startMin = s;
+      out!.endMin = endMin; // 이동은 길이를 바꾸지 않는다. 길이 조절은 resizePatch만 담당한다.
+    }
+  }
+  if (t.teacherId !== undefined && t.teacherId !== (o.teacherId ?? null)) out!.teacherId = t.teacherId;
+  if (t.roomId !== undefined && t.roomId !== (o.roomId ?? null)) out!.roomId = t.roomId;
+  return Object.keys(out!).length ? out : null;
+}
+
+/** 리사이즈 — 끝 시각만 바뀐다 (§5 C-3) */
+export function resizePatch(
+  o: { startMin: number; endMin: number },
+  deltaPx: number,
+): { endMin: number } | null {
+  const end = clampEnd(o.startMin, snap15(o.endMin + (deltaPx / HOUR_PX) * 60));
+  return end === o.endMin ? null : { endMin: end };
+}
+
+/**
+ * 같은 컬럼에서 시간이 겹치는 블록 묶음 (§4.5 — 폭을 N등분하지 않는다).
+ * 첫 건만 그리고 나머지는 「+N」으로 접는 것이 화면의 일이고, 묶는 것은 여기의 일이다.
+ */
+export function overlapClusters<T extends { startMin: number; endMin: number }>(items: T[]): T[][] {
+  const sorted = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  const out: T[][] = [];
+  let cur: T[] = [];
+  let curEnd = -1;
+  for (const it of sorted) {
+    if (cur.length && it.startMin < curEnd) {
+      cur.push(it);
+      curEnd = Math.max(curEnd, it.endMin);
+    } else {
+      if (cur.length) out.push(cur);
+      cur = [it];
+      curEnd = it.endMin;
+    }
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+/** rrule 문자열 — 서버 `formatRule()` 이 정한 형식만 쓴다. 다른 형식은 회차가 통째로 사라진다 */
+const DOW_CODE = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
+export type ScheduleRepeat = 'once' | 'daily' | 'weekly' | 'biweekly';
+
+export function buildRrule(days: number[], repeat?: ScheduleRepeat): string {
+  // 기존 호출자는 요일 없음=단발, 요일 있음=매주 규약을 계속 쓴다.
+  // SessionEditor처럼 주기를 명시하는 화면만 DAILY와 격주 간격을 넘긴다.
+  const cadence = repeat ?? (days.length ? 'weekly' : 'once');
+  if (cadence === 'once') return 'ONCE';
+  if (cadence === 'daily') return 'DAILY';
+  const weekly = `WEEKLY:${[...days].sort((a, b) => a - b).map((d) => DOW_CODE[d]).join(',')}`;
+  return cadence === 'biweekly' ? `${weekly}/2` : weekly;
+}
+
+/** 시/분을 각각 검증한다. 24:00은 종료값1440이며 시작 허용 여부는 lessonTimeIssue가 판정한다. */
+export const parseHm = (v: string): number | null => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (minutes > 59 || hours > 24 || (hours === 24 && minutes !== 0)) return null;
+  return hours * 60 + minutes;
+};
+
+/* ── 선택 · 앱 내부 클립보드 (TBO-41E · CALENDAR §5.2) ─────────────── */
+
+/** 같은 회차가 분할 표에 여러 번 보여도 한 선택으로 묶는 키다. */
+export interface OccurrenceIdentity {
+  serId: number;
+  onDate: string;
+  date: string;
+  startMin: number;
+  endMin: number;
+}
+
+export const occurrenceKey = (o: Pick<OccurrenceIdentity, 'serId' | 'onDate'>): string =>
+  `${o.serId}|${o.onDate}`;
+
+export type SelectMode = 'single' | 'range' | 'toggle';
+
+const byOccurrenceTime = <T extends OccurrenceIdentity>(a: T, b: T): number =>
+  a.date.localeCompare(b.date) || a.startMin - b.startMin || a.serId - b.serId;
+
+/** 강사 홈과 캘린더의 오늘/7일 목록. 서버 응답을 복제 저장하지 않고 같은 회차를 투영한다. */
+export function teacherSchedule(items: readonly Occurrence[], today: string) {
+  const lastDay = addDays(today, 7);
+  const inRange = items.filter((o) => o.date >= today && o.date <= lastDay).sort(byOccurrenceTime);
+  const todayItems = inRange.filter((o) => o.date === today);
+  const upcoming = inRange.filter((o) => o.date > today);
+  // 출결 취소와 관리 취소는 별도 축이다. 서버가 내려준 정산 제외 사실을 함께 소비한다.
+  const counted = todayItems.filter((o) => !o.canceled && o.attendance?.countsForPay !== false);
+  return {
+    today: todayItems,
+    upcoming,
+    todayCount: counted.length,
+    todayMinutes: counted.reduce((minutes, o) => minutes + o.endMin - o.startMin, 0),
+  };
+}
+
+/**
+ * 클릭 선택 규칙의 단일 출처. EventBlock 은 modifier 만 전달하고 선택 집합 계산은 여기서 한다.
+ * range 는 마지막 선택을 anchor 로 삼고, toggle 은 해당 회차만 넣거나 뺀다.
+ */
+export function selectOccurrenceKeys<T extends OccurrenceIdentity>(
+  items: T[],
+  selected: string[],
+  target: T,
+  mode: SelectMode,
+): string[] {
+  const key = occurrenceKey(target);
+  if (mode === 'single') return [key];
+  if (mode === 'toggle') {
+    return selected.includes(key) ? selected.filter((x) => x !== key) : [...selected, key];
+  }
+
+  const sorted = [...items].sort(byOccurrenceTime);
+  const anchor = selected[selected.length - 1];
+  const a = sorted.findIndex((o) => occurrenceKey(o) === anchor);
+  const b = sorted.findIndex((o) => occurrenceKey(o) === key);
+  if (a < 0 || b < 0) return [key];
+  const range = sorted.slice(Math.min(a, b), Math.max(a, b) + 1).map(occurrenceKey);
+  return [...new Set([...selected, ...range])];
+}
+
+/** 선택 순서가 아니라 화면의 날짜·시각 순서로 돌려준다 — 복사 기준점과 표시 순서를 맞춘다. */
+export function selectedOccurrences<T extends OccurrenceIdentity>(items: T[], selected: string[]): T[] {
+  const want = new Set(selected);
+  return items.filter((o) => want.has(occurrenceKey(o))).sort(byOccurrenceTime);
+}
+
+export interface RelativePlacement<T> {
+  source: T;
+  date: string;
+  startMin: number;
+  endMin: number;
+  offsetDays: number;
+  offsetMinutes: number;
+}
+
+/**
+ * 붙여넣기 프리뷰 산수. 저장 payload 는 원본 참조만 보내고 서버 `copyMany()`가 다시 계산하지만,
+ * 화면 프리뷰도 같은 기준(가장 이른 날짜·시각)을 써야 손을 놓은 자리와 저장 결과가 일치한다.
+ */
+export function relativePlacements<T extends OccurrenceIdentity>(
+  items: T[],
+  targetDate: string,
+  targetStartMin: number,
+): RelativePlacement<T>[] {
+  const sorted = [...items].sort(byOccurrenceTime);
+  const base = sorted[0];
+  if (!base) return [];
+  return sorted.map((source) => {
+    const offsetDays = Math.round(
+      (new Date(`${source.date}T00:00:00Z`).getTime() - new Date(`${base.date}T00:00:00Z`).getTime()) / 86400000,
+    );
+    const offsetMinutes = source.startMin - base.startMin;
+    const startMin = targetStartMin + offsetMinutes;
+    return {
+      source,
+      date: addDays(targetDate, offsetDays),
+      startMin,
+      endMin: startMin + (source.endMin - source.startMin),
+      offsetDays,
+      offsetMinutes,
+    };
+  });
+}
+
+/** C-7 다중 이동 — 잡은 블록 대비 날짜·분 delta를 선택 전체에 같은 값으로 적용한다. */
+export function movePlacements<T extends OccurrenceIdentity>(
+  items: T[],
+  anchor: T,
+  targetDate: string,
+  targetStartMin: number,
+): RelativePlacement<T>[] | null {
+  if (!Number.isFinite(targetStartMin) || lessonTimeIssue(anchor.startMin, anchor.endMin)
+    || items.some((source) => lessonTimeIssue(source.startMin, source.endMin))) return null;
+  const deltaDays = Math.round(
+    (new Date(`${targetDate}T00:00:00Z`).getTime() - new Date(`${anchor.date}T00:00:00Z`).getTime()) / 86400000,
+  );
+  const deltaMinutes = snap15(targetStartMin) - anchor.startMin;
+  const placed = items.map((source) => ({
+    source,
+    date: addDays(source.date, deltaDays),
+    startMin: source.startMin + deltaMinutes,
+    endMin: source.endMin + deltaMinutes,
+    offsetDays: deltaDays,
+    offsetMinutes: deltaMinutes,
+  }));
+  return placed.some((x) => lessonTimeIssue(x.startMin, x.endMin)) ? null : placed;
+}
+
+/**
+ * 겹침 한 줄을 사람 말로 — **낱말은 한 벌이다.**
+ *
+ * §19 변경 요청과 §07~§11 일정 이동은 같은 겹침을 받는다. 두 화면이 각자 문장을 만들면
+ * 같은 사실이 자리마다 다르게 읽힌다 (D-R18 의 짝). 판정은 서버가 하고 여기는 **늘어놓기만** 한다.
+ */
+const CONFLICT_WITH: Record<string, string> = { teacher: '강사', room: '강의실', zoom: '줌' };
+
+/**
+ * 한 줄의 차례는 **무엇이 · 누구와 · 언제 · 어느 수업**이다 (B-17·B-18 원문).
+ *
+ * 수업 이름을 빼면 「1호와 겹칩니다」까지만 말하게 되는데, 잡는 사람이 다음에 하는 일은
+ * **그 수업을 찾아 보는 것**이라 이름이 없으면 한 걸음이 더 든다. 이름은 서버가 준다
+ * (`COALESCE(ser.title, kind.name)` — 비는 일이 없다). 이름 없는 상대는 자리도 만들지 않는다 —
+ * 「· 」만 남은 줄은 무언가 빠뜨린 것처럼 읽힌다.
+ */
+export function conflictLines(rows: readonly ConflictRow[]): string[] {
+  return rows.map((row) => [
+    `[${CONFLICT_WITH[row.with] ?? row.with}]`,
+    row.whoName ? `${row.whoName} ·` : null,
+    `${row.onDate} ${hhmm(row.startMin)}–${hhmm(row.endMin)}`,
+    row.title ? `· ${row.title}` : null,
+  ].filter(Boolean).join(' '));
+}
+
+/**
+ * 강사 불가 시간 경고 한 줄 — **막힌 것이 아니라 알리는 것**이다 (원본 §15·§16).
+ *
+ * 지금까지 관리자 화면 어디에도 UNAV 가 없어 **적어 낸 강사만 알고 잡는 사람은 몰랐다.**
+ * 판정과 사유는 서버가 주고 여기는 늘어놓기만 한다.
+ */
+/**
+ * 「못 한다고 적어 둔 시간에 걸쳤다」 한 줄씩.
+ *
+ * 인자는 **이 함수가 실제로 읽는 다섯 칸**이다 — `UnavWarnDto` 전체를 요구하면
+ * 같은 경고를 더 가볍게 내려보내는 자리(C96 `UnavWarnLiteDto`)가 이 함수를 못 쓴다.
+ */
+export function unavailableLines<
+  T extends Pick<UnavWarn, 'date' | 'teacherName' | 'startMin' | 'endMin' | 'reason'>,
+>(rows: readonly T[]): string[] {
+  return rows.map((row) => (
+    `${row.date} ${hhmm(row.startMin)}–${hhmm(row.endMin)} · ${row.teacherName} — ${row.reason}`
+  ));
+}
+
+/**
+ * 같은 학생이 같은 시각 다른 수업에도 있다 — 한 줄씩 (N-58 · **막지 않고 알린다**).
+ * 판정(그날 명단 · 휴원 · 그날만 빠짐)은 서버가 했고 여기는 늘어놓기만 한다 — 불가 시간 줄과 같은 자리 · 같은 모양이다.
+ */
+export function studentOverlapLines<
+  T extends Pick<StudentOverlap, 'studentName' | 'date' | 'otherTitle' | 'otherStartMin' | 'otherEndMin'>,
+>(rows: readonly T[]): string[] {
+  return rows.map((row) => (
+    `${row.studentName} · ${label(row.date)} ${hhmm(row.otherStartMin)}–${hhmm(row.otherEndMin)} ${row.otherTitle}`
+  ));
+}
+
+/**
+ * 「…을 되돌립니다」의 **을/를** — 앞 낱말의 받침이 정한다.
+ *
+ * 되돌리기 라벨은 「수업 삭제」·「휴강」·「그날 전체 휴강」·「수업 이동」처럼 받침이 갈린다.
+ * 한 쪽으로 굳히면 절반이 「수업 삭제**을**」이 된다 — 실제로 그렇게 나가고 있었다 (C99 QA 에서 봤다).
+ * 한글 음절은 0xAC00 부터 28개 종성 주기로 늘어서므로 나머지가 0이면 받침이 없다.
+ */
+export function objectParticle(word: string): '을' | '를' {
+  const last = word.trim().slice(-1);
+  const code = last.charCodeAt(0);
+  if (Number.isNaN(code) || code < 0xac00 || code > 0xd7a3) return '을';
+  return (code - 0xac00) % 28 === 0 ? '를' : '을';
+}

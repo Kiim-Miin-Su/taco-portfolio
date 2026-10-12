@@ -1,0 +1,120 @@
+/** @file-guide
+ * 목적: §53 청구서 줄의 「전달」·「취소」 — 단추는 서버 판정, 취소는 사유 필수 (C94-a).
+ * 책임/재사용: 실제 InvoiceActions/useInvoiceAction 을 쓰고 네트워크만 어댑터로 갈아 끼운다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, expect, it } from 'vitest';
+import { api } from '@/api/client';
+import type { Invoice } from '@/api/types';
+import { InvoiceActions } from './InvoiceActions';
+
+const base: Invoice = {
+  id: 42, studentId: 7, studentName: '양찬욱', grade: 'G10', studentTag: 'G10', yearMonth: '2026-08',
+  title: '2026년 8월 수업료 청구', amount: 250000, paidAmount: 0, state: 'draft', stateLabel: '작성 중',
+  invType: 'tuition', invTypeLabel: '수업료 청구',
+  issuedOn: '2026-09-12', dueOn: null, paidAt: null, remaining: 250000, overdueDays: 0,
+  sentAt: null, canDeliver: true, canVoid: true, voidBlockedReason: null, voidReason: null, lines: [],
+  installments: [], nextDueOn: null, nextInstallmentSeq: null, notice: null,
+};
+
+const originalAdapter = api.defaults.adapter;
+const clients: QueryClient[] = [];
+const posted: Array<{ url: string; body: unknown }> = [];
+afterEach(() => { cleanup(); clients.splice(0).forEach((c) => c.clear()); api.defaults.adapter = originalAdapter; posted.length = 0; });
+
+function setup(inv: Invoice, status = 201, data: unknown = inv) {
+  api.defaults.adapter = (async (config: { url?: string; method?: string; data?: string }) => {
+    if (config.method === 'post') {
+      posted.push({ url: config.url ?? '', body: config.data ? JSON.parse(config.data) : undefined });
+      if (status >= 400) return Promise.reject(Object.assign(new Error('fail'), { response: { status, data } }));
+      return { config, status, statusText: 'OK', headers: {}, data };
+    }
+    // 보호자 발송 창이 여는 두 조회 — 보호자 없음 · 채널 없음(창의 모양만 본다)
+    const url = config.url ?? '';
+    const got = url.includes('/guardians/channels') ? { channels: [] } : url.includes('/guardians') ? { guardians: [] } : {};
+    return { config, status: 200, statusText: 'OK', headers: {}, data: got };
+  }) as never;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  clients.push(client);
+  return render(<QueryClientProvider client={client}><InvoiceActions invoice={inv} /></QueryClientProvider>);
+}
+
+it('「전달」은 서버의 canDeliver 로 서고 누르면 그 줄의 deliver 를 부른다 (H-76)', async () => {
+  const v = setup(base);
+  fireEvent.click(v.getByRole('button', { name: '전달' }));
+  await waitFor(() => expect(posted).toHaveLength(1));
+  expect(posted[0]!.url).toContain('/accounting/invoices/42/deliver');
+});
+
+it('「취소」는 사유가 있어야 보내고, 지우지 않고 접는다는 말을 창이 한다 (N-139)', async () => {
+  const v = setup(base);
+  fireEvent.click(v.getByRole('button', { name: '취소' }));
+  const dialog = v.getByRole('dialog', { name: /^청구서 취소 — 양찬욱/ });
+  expect(within(dialog).getByText(/지우지 않고 「취소」로 접습니다/)).toBeTruthy();
+  const submit = within(dialog).getByRole('button', { name: '청구서 취소' }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText('취소 사유'), { target: { value: ' 단가를 잘못 넣었다 ' } });
+  fireEvent.click(submit);
+  await waitFor(() => expect(posted).toHaveLength(1));
+  expect(posted[0]).toEqual({ url: expect.stringContaining('/accounting/invoices/42/void'), body: { reason: '단가를 잘못 넣었다' } });
+});
+
+/**
+ * **막혀 있어도 왜 막혔는지는 말한다** (S5 · D-R39).
+ *
+ * 전에는 `canVoid` 가 false 면 단추가 통째로 사라져, 마감한 달이나 입금이 붙은 줄만 조용히
+ * 달라 보였다. 이제 자리는 남기고 서버가 준 문장을 그대로 `title` 에 단다 — **쓰기가 409 로
+ * 내는 그 문장**이다. 권한 자체가 없으면 이유도 없고 자리도 없다.
+ */
+it('취소가 막히면 단추는 서되 눌리지 않고, 서버가 준 이유를 그대로 단다 (S5)', () => {
+  const blocked = setup({
+    ...base, canDeliver: false, canVoid: false,
+    voidBlockedReason: '2026-08 은 마감됐습니다 — 마감을 풀고 고쳐 주세요',
+  });
+  const button = blocked.getByRole('button', { name: '취소' }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  expect(button.getAttribute('title')).toBe('2026-08 은 마감됐습니다 — 마감을 풀고 고쳐 주세요');
+  fireEvent.click(button);
+  expect(blocked.queryByRole('dialog')).toBeNull();
+  expect(posted).toHaveLength(0);
+});
+
+it('단추가 둘 다 없으면(대표 아님 · 이미 보냄) 아무것도 그리지 않고, 취소된 줄은 사유를 적는다 (D-R39)', () => {
+  const none = setup({ ...base, canDeliver: false, canVoid: false, voidBlockedReason: null });
+  expect(none.queryByRole('button')).toBeNull();
+  cleanup();
+  const voided = setup({ ...base, state: 'void', stateLabel: '취소', canDeliver: false, canVoid: false, voidBlockedReason: null, voidReason: '단가를 잘못 넣었다' });
+  expect(voided.getByText('취소 · 단가를 잘못 넣었다')).toBeTruthy();
+});
+
+it('취소 권한이 있는 사람에게도 취소된 줄은 사유를 적는다 — 서버는 취소된 줄에 「이미 취소된 청구서입니다」를 막힌 이유로 싣는다 (N-139 「이력에 남는다」 · all160)', () => {
+  // 서버 voidGate 의 실제 모양: 권한이 있으면 void 줄에도 voidBlockedReason 이 온다(accounting.service voidGate)
+  const voided = setup({
+    ...base, state: 'void', stateLabel: '취소', canDeliver: false, canVoid: false,
+    voidBlockedReason: '이미 취소된 청구서입니다', voidReason: '단가를 잘못 넣었다',
+  });
+  expect(voided.getByText('취소 · 단가를 잘못 넣었다')).toBeTruthy();
+  // 취소된 청구서에 다시 누를 「취소」 단추를 세우지 않는다 — 사유가 그 자리를 대신한다
+  expect(voided.queryByRole('button', { name: '취소' })).toBeNull();
+});
+
+it('전달된 청구서는 「학부모 안내」 단추가 서고, 누르면 보호자 발송 창이 그 학생 · 안내(pnotiId) · 서버 본문으로 열린다 (H-76 「학부모 안내가 생성된다」)', async () => {
+  const sent: Invoice = {
+    ...base, state: 'sent', stateLabel: '전달', canDeliver: false, canVoid: true, sentAt: '2026-09-29T00:00:00.000Z',
+    notice: { id: 910, body: '양찬욱 학생 2026년 8월 수업료 청구 — 청구 금액 250,000원 · 납부 기한 2026-09-13', sentAt: null },
+  };
+  const v = setup(sent);
+  expect(v.queryByRole('button', { name: '전달' })).toBeNull();
+  fireEvent.click(v.getByRole('button', { name: '학부모 안내' }));
+  const dialog = await v.findByRole('dialog', { name: /학부모 안내 — 양찬욱/ });
+  expect((await within(dialog).findByLabelText('보낼 내용') as HTMLTextAreaElement).value).toContain('청구 금액 250,000원');
+});
+
+it('안내를 이미 보낸 청구서는 단추 대신 보낸 시각을 적는다 — 보낸 것을 다시 만들지 않는다', () => {
+  const v = setup({ ...base, state: 'sent', stateLabel: '전달', canDeliver: false, canVoid: false, voidBlockedReason: '입금이 붙은 청구서는 취소할 수 없습니다',
+    notice: { id: 910, body: '본문', sentAt: '2026-09-29T03:10:00.000Z' } });
+  expect(v.queryByRole('button', { name: '학부모 안내' })).toBeNull();
+  expect(v.getByText(/안내 보냄/)).toBeTruthy();
+});

@@ -1,0 +1,362 @@
+/** @file-guide
+ * 목적: TuitionTable.tsx — TuitionTableProps, MonthCloseControls, TuitionTable (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * §54 수업료 계산 — 학생별 이번 달 진행과 금액.
+ *
+ * 원문 §54 의 마지막 줄이 이 화면의 정체다 — 「연동: **청구서 생성 시 이 계산 결과를 씁니다**」.
+ * 그래서 **여기서 아무것도 계산하지 않는다.** 「얼마나 갔나」의 %도, 머리 다섯 칸도,
+ * 「지금까지」와 「넘길 돈」도 전부 서버가 낸 값이다 (D-R37). 화면이 다시 나누면
+ * 미리 본 금액과 청구한 금액이 갈린다.
+ *
+ * ── 컷을 재어 보고 정한 것 둘 ──────────────────────────────────────────────
+ * ① **막대의 초록은 밑에 적은 % 와 같은 값이다.** 컷의 네 줄을 픽셀로 재었더니 초록의 끝이
+ *    73% · 57% · 68% · 69% 로 **적힌 숫자와 정확히 같았다**(= `done / total`). 처음 구현은 분모에
+ *    결강을 섞어 **막대는 절반인데 밑에는 75%** 라 적히고 있었다 — 한 칸에 분모가 둘이면
+ *    돈 화면에서 둘 중 하나는 반드시 틀린 값이고, 옆 칸의 「3 / 4」와도 갈린다.
+ *    컷에는 초록 뒤에 연한 토막이 하나 더 있는데 **그 너비는 네 줄에서 결강 수와 맞지 않는다**
+ *    (12% · 31% · 29% · 24% 인데 결강은 2 · 1 · 1 · 1). 뜻을 읽을 수 없어 만들지 않았다 (D-R44).
+ *    결강은 제 칸(붉은 숫자)과 「넘길 돈」에서 센다.
+ * ② **「시급」 칸은 값이 하나다.** 값이 둘 이상인 학생에게 대표 단가 하나를 적으면
+ *    「8 / 11 × ₩140,000」과 「지금까지 ₩1,365,000」이 곱해서 안 맞는데, **컷의 이하린 줄이
+ *    바로 그 모양이다**(8 × 140,000 = 1,120,000 ≠ 1,365,000). 즉 원문이 알고 그렇게 적었다.
+ *    그래서 고르지 않고 컷 그대로 대표 단가를 적는다. 정확한 줄은 「내역」에 있다.
+ *    다만 **단가표에 그 과목이 없으면 「단가 없음」**이라 적는다 — 컷에 없는 경우이고,
+ *    ₩0 을 시급이라고 적는 것은 §53 의 `INV_NO_RATE`(「0원 청구서는 조용히 틀린 청구서다」)와 어긋난다.
+ *
+ * ── 「이월 처리」 ─────────────────────────────────────────────────────────
+ * 대표 결정 2026-09-13 (N-39): 「이월 처리는 **수업이 결제 됐으나 정해진 시수가 채워지지 않은 경우**」.
+ * 그래서 단추는 **줄마다 서지 않는다** — 서버가 `carryable` 이라 한 줄에만 선다.
+ * 화면이 「완납인가」를 다시 읽으면 **단추가 서는 줄과 서버가 받아 주는 줄이 갈려** 「눌리는데
+ * 거절당하는 단추」가 된다 (D-R39). 이미 넘긴 달은 단추 대신 넘긴 시각을 적는다.
+ */
+'use client';
+import { useEffect, useId, useState } from 'react';
+import type { Tuition, TuitionRow } from '@/api/types';
+import { Banner, Button, Chip, Dialog, Drawer, Label, Panel, Table, Textarea, cn, type Column } from '@/components/ui';
+import { MASKED, won } from '@/lib/money';
+
+export interface TuitionTableProps {
+  data?: Tuition;
+  loading?: boolean;
+  /** 이월 처리 — 누를 수 있는 줄인지는 **서버가 정한다** (N-39) */
+  onCarry?: (studentId: number) => void;
+  carryingId?: number | null;
+  /** 월 마감 · 해제 (C92-d) — 단추가 서는지는 서버의 `canClose/canReopen` 이 정한다. 해제 사유는 창이 받는다 */
+  onCloseMonth?: () => void;
+  onReopenMonth?: (reason: string) => void;
+  closingMonth?: boolean;
+  closeError?: string | null;
+}
+
+/**
+ * 「N월 마감」 배지 + 「마감하기」·「마감 해제」 — 낱말·판정 전부 서버(`close`·`canClose`·`canReopen`).
+ * W11(N-37 ①) — 단추는 「정리 · 기준 › 월 마감」에서 선다(원문 연동 「월 마감 시 정리·기준 탭에서 확정」). §54 표는 배지만 그린다(단추 콜백을 안 받는다).
+ */
+export function MonthCloseControls({ data, onCloseMonth, onReopenMonth, pending = false, error }: {
+  data: Tuition; onCloseMonth?: () => void; onReopenMonth?: (reason: string) => void; pending?: boolean; error?: string | null;
+}) {
+  const id = useId();
+  const [dialog, setDialog] = useState<'close' | 'reopen' | null>(null);
+  const [reason, setReason] = useState('');
+  useEffect(() => { if (dialog === 'reopen') setReason(''); }, [dialog]);
+  // 저장이 끝나면(마감 여부가 뒤집히면) 창을 닫는다 — 실패하면 오류와 함께 열려 있다
+  useEffect(() => { setDialog(null); }, [data.close?.id ?? null]);
+  const monthLabel = `${Number(data.month.slice(5))}월`;
+  const closedAt = data.close ? `${data.close.closedAt.slice(5, 10).replace('-', '/')} ${data.close.closedBy}` : '';
+  return (
+    <>
+      <span className="flex flex-wrap items-center gap-1.5">
+        {data.close ? (
+          <Chip tone="warning" title={`마감 ${data.close.closedAt.slice(0, 16).replace('T', ' ')} · ${data.close.closedBy}`}>
+            {monthLabel} 마감 · {closedAt}
+          </Chip>
+        ) : null}
+        {data.canClose && onCloseMonth ? (
+          <Button size="sm" variant="secondary" disabled={pending} onClick={() => setDialog('close')}>{monthLabel} 마감하기</Button>
+        ) : null}
+        {data.canReopen && onReopenMonth ? (
+          <Button size="sm" variant="ghost" disabled={pending} onClick={() => setDialog('reopen')}>마감 해제</Button>
+        ) : null}
+      </span>
+      <Dialog
+        open={dialog === 'close'}
+        onClose={() => setDialog(null)}
+        title={`${monthLabel} 마감`}
+        footer={(
+          <>
+            <Button type="button" variant="ghost" onClick={() => setDialog(null)} disabled={pending}>취소 (Esc)</Button>
+            <Button type="button" variant="danger" onClick={() => onCloseMonth?.()} disabled={pending}>{pending ? '처리 중…' : '마감'}</Button>
+          </>
+        )}
+      >
+        <p className="text-[12.5px] text-fg-2">
+          마감하면 {monthLabel}의 회차·휴강·출결·청구서 발행·이월·휴원을 아무도 고칠 수 없습니다. 고쳐야 하면 대표가 사유를 적고 해제합니다 — 해제 기록은 남습니다.
+        </p>
+        {error ? <Banner tone="danger" className="mt-3">{error}</Banner> : null}
+      </Dialog>
+      <Dialog
+        open={dialog === 'reopen'}
+        onClose={() => setDialog(null)}
+        title={`${monthLabel} 마감 해제`}
+        footer={(
+          <>
+            <Button type="button" variant="ghost" onClick={() => setDialog(null)} disabled={pending}>취소 (Esc)</Button>
+            <Button type="button" variant="danger" onClick={() => onReopenMonth?.(reason.trim())} disabled={pending || !reason.trim()}>
+              {pending ? '처리 중…' : '해제'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-[12.5px] text-fg-2">무엇을 고치려고 여는지 적어 주세요 — 흔적 없이 고치지 않습니다.</p>
+          <div>
+            <Label htmlFor={`${id}-reason`} hint={`${reason.length} / 200`}>해제 사유</Label>
+            <Textarea id={`${id}-reason`} value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} disabled={pending} placeholder="예: 8월 휴강 하나를 빠뜨렸다" />
+          </div>
+          {error ? <Banner tone="danger">{error}</Banner> : null}
+        </div>
+      </Dialog>
+    </>
+  );
+}
+
+/** 컷의 머리 다섯 상자 — 값이 위, 이름이 아래다 */
+function HeadBox({ label, value, tone }: { label: string; value: string; tone?: 'warning' | 'info' }) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border px-3 py-2 text-center',
+        tone === 'warning' ? 'border-amber/30 bg-amber/10' : tone === 'info' ? 'border-blue/30 bg-blue/10' : 'border-line bg-card',
+      )}
+    >
+      <div className={cn('text-[15px] font-bold', tone === 'warning' ? 'text-amber' : tone === 'info' ? 'text-blue' : 'text-fg')}>{value}</div>
+      <div className="mt-0.5 text-[12px] text-fg-subtle">{label}</div>
+    </div>
+  );
+}
+
+/** 간 것 / 이 달에 할 수업 — 밑에 적는 값과 **같은 분모**를 쓴다 (위 주석 ①) */
+function ProgressBar({ row }: { row: TuitionRow }) {
+  return (
+    <div>
+      <div
+        role="img"
+        aria-label={`간 것 ${row.done}회 · 결강 ${row.canceled}회 · 남은 것 ${row.total - row.done}회`}
+        className="flex h-1.5 overflow-hidden rounded-full bg-line-2"
+      >
+        {/* 너비도 서버가 낸 percent 다 — 화면이 done/total 을 다시 나누면 막대와 숫자가 갈린다 */}
+        <span aria-hidden className="block h-full bg-green" style={{ width: `${row.percent}%` }} />
+      </div>
+      <div className="mt-1 text-center text-[12px] text-fg-subtle">{row.percent}%</div>
+    </div>
+  );
+}
+
+export function TuitionTable({ data, loading, onCarry, carryingId, onCloseMonth, onReopenMonth, closingMonth, closeError }: TuitionTableProps) {
+  const [openId, setOpenId] = useState<number | null>(null);
+  const rows = data?.items ?? [];
+  const open = rows.find((r) => r.studentId === openId) ?? null;
+  const n = (v?: number | null) => (v === null || v === undefined ? '—' : String(v));
+
+  const cols: Array<Column<TuitionRow>> = [
+    {
+      key: 's', head: '학생', width: 140,
+      cell: (r) => (
+        <span className="flex items-center gap-1.5">
+          <span className="font-bold">{r.name}</span>
+          {/* 동명이인이면 학교까지 붙은 서버 꼬리 (N-137) */}
+          {r.tag ? <Chip tone="neutral">{r.tag}</Chip> : null}
+        </span>
+      ),
+    },
+    { key: 'p', head: '얼마나 갔나', width: 220, cell: (r) => <ProgressBar row={r} /> },
+    {
+      key: 'n', head: '한 수업', width: 90, align: 'right',
+      cell: (r) => (
+        <span className="flex flex-col items-end">
+          <span>
+            <b className="text-[14px]">{r.done}</b>
+            <span className="text-fg-subtle"> / {r.total}</span>
+          </span>
+          {/* 추가 수업(KIND.extra)은 전체에 들되 따로 센다 — 청구서에서도 제 줄이다 (C94-d · C-38) */}
+          {r.extra > 0 ? <span className="text-[12px] text-blue">추가 {r.extra}</span> : null}
+        </span>
+      ),
+    },
+    {
+      // 차감은 결강이 아니라 「한 수업」에 든다 (C92 · C-31) — 결강 칸 옆에 따로 적어 회차 수가 맞는 이유를 보인다
+      key: 'c', head: '결강', width: 90, align: 'right',
+      cell: (r) => (
+        <span className="flex flex-col items-end">
+          {r.canceled > 0
+            ? <span className="font-bold text-red">{r.canceled}</span>
+            : <span className="text-fg-subtle">—</span>}
+          {r.deducted > 0 ? <span className="text-[12px] text-amber">차감 {r.deducted}</span> : null}
+        </span>
+      ),
+    },
+    {
+      // 컷의 낱말 그대로다 — 우리가 「단가」라 부르던 칸이다
+      key: 'u', head: '시급', width: 120, align: 'right',
+      cell: (r) => {
+        if (r.unitPrice === null || r.unitPrice === undefined) {
+          return <span className="text-[12px] text-fg-subtle">{MASKED}</span>;
+        }
+        // 단가표에 그 과목이 없다 — ₩0 을 시급이라고 적지 않는다 (위 주석 ②)
+        if (r.priceCount === 0) return <span className="text-[12px] text-fg-subtle">단가 없음</span>;
+        return (
+          <span>
+            <span className="block">{won(r.unitPrice)}</span>
+            {/* 컷이 「개별 단가」와 「일반」을 갈라 적는다 — 예외인지 한눈에 보여야 한다 */}
+            <span className="block text-[12px] text-fg-subtle">
+              {r.unitPriceOverride ? '개별 단가' : '일반'}
+            </span>
+          </span>
+        );
+      },
+    },
+    { key: 'd', head: '지금까지', width: 120, align: 'right', cell: (r) => won(r.doneAmount) },
+    {
+      key: 'y', head: '넘길 돈', width: 120, align: 'right',
+      cell: (r) => (r.carryAmount
+        ? <span className="font-bold text-amber">{won(r.carryAmount)}</span>
+        : <span className="text-fg-subtle">—</span>),
+    },
+    {
+      key: 'x', head: '', width: 150, align: 'right',
+      cell: (r) => (
+        <span className="flex items-center justify-end gap-1.5">
+          {/* 넘어온 것이 있으면 먼저 말한다 — 이 달이 받은 것이고 청구서에서 빠진다 (C-35: 누가 몇 회인지 금액까지) */}
+          {r.carriedInSessions > 0 ? (
+            <Chip tone="info">이월 {r.carriedInSessions}회{r.carriedIn ? ` · ${won(r.carriedIn)}` : ''} 받음</Chip>
+          ) : null}
+          {r.carriedAt ? (
+            <span className="text-[12px] text-fg-subtle">넘김 {r.carriedAt.slice(5, 10)}</span>
+          ) : r.carryable && onCarry ? (
+            <button
+              type="button"
+              disabled={carryingId === r.studentId}
+              className="rounded-md bg-primary px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50"
+              onClick={(e) => { e.stopPropagation(); onCarry(r.studentId); }}
+            >
+              {carryingId === r.studentId ? '넘기는 중…' : '이월 처리'}
+            </button>
+          ) : r.carryBlockedReason ? (
+            // 넘길 것은 있는데 서버가 막은 줄 — 왜 막혔는지 서버 문장을 그대로 둔다 (PB-04 · 쓰기의 409 와 같은 함수)
+            <span title={r.carryBlockedReason} aria-label={r.carryBlockedReason}>
+              <Chip tone="warning">이월 막힘</Chip>
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-md border border-line px-2 py-1 text-[12px] font-bold text-fg-2 hover:bg-inset"
+            onClick={(e) => { e.stopPropagation(); setOpenId(r.studentId); }}
+          >
+            내역
+          </button>
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      {data && !data.canSeeAmounts ? (
+        <Banner tone="neutral" className="mb-3">
+          금액은 대표만 봅니다 — 서버가 값을 내려보내지 않으므로 내역도 비어 있습니다. 숨긴 것이 아니라 받지 않은 것입니다.
+        </Banner>
+      ) : null}
+
+      <Panel>
+        {/* 컷은 제목 한 줄과 머리 다섯 상자가 **같은 줄**에 있다 */}
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[13px] font-bold text-fg">
+              {data ? `${Number(data.month.slice(5))}월 수업 진행` : '수업 진행'}
+            </h2>
+            {data ? (
+              <p className="mt-0.5 text-[12px] text-fg-subtle">
+                오늘 {data.today.slice(5)} 기준 · {data.daysPast}일 지남 · {data.daysLeft}일 남음
+              </p>
+            ) : null}
+            {/* 월 마감 (C92-d) — 마감이면 이 달의 쓰기는 서버가 409 로 막는다 */}
+            {data ? (
+              <div className="mt-1.5">
+                <MonthCloseControls data={data} onCloseMonth={onCloseMonth} onReopenMonth={onReopenMonth} pending={closingMonth} error={closeError} />
+              </div>
+            ) : null}
+          </div>
+          {/* 다섯 칸은 줄의 합이다 — 화면이 더하지 않는다 (D-R37). 추가 수업이 있는 달에만 여섯째 칸이 선다 (C-38 「별도로 잡힌다」) */}
+          <div className={`grid w-full grid-cols-3 gap-2 sm:w-auto ${data?.extraCount ? 'sm:grid-cols-6' : 'sm:grid-cols-5'}`}>
+            <HeadBox label="한 수업" value={n(data?.doneCount)} />
+            <HeadBox label="이번 달 전체" value={n(data?.totalCount)} />
+            {data?.extraCount ? <HeadBox label="추가 수업" value={n(data.extraCount)} tone="info" /> : null}
+            <HeadBox
+              label={data?.deductedCount ? `결강 · 휴강 (차감 ${data.deductedCount})` : '결강 · 휴강'}
+              value={n(data?.canceledCount)} tone="warning"
+            />
+            {/* 아직 응답이 없으면 「—」다 — 숨긴 금액 낱말(「비공개」)은 **권한이 없어서 서버가 안 줬다**는 뜻이라
+                불러오는 중에 쓰면 거짓말이 된다 (54-01 · 같은 페이지 머리 `Head` 와 같은 규칙) */}
+            <HeadBox label="지금까지 금액" value={won(data?.doneAmount, data ? {} : { empty: '—' })} />
+            <HeadBox label="다음 달로 넘길 돈" value={won(data?.carryAmount, data ? {} : { empty: '—' })} tone="warning" />
+          </div>
+          {/* 상단 「이월 N회 — 이 달 청구에서 빠집니다」 (C-35) — 없으면 줄 자체가 없다 */}
+          {data && data.carriedInCount > 0 ? (
+            <p className="w-full text-[12px] font-bold text-blue">
+              이월 {data.carriedInCount}회 받음{data.carriedInAmount ? ` · ${won(data.carriedInAmount)}` : ''} — {Number(data.month.slice(5))}월 청구에서 빠집니다
+            </p>
+          ) : null}
+        </div>
+
+        {/* 넘길 돈이 있는 줄은 서버가 위로 모았고(차례) 여기서는 옅게 칠한다 — 원문 §54 (x5 · 54-02).
+            판정은 서버의 carryPending 이다 — 금액은 권한이 없으면 null 이라 화면이 금액으로 가르지 않는다 */}
+        <Table
+          columns={cols}
+          rows={rows}
+          rowKey={(r) => r.studentId}
+          rowClassName={(r) => (r.carryPending ? 'bg-amber/5' : undefined)}
+          empty={loading ? '불러오는 중…' : '이번 달 수업이 있는 학생이 없습니다'}
+        />
+      </Panel>
+
+      <Drawer
+        open={open !== null}
+        onClose={() => setOpenId(null)}
+        title={open ? `${open.name} — 내역` : ''}
+        sub={open
+          ? `${open.done}/${open.total}회 · 지금까지 ${won(open.doneAmount)}${open.canceled ? ` · 결강 ${open.canceled}회` : ''}${open.deducted ? ` · 차감 ${open.deducted}회` : ''}`
+          : undefined}
+      >
+        {open ? (
+          <div className="p-4">
+            {open.lines.length === 0 ? (
+              <p className="text-[12px] text-fg-subtle">
+                {data?.canSeeAmounts
+                  ? '단가표에 없는 과목뿐이라 금액을 내지 않습니다 — 0원으로 꾸미지 않습니다.'
+                  : '금액을 볼 수 없어 내역이 내려오지 않았습니다.'}
+              </p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {open.lines.map((l, i) => (
+                  <li key={`${l.subKey ?? l.label}-${i}`} className="flex items-baseline gap-3 py-2">
+                    <span className="min-w-0 grow truncate text-[13px] font-bold">{l.label}</span>
+                    <span className="shrink-0 text-[12px] text-fg-subtle">{l.count}회 × {won(l.unitPrice)}</span>
+                    <span className="w-28 shrink-0 text-right text-[13px] font-bold">{won(l.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-4 border-t border-line pt-3 text-[12px] text-fg-subtle">
+              이 줄이 곧 청구서의 줄입니다 — 청구서를 만들 때 이 계산 결과를 그대로 씁니다.
+              「지금까지」는 이 중 이미 한 수업만 센 값이고, 결강은 「넘길 돈」으로 따로 섭니다.
+            </p>
+          </div>
+        ) : null}
+      </Drawer>
+    </>
+  );
+}

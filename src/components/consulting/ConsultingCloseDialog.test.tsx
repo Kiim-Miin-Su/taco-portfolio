@@ -1,0 +1,144 @@
+/** @file-guide
+ * 목적: 컨설팅 종료 창 — 서는지는 서버(canClose)가 정하고 막힌 이유를 그대로 띄우며, 안내문은 미리보기 응답 그대로 · 미리 본 뒤에만 확정 (C95 · I-95 · N-18).
+ * 책임/재사용: 실제 ConsultingCloseDialog/useCloseConsulting/useGuideTemplates 를 쓰고 네트워크만 어댑터로 갈아 끼운다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
+import type { ConsCloseResult, ConsultingDetail } from '@/api/types';
+import { ConsultingCloseDialog } from './ConsultingCloseDialog';
+import { CONTRACT_STEPS_FIXTURE } from './consulting.fixture';
+
+const base = {
+  id: 1, consType: 'essay', consTypeLabel: '에세이 지도', stage: 'running', contractStep: 5,
+  studentIds: [6], studentNames: ['체험인물34'], requester: 'father', ownerId: 7, ownerName: '체험인물11',
+  startOn: '2026-07-08', endOn: '2026-12-20', amount: 3600000, sessions: 8,
+  share: 'money_only', shareLabel: '수납만 공개', shareMeaning: '금액만 보이고 내용은 숨깁니다', contractSteps: CONTRACT_STEPS_FIXTURE,
+  pickedStaffIds: [], pickedStaffNames: [], createdAt: '2026-07-08T00:00:00+09:00',
+  typeCapability: { defaultItemsSupported: false, reason: '미확정', scheduleCreationSupported: false, scheduleCreationReason: '약정 회차만 저장' },
+  capabilities: {
+    canEdit: false, canChangeShare: false, canSetPrivate: false, canAddContractFile: false, canRemoveContractFile: false, canAddFeedback: false, canResolveFeedback: false,
+    canDeliver: false, canAddSignedFile: false, canAddPayment: false, payBlockedReason: null, canCreateInvoice: false, canArchive: true,
+    externalParentSendSupported: false, externalParentSendReason: null,
+    canAddSession: true, addSessionBlockedReason: null, canClose: false, closeBlockedReason: '약정 8회 중 3회를 했습니다 — 남은 5회를 마쳐야 종료할 수 있습니다',
+    archiveBlockedReason: '받은 돈이 있는 컨설팅은 지울 수 없습니다', canSendContract: false, canCloseException: false, canEditItems: true,
+  },
+  contractFiles: [], signedFiles: [], feedback: [], delivery: null, payment: { paid: 3600000, due: 0, invoiceId: null },
+  sessionsDone: 3, sessionsPlanned: 0, requiredLeft: 0, closedAt: null, closedByName: null, closeReason: null,
+} satisfies ConsultingDetail;
+const result: ConsCloseResult = {
+  preview: true, consId: 1, stage: 'done', studentNames: ['체험인물34'],
+  noticeBody: '컨설팅 종료 안내 — 에세이 지도 컨설팅(8회)이 마무리되었습니다. 그동안 함께해 주셔서 감사합니다. · 수고 많으셨습니다',
+  parentNotices: 1, sessionsDone: 8, sessions: 8, endOn: '2026-09-18', notified: true, exception: false,
+};
+
+const originalAdapter = api.defaults.adapter;
+const clients: QueryClient[] = [];
+const posts: Array<{ url?: string; body: unknown }> = [];
+afterEach(() => { cleanup(); clients.splice(0).forEach((c) => c.clear()); api.defaults.adapter = originalAdapter; posts.length = 0; });
+
+function setup(detail: ConsultingDetail) {
+  api.defaults.adapter = (async (config: { url?: string; method?: string; data?: string }) => {
+    if (config.method === 'post') {
+      posts.push({ url: config.url, body: JSON.parse(config.data ?? '{}') });
+      return { config, status: 201, statusText: 'Created', headers: {}, data: { ...result, preview: config.url?.endsWith('/preview') ?? false } };
+    }
+    return { config, status: 200, statusText: 'OK', headers: {}, data: config.url === '/guides/templates' ? [{ id: 4, name: '컨설팅 종료', body: '틀 본문' }] : {} };
+  }) as never;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(client);
+  const onDone = vi.fn();
+  const onClose = vi.fn();
+  const view = render(<QueryClientProvider client={client}><ConsultingCloseDialog open detail={detail} onClose={onClose} onDone={onDone} /></QueryClientProvider>);
+  return { view, onDone, onClose };
+}
+
+it('서버가 막으면 이유 문장을 그대로 띄우고 미리 보기부터 잠긴다 — 화면이 회차를 다시 세지 않는다 (N-18)', async () => {
+  const { view } = setup(base);
+  const dialog = await view.findByRole('dialog', { name: '컨설팅 종료 — 체험인물34' });
+  expect((dialog.textContent ?? '')).toContain('남은 5회를 마쳐야 종료할 수 있습니다');
+  expect((within(dialog).getByRole('button', { name: '미리 보기' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(dialog).getByRole('button', { name: '종료 확정' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(posts).toHaveLength(0);
+});
+
+it('열리면 문구 틀·한 줄을 보내 미리 보고, 안내문은 응답 그대로 · 미리 본 뒤에만 「종료 확정」 (I-95)', async () => {
+  const { view, onDone, onClose } = setup({ ...base, sessionsDone: 8, capabilities: { ...base.capabilities, canClose: true, closeBlockedReason: null } });
+  const dialog = await view.findByRole('dialog', { name: '컨설팅 종료 — 체험인물34' });
+  expect((dialog.textContent ?? '')).toContain('회차 8 / 약정 8');
+  await waitFor(() => expect(within(dialog).getByRole('option', { name: '컨설팅 종료' })).toBeTruthy());
+  const confirm = within(dialog).getByRole('button', { name: '종료 확정' }) as HTMLButtonElement;
+  expect(confirm.disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText('안내 문구 틀'), { target: { value: '4' } });
+  fireEvent.change(within(dialog).getByLabelText(/안내문 뒤에 붙는 한 줄/), { target: { value: ' 수고 많으셨습니다 ' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toEqual({ url: '/consulting/1/close/preview', body: { templateId: 4, memo: '수고 많으셨습니다' } });
+  const box = await within(dialog).findByLabelText('종료 미리보기');
+  expect(box.textContent).toContain(result.noticeBody);
+  expect(box.textContent).toContain('학부모 안내 · 1명 · 종료일 2026-09-18 · 회차 8 / 8');
+  await waitFor(() => expect((within(dialog).getByRole('button', { name: '종료 확정' }) as HTMLButtonElement).disabled).toBe(false));
+  // 한 줄을 고치면 다시 잠긴다
+  fireEvent.change(within(dialog).getByLabelText(/안내문 뒤에 붙는 한 줄/), { target: { value: '다른 말' } });
+  expect((within(dialog).getByRole('button', { name: '종료 확정' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText(/안내문 뒤에 붙는 한 줄/), { target: { value: '수고 많으셨습니다' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '종료 확정' }));
+  await waitFor(() => expect(posts).toHaveLength(2));
+  expect(posts[1]!.url).toBe('/consulting/1/close');
+  await waitFor(() => expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ preview: false, parentNotices: 1 })));
+  expect(onClose).toHaveBeenCalled();
+});
+
+/**
+ * 예외 종료(W11) — 정상 종료가 남은 회차 · 필수 항목으로 막혔고 서버가 `canCloseException` 을 열었을 때만 사유 칸이 선다.
+ * 사유와 **사람이 고르거나 적은** 학부모 안내가 있어야 서버에 묻고, 미리 본 그 본문 그대로 승인한다.
+ */
+it('서버가 예외 종료를 열면 사유와 학부모 안내(틀이나 글)가 있어야 미리 보고, 같은 본문으로 승인한다 (W11 예외 종료)', async () => {
+  const { view, onDone } = setup({ ...base, capabilities: { ...base.capabilities, canCloseException: true } });
+  const dialog = await view.findByRole('dialog', { name: '컨설팅 종료 — 체험인물34' });
+  expect(dialog.textContent).toContain('남은 5회를 마쳐야 종료할 수 있습니다');
+  expect(dialog.textContent).toContain('예외 종료는 사유를 적고 승인하면');
+  const preview = within(dialog).getByRole('button', { name: '미리 보기' }) as HTMLButtonElement;
+  expect(preview.disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText('예외 종료 사유'), { target: { value: ' 학부모 요청으로 중단 ' } });
+  // 사유만으로는 묻지 않는다 — 학부모에게 갈 글은 사람이 고르거나 적는다(서버 기본 문장이 없다)
+  expect(preview.disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText(/학부모 안내 글/), { target: { value: '그동안 감사했습니다' } });
+  expect(preview.disabled).toBe(false);
+  fireEvent.click(preview);
+  await waitFor(() => expect(posts).toHaveLength(1));
+  const sent = { memo: '그동안 감사했습니다', exception: { reason: '학부모 요청으로 중단' } };
+  expect(posts[0]).toEqual({ url: '/consulting/1/close/preview', body: sent });
+  await within(dialog).findByLabelText('종료 미리보기');
+  const approve = within(dialog).getByRole('button', { name: '예외 종료 승인' }) as HTMLButtonElement;
+  await waitFor(() => expect(approve.disabled).toBe(false));
+  fireEvent.click(approve);
+  await waitFor(() => expect(posts).toHaveLength(2));
+  expect(posts[1]).toEqual({ url: '/consulting/1/close', body: sent });
+  await waitFor(() => expect(onDone).toHaveBeenCalled());
+});
+
+it('예외 종료가 닫혀 있으면(서버 판정) 사유 칸도 승인 단추도 없다', async () => {
+  const { view } = setup(base);
+  const dialog = await view.findByRole('dialog', { name: '컨설팅 종료 — 체험인물34' });
+  expect(within(dialog).queryByLabelText('예외 종료 사유')).toBeNull();
+  expect(within(dialog).queryByRole('button', { name: '예외 종료 승인' })).toBeNull();
+});
+
+/**
+ * I-95 「카카오로 보낼 수 있는 문구」 — 카카오 발송 채널은 없다(발송은 이메일 · SENS · N-42/DQ3). 대신 서버가 만든 안내문을
+ * 그대로 카카오톡 대화창에 붙일 수 있게 한 번에 복사한다. 글을 화면이 다시 짓지 않는다 — 복사되는 글은 noticeBody 그대로다.
+ */
+it('미리보기의 안내문을 카카오톡 문구로 그대로 복사한다 — 발송 채널이 아니라 붙여 넣을 글이다 (I-95)', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  const { view } = setup({ ...base, sessionsDone: 8, capabilities: { ...base.capabilities, canClose: true, closeBlockedReason: null } });
+  const dialog = await view.findByRole('dialog', { name: '컨설팅 종료 — 체험인물34' });
+  fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }));
+  const kakao = await within(dialog).findByRole('group', { name: '카카오톡 문구' });
+  fireEvent.click(within(kakao).getByRole('button', { name: '카카오톡 문구 복사' }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(result.noticeBody));
+  expect(await within(kakao).findByText('복사했습니다 — 카카오톡 대화창에 붙여 넣으세요')).toBeTruthy();
+});

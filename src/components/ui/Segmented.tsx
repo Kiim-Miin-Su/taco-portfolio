@@ -1,0 +1,53 @@
+/** @file-guide
+ * 목적: Segmented.tsx — SegmentedProps, Segmented, Tabs (ui)
+ * 책임/재사용: props와 공용 시각 토큰으로 표현한다. 업무 권한·정산 판정, Axios 호출, 서버 캐시를 소유하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/** UI/Segmented · UI/Tab — 보기 전환. 일·주·월 같은 것. */
+import { cn } from './cn';
+
+export interface SegmentedProps<T extends string> {
+  options: Array<{ value: T; label: string }>;
+  value: T;
+  onChange: (v: T) => void;
+  className?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+}
+
+export function Segmented<T extends string>({ options, value, onChange, className, disabled = false, ariaLabel }: SegmentedProps<T>) {
+  return (
+    <div role="group" aria-label={ariaLabel} className={cn('inline-flex rounded-lg bg-inset p-0.5', className)}>
+      {options.map((o) => (
+        <button
+          key={o.value} type="button" aria-pressed={o.value === value} disabled={disabled} onClick={() => onChange(o.value)}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+            o.value === value ? 'bg-card text-fg shadow-sm' : 'text-fg-subtle hover:text-fg-2',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Tabs<T extends string>({ options, value, onChange, className, disabled = false, ariaLabel }: SegmentedProps<T>) {
+  return (
+    <div role="group" aria-label={ariaLabel} className={cn('flex gap-1 border-b border-line', className)}>
+      {options.map((o) => (
+        <button
+          key={o.value} type="button" aria-pressed={o.value === value} disabled={disabled} onClick={() => onChange(o.value)}
+          className={cn(
+            '-mb-px border-b-2 px-3 py-2 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+            o.value === value ? 'border-primary text-primary' : 'border-transparent text-fg-subtle hover:text-fg-2',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}

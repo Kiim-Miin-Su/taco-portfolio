@@ -1,0 +1,139 @@
+/** @file-guide
+ * 목적: OtherIncome.tsx — OtherIncomeProps, OtherIncome (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * §57 「그 밖의 수입 — 수업료가 아닌 돈 · 누르면 자세히 봅니다」.
+ *
+ * 컷의 줄 셋은 **청구 종류**다(대표 결정 N-37 · C64). 줄 제목·부제·상태 낱말은 전부 서버가 주고
+ * 건수·금액·「받음」·「청구 안 함」도 서버가 센다 (D-R18 · D-R37). 여기서 더하거나 거르지 않는다.
+ *
+ * **줄이 0건이어도 사라지지 않는다** — 종류는 어휘이지 데이터가 아니다. 그 달에 진단고사 청구가
+ * 없다고 줄이 사라지면 화면이 「이 학원은 진단고사를 안 한다」고 말하는 셈이 된다.
+ *
+ * ── 빛깔 ─────────────────────────────────────────────────────────────────
+ * 컷의 점은 분홍 · 청록 · 주황이고 §55 분류 칩의 색 사각형과 **같은 빛깔**이다(57-02).
+ * 그래서 두 화면이 `category-tone.ts` 한 벌을 쓴다 — 컨설팅 분홍 · 진단고사 청록 · 응시료 주황 계열.
+ * 전에는 기본 아홉 토큰 안에서 보라 · 초록 · 황토로 골라 두어 §55 와 색이 갈렸다. **값은 여전히 토큰에서만 온다.**
+ *
+ * ── 「일별 · 주별 · 월별」 ────────────────────────────────────────────────
+ * 대표 결정 2026-09-13 (N-40): 「**일/주/월 + 유저 선택 시 날짜별 → 서브 그룹**」.
+ * 그래서 이 토글은 **줄의 숫자를 바꾸지 않는다** — 접힌 줄은 여전히 **전 기간**의 합계이고
+ * (§52 머리 여섯 칸과 같다), **줄을 펼쳤을 때 그 눈금으로 날짜 묶음이 생긴다.**
+ * 묶는 것도 묶음의 합계도 서버가 한다 — 화면은 눈금을 고르기만 한다.
+ *
+ * ── 컨설팅 비공개 (N-94 · W11 M2) ─────────────────────────────────────────
+ * 스위치가 켜져 있고 비공개 열람이 없으면 서버가 **펼친 묶음 · 청구서 금액만** null 로 준다 — 접힌 줄의 합계는 그대로다.
+ * null 은 권한이든 스위치든 숨긴 금액 낱말 한 벌(「비공개」 · `lib/money` · W11 D)로 적는다(청구서 금액에는 「미확인」이 없다).
+ */
+'use client';
+import { useState } from 'react';
+import type { OtherIncome as OtherIncomeData, OtherIncomeRow } from '@/api/types';
+import { Banner, Chip, Panel, Segmented, cn } from '@/components/ui';
+import { won } from '@/lib/money';
+import { categoryTone } from './category-tone';
+
+export interface OtherIncomeProps {
+  data?: OtherIncomeData;
+  loading?: boolean;
+  /** 날짜 눈금 — 고르는 것은 화면, 묶는 것은 서버다 (N-40) */
+  span?: string;
+  onSpanChange?: (span: string) => void;
+}
+
+/** 컷 오른쪽의 세 단추 — 낱말은 컷의 것이다 */
+const SPANS = [
+  { value: 'day', label: '일별' },
+  { value: 'week', label: '주별' },
+  { value: 'month', label: '월별' },
+];
+
+function Row({ row }: { row: OtherIncomeRow }) {
+  const [open, setOpen] = useState(false);
+  // 종류마다의 빛깔 — §55 분류 칩과 같은 한 벌 (위 주석). 띠와 점이 같은 색이다
+  const tone = { bar: categoryTone(row.key), dot: categoryTone(row.key) };
+  return (
+    <div className="overflow-hidden rounded-xl border border-line bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 text-left hover:bg-inset"
+      >
+        <span aria-hidden className={cn('w-1 self-stretch', tone.bar)} />
+        <span className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 py-3">
+          <span aria-hidden className={cn('size-2 shrink-0 rounded-full', tone.dot)} />
+          <span className="text-[13.5px] font-bold text-fg">{row.label}</span>
+          <span className="truncate text-[12px] text-fg-subtle">{row.sub}</span>
+        </span>
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2 py-3 pr-3">
+          <span className="text-[12px] text-fg-subtle">{row.count}건</span>
+          <span className="text-[14px] font-bold text-fg">{won(row.amount)}</span>
+          <Chip tone="success">받음 {won(row.paid)}</Chip>
+          {/* 0 이면 뱃지를 달지 않는다 — 「청구 안 함 0」은 아무 말도 하지 않는다 */}
+          {row.unbilled > 0 ? <Chip tone="danger">청구 안 함 {row.unbilled}</Chip> : null}
+          <span aria-hidden className={cn('text-[12px] text-fg-subtle transition-transform', open && 'rotate-90')}>▶</span>
+        </span>
+      </button>
+
+      {open ? (
+        <div className="border-t border-line">
+          {row.groups.length === 0 ? (
+            <p className="px-4 py-3 text-[12px] text-fg-subtle">이 종류로 낸 청구서가 아직 없습니다.</p>
+          ) : (
+            row.groups.map((g) => (
+              <div key={g.key}>
+                {/* 날짜 묶음 머리 — 이름도 건수도 합계도 서버가 만든 값이다 (N-40 · D-R37) */}
+                <div className="flex items-baseline justify-between gap-2 bg-inset px-4 py-1.5">
+                  <span className="text-[12px] font-bold text-fg-2">{g.label}</span>
+                  <span className="text-[12px] text-fg-subtle">{g.count}건 · {won(g.amount)}</span>
+                </div>
+                <ul className="divide-y divide-line">
+                  {g.items.map((it) => (
+                    <li key={it.invId} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+                      <span className="text-[12.5px] font-bold text-fg">{it.studentName}</span>
+                      <span className="min-w-0 grow truncate text-[12px] text-fg-2">{it.title}</span>
+                      {/* 상태 낱말도 서버가 짓는다 — 화면이 코드값을 찍지 않는다 (D-R18) */}
+                      <Chip tone={it.unbilled ? 'neutral' : 'info'}>{it.stateLabel}</Chip>
+                      <span className="w-24 shrink-0 text-right text-[12.5px] font-bold">{won(it.amount)}</span>
+                      <span className="w-24 shrink-0 text-right text-[12px] text-fg-subtle">받음 {won(it.paid)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function OtherIncome({ data, loading, span = 'month', onSpanChange }: OtherIncomeProps) {
+  return (
+    <>
+      {data && !data.canSeeAmounts ? (
+        <Banner tone="neutral" className="mb-3">
+          금액은 대표만 봅니다 — 서버가 값을 내려보내지 않습니다. 건수는 금액과 무관해 그대로 보입니다.
+        </Banner>
+      ) : null}
+      <Panel
+        title="그 밖의 수입"
+        sub="수업료가 아닌 돈 · 누르면 자세히 봅니다"
+        right={onSpanChange
+          ? <Segmented options={SPANS} value={span} onChange={onSpanChange} />
+          : undefined}
+      >
+        {data ? (
+          <div className="flex flex-col gap-2">
+            {data.rows.map((r) => <Row key={r.key} row={r} />)}
+          </div>
+        ) : (
+          <p className="text-[12px] text-fg-subtle">{loading ? '불러오는 중…' : '아직 불러오지 않았습니다'}</p>
+        )}
+      </Panel>
+    </>
+  );
+}

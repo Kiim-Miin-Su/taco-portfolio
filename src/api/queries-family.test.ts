@@ -1,0 +1,549 @@
+/** @file-guide
+ * 목적: 갈래 앞자락이 정말 캐시 키의 앞자락인지 기계로 확인한다 (C48).
+ * 책임/재사용: 실제 qk/family/sessionQueryKey 를 그대로 쓴다. 키 모양을 테스트에 다시 적지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createElement, type PropsWithChildren } from 'react';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { AxiosAdapter } from 'axios';
+import { describe, expect, it, vi } from 'vitest';
+import { api, ApiError } from './client';
+import { useSession } from '@/store/useSession';
+import {
+  family, qk, sessionQueryKey, useCreateBookIssue, useCreateBookPack, useDrawerWrite, useWriteGuideBody, useCreateZoomAccount, usePatchZoomAccount, useMeta, useAssignZoom, useGuides, useLessonTracking, useOccurrences,
+  // W11 D — 옛 로컬 훅 파일(intake · ops · accounting)에서 옮긴 쓰기 훅
+  useAddPlanTask, useBookLeadAppt, useCreateMarketing, useDeleteLeadAppt, useExtendLeadHold, useSaveLeadAppt, useSaveLeadPlan, useScheduleLeadAppts,
+  useSetAcctPrivacy, useWriteBonusRule,
+} from './queries';
+
+/**
+ * TanStack Query 는 **앞자락**으로만 거른다. `sessionQueryKey` 가 사용자 id 를 꼬리에
+ * 붙이므로, 갈래를 버리겠다고 그 꼬리를 앞자락에 끼워 넣으면 아무것도 안 걸린다 —
+ * 오류도 안 나고 화면만 옛 값을 계속 보여 준다. 그래서 기계가 대신 본다.
+ */
+const startsWith = (key: readonly unknown[], head: readonly unknown[]): boolean =>
+  head.every((seg, i) => JSON.stringify(key[i]) === JSON.stringify(seg));
+
+const RANGE = { from: '2026-09-01', to: '2026-09-30' };
+
+it.each(['create', 'patch'] as const)('줌 계정 %s 뒤 사용자별 계정 후보 캐시도 다시 조회한다', async (kind) => {
+  const client = new QueryClient();
+  const viewerId = useSession.getState().me?.id ?? 'anonymous';
+  const keys = [qk.meta, qk.zoom(undefined), qk.occurrences(RANGE)];
+  keys.forEach((key) => client.setQueryData(sessionQueryKey(key, viewerId), { marker: '이전 계정 후보' }));
+  const post = vi.spyOn(api, 'post').mockResolvedValue({ data: {} });
+  const patch = vi.spyOn(api, 'patch').mockResolvedValue({ data: {} });
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+  const view = renderHook(() => ({ create: useCreateZoomAccount(), patch: usePatchZoomAccount() }), { wrapper });
+  try {
+    await act(async () => {
+      if (kind === 'create') await view.result.current.create.mutateAsync({ label: 'QA', loginEmail: 'qa@example.test', joinUrl: 'https://zoom.us/j/3' });
+      else await view.result.current.patch.mutateAsync({ id: 3, active: false });
+    });
+    for (const key of keys) expect(client.getQueryState(sessionQueryKey(key, viewerId))?.isInvalidated).toBe(true);
+  } finally { view.unmount(); client.clear(); post.mockRestore(); patch.mockRestore(); }
+});
+
+it('활성 상태 저장 뒤 열려 있는 meta 소비자가 새 후보를 받아 표시한다', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const get = vi.spyOn(api, 'get').mockResolvedValueOnce({ data: { zaccs: [{ id: 3, label: 'QA' }] } })
+    .mockResolvedValue({ data: { zaccs: [] } });
+  const patch = vi.spyOn(api, 'patch').mockResolvedValue({ data: {} });
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+  const view = renderHook(() => ({ meta: useMeta(), patch: usePatchZoomAccount() }), { wrapper });
+  try {
+    await waitFor(() => expect(view.result.current.meta.data?.zaccs).toHaveLength(1));
+    await act(async () => { await view.result.current.patch.mutateAsync({ id: 3, active: false }); });
+    await waitFor(() => expect(view.result.current.meta.data?.zaccs).toEqual([]));
+    expect(get).toHaveBeenCalledTimes(2); // 최초 조회 1회 + 저장 후 후보 재조회 1회
+  } finally { view.unmount(); client.clear(); get.mockRestore(); patch.mockRestore(); }
+});
+
+it.each([true, false])('줌 배정 성공=%s일 때 현재 사용자 안내·트래킹만 추가 갱신하고 meta는 유지한다', async (success) => {
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  const viewerId = useSession.getState().me?.id ?? 'anonymous';
+  const changed = [qk.guides, qk.tracking(8, '2026-09-19')];
+  const preserved = [qk.meta, qk.books, qk.drawer()];
+  [...changed, ...preserved].forEach((key) => client.setQueryData(sessionQueryKey(key, viewerId), { marker: 'before' }));
+  changed.forEach((key) => client.setQueryData(sessionQueryKey(key, 99999), { marker: 'other viewer' }));
+  const post = vi.spyOn(api, 'post');
+  if (success) post.mockResolvedValue({ data: {} });
+  else post.mockRejectedValue(new ApiError('RESOURCE_CONFLICT', '겹칩니다', 409));
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+  const view = renderHook(() => useAssignZoom(), { wrapper });
+  try {
+    await act(async () => {
+      const pending = view.result.current.mutateAsync({ serId: 8, onDate: '2026-09-19', zaccId: 3 });
+      if (success) await pending;
+      else await expect(pending).rejects.toMatchObject({ status: 409 });
+    });
+    for (const key of changed) {
+      expect(client.getQueryState(sessionQueryKey(key, viewerId))?.isInvalidated).toBe(success);
+      expect(client.getQueryState(sessionQueryKey(key, 99999))?.isInvalidated).toBe(false);
+    }
+    for (const key of preserved) expect(client.getQueryState(sessionQueryKey(key, viewerId))?.isInvalidated).toBe(false);
+  } finally { view.unmount(); client.clear(); post.mockRestore(); }
+});
+
+it('배정 후 mounted 안내·트래킹·회차가 새 GET을 받고 meta GET은 늘지 않는다', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  let version = 0;
+  const get = vi.spyOn(api, 'get').mockImplementation(async () => ({ data: { version, zaccs: [] } }));
+  const post = vi.spyOn(api, 'post').mockImplementation(async () => { version = 1; return { data: {} }; });
+  const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+  const view = renderHook(() => ({
+    guides: useGuides(), tracking: useLessonTracking(8, '2026-09-19', true), occurrences: useOccurrences(RANGE), meta: useMeta(), assign: useAssignZoom(),
+  }), { wrapper });
+  const count = (url: string) => get.mock.calls.filter(([path]) => path === url).length;
+  try {
+    await waitFor(() => expect([view.result.current.guides, view.result.current.tracking, view.result.current.occurrences, view.result.current.meta].every((q) => q.isSuccess)).toBe(true));
+    await act(async () => { await view.result.current.assign.mutateAsync({ serId: 8, onDate: '2026-09-19', zaccId: 3 }); });
+    await waitFor(() => {
+      expect(view.result.current.guides.data).toMatchObject({ version: 1 });
+      expect(view.result.current.tracking.data).toMatchObject({ version: 1 });
+      expect(view.result.current.occurrences.data).toMatchObject({ version: 1 });
+    });
+    expect(count('/guides')).toBe(2);
+    expect(count('/schedule/tracking')).toBe(2);
+    expect(count('/schedule/occurrences')).toBe(2);
+    expect(count('/meta')).toBe(1);
+  } finally { view.unmount(); client.clear(); get.mockRestore(); post.mockRestore(); }
+});
+
+/** 인자를 받는 `qk` 마다 **실제 키 한 벌**. 새 키가 늘면 여기에도 한 줄이 늘어야 한다. */
+const SAMPLE: Record<string, readonly unknown[]> = {
+  occurrences: qk.occurrences({ ...RANGE }),
+  // 전일 휴원 보호자 안내 — 날짜별 reload 복구 목록이며 day-cancel/undo가 이 갈래를 버린다 (N-133)
+  dayCancelNotices: qk.dayCancelNotices('2026-09-28'),
+  reports: qk.reports({ ...RANGE }),
+  unwritten: qk.unwritten(3),
+  reportDetail: qk.reportDetail(1, '2026-09-01'),
+  reportDelivery: qk.reportDelivery('2026-09-12'),
+  reportDeliveryHistory: qk.reportDeliveryHistory({ onDate: '2026-09-12' }),
+  board: qk.board({ ...RANGE }),
+  exec: qk.exec({ ...RANGE }),
+  teacherGuides: qk.teacherGuides(undefined),
+  teacherLessonHub: qk.teacherLessonHub(7, '2026-09-01', '2026-09-19'),
+  teacherUnav: qk.teacherUnav(undefined),
+  gpa: qk.gpa('2026-09-01'),
+  zoom: qk.zoom(undefined),
+  drawer: qk.drawer(),
+  guideHistory: qk.guideHistory({ span: 'month', anchor: '2026-09-01' }),
+  tracking: qk.tracking(3, '2026-09-11'),
+  // 공휴일 이름표 · 강사 불가 시간(관리자 읽기) — 기간이 키에 든다 (wave5 · §09 #2 · G37)
+  holidays: qk.holidays('2026-08-01', '2026-08-31'),
+  scheduleUnav: qk.scheduleUnav('2026-08-01', '2026-08-31'),
+  // §10 개인 머리 「교재 없음」 — 교재 갈래 안에 산다(배부 쓰기가 family.books 를 버린다)
+  studentBooks: qk.studentBooks(4),
+  // §39 서가 필터 · §38 배부 창 진단 한 줄 — 교재 갈래 안에 산다(교재 쓰기가 family.books 를 버린다) (W11 N-47 · N-62)
+  bookShelf: qk.bookShelf({ subject: 'english' }),
+  bookIssueDiag: qk.bookIssueDiag(3),
+  // §65 보고서 키는 `ops` 갈래 안에 산다 — 기획 결재가 운영 목록을 함께 바꾸기 때문이다 (C56)
+  plan: qk.plan(3),
+  meeting: qk.meeting(4),
+  tuition: qk.tuition('2026-09'),
+  // §57 의 날짜 눈금이 키에 든다 — 눈금을 바꾸면 다른 답이 온다 (C70 · N-40)
+  otherIncome: qk.otherIncome('month'),
+  // §57 강사료 시트 — 달이 키에 든다. 확정이 회계 갈래를 버리면 시트도 함께 다시 온다 (C94-b)
+  payoutSheet: qk.payoutSheet('2026-08'),
+  // 실제 지급 증빙 원장 — 달이 키에 든다. 입금 증빙 저장·취소가 회계 갈래를 함께 갱신한다 (BO-11AD-01)
+  paymentEvidence: qk.paymentEvidence('2026-10'),
+  // 청구 조정 원장은 선택 달과 session viewer를 분리한다 (BO-11BD-01).
+  invoiceAdjustments: qk.invoiceAdjustments('2026-10'),
+  // 학생 실제 환불도 달별 회계 갈래에서 조회하고 지급·취소 뒤 같은 갈래를 버린다 (BOC-11D-02).
+  studentRefunds: qk.studentRefunds('2026-10'),
+  // 강사 시급 이력 — 회계 갈래 안에 산다. 새 줄이 정산 시트를 함께 바꾼다 (C97 · D-48)
+  wageHistory: qk.wageHistory(7),
+  consultingDetail: qk.consultingDetail(7),
+  // 학생의 보호자 — 보호자 갈래 안에 산다. 대표 바꾸기가 같은 학생의 다른 줄도 바꾼다 (DQ3)
+  guardians: qk.guardians(4),
+  // §11 개인 머리 「안내 N」 — 안내 갈래 안에 산다(보내기 · 확인 쓰기가 family.guides 를 버린다) (W11 N-100)
+  teacherGuideCount: qk.teacherGuideCount(7),
+  // 주간 묶음 — 리포트 갈래 안의 제 갈래(family.reportWeekly)에 산다. 총평 저장 · 발송이 그 갈래만 버린다 (W11 N-54)
+  reportWeekly: qk.reportWeekly('2026-09-21'),
+  // 옛 `accounting-queries.ts` 에서 옮긴 키 (W11 D) — 회계 갈래 안에 산다. 입금 · 발행 · 확정이 family.accounting 을 버리면 같이 다시 온다
+  cashflow: qk.cashflow({ from: '2026-09-01', to: '2026-09-30' }),
+  payoutDetail: qk.payoutDetail(7, '2026-08'),
+  invoiceDraft: qk.invoiceDraft({ studentId: 3, yearMonth: '2026-09', invType: 'tuition' }),
+  scheduleHistory: qk.scheduleHistory(120),
+  materialRequests: qk.materialRequests('received'),
+};
+
+/** 인자를 안 받는 상수 키 중 갈래 앞자락을 가진 것 — 이것도 「걸리는 키」로 센다 */
+const CONST_SAMPLE: readonly (readonly unknown[])[] = [
+  qk.horizon,
+  qk.accounting,
+  // 실제 강사 지급 원장 — 최신 확정 2개월을 서버가 정하므로 기간 인자가 없는 회계 상수 키다 (BO-11AD-03)
+  qk.payoutDisbursement,
+  // 단가표 — 회계 갈래 안에 산다. 단가 한 줄이 §54·청구서를 함께 바꾼다 (C94-d)
+  qk.rateBook,
+  qk.ops,
+  qk.teacherHome,
+  // 강사 머리줄(시간대·시급·내 알림) — 읽음 처리가 이 갈래만 다시 읽는다
+  qk.teacherShell,
+  // 강사 월기록 — 서버 KST 직전 달 하나만 읽는 상수 키 (BOC-09D-01)
+  qk.teacherHistory,
+  qk.receivedGuides,
+  qk.guides,
+  qk.guideStudents,
+  qk.guideHistoryRoot,
+  qk.guideTemplates,
+  qk.books,
+  qk.bookHistory,
+  qk.bookTracking,
+  qk.bookPacks,
+  qk.materialRequestOptions,
+  qk.materialRequestsMine,
+  // §28 회계 — `consulting` 갈래 안에 산다. 납부 한 줄이 단계 보드까지 흔든다 (C58)
+  qk.consulting,
+  qk.consAccounting,
+  qk.consStudents,
+  // §52 트래킹 보드 — 회계 갈래 안에 산다 (C69)
+  qk.invBoard,
+  // 보낼 수 있는 채널 — 보호자 갈래 안에 산다 (DQ3)
+  qk.guardianChannels,
+  // §07 사이드바 일정 원본 수 — 기간이 없는 상수 키 · 스케줄 쓰기가 family.seriesCounts 로 버린다
+  qk.seriesCounts,
+  // 가산 규칙 · 비공개 스위치 — 옛 `accounting-queries.ts` 에서 옮긴 상수 키 (W11 D) · 회계 갈래 안에 산다
+  qk.bonusBook,
+  qk.acctPrivacy,
+  // 발행 미리 세기를 꺼 둔 칸도 같은 갈래다
+  qk.invoiceDraft(null),
+];
+
+describe('갈래 앞자락', () => {
+  it('인자를 받는 키는 하나도 빠짐없이 어떤 갈래에 속한다', () => {
+    const withArgs = Object.entries(qk)
+      .filter(([, v]) => typeof v === 'function')
+      .map(([k]) => k);
+    expect(Object.keys(SAMPLE).sort()).toEqual(withArgs.sort());
+    const heads = Object.values(family);
+    for (const [name, key] of Object.entries(SAMPLE)) {
+      expect(
+        heads.some((h) => startsWith(key, h)),
+        `${name} 이 어느 갈래에도 안 걸린다`,
+      ).toBe(true);
+    }
+  });
+
+  it('사용자 꼬리가 붙어도 앞자락은 그대로 걸린다', () => {
+    const heads = Object.values(family);
+    for (const [name, key] of Object.entries(SAMPLE)) {
+      const full = sessionQueryKey(key, 7);
+      expect(
+        heads.some((h) => startsWith(full, h)),
+        `${name}: ${JSON.stringify(full)}`,
+      ).toBe(true);
+    }
+  });
+
+  it('상수 키도 전부 어떤 갈래에 걸린다', () => {
+    const heads = Object.values(family);
+    for (const key of CONST_SAMPLE) expect(heads.some((h) => startsWith(key, h)), JSON.stringify(key)).toBe(true);
+  });
+
+  it('§55 조건의 빈 칸은 키에서 빠진다 — 같은 조건이 두 캐시가 되지 않는다 (옮기기 전과 같다)', () => {
+    expect(qk.cashflow({ from: '2026-09-01', to: '', category: '' })).toEqual(qk.cashflow({ from: '2026-09-01' }));
+    expect(qk.cashflow({ from: undefined })).toEqual(qk.cashflow({}));
+  });
+
+  it('앞자락에 사용자 꼬리를 넣으면 아무것도 안 걸린다 — 그래서 넣지 않는다', () => {
+    for (const head of Object.values(family)) expect(head).not.toContain('viewer');
+    // 예전에 쓰던 모양이 왜 조용히 실패했는지 그대로 보인다
+    const broken = sessionQueryKey(['zoom'], 7);
+    expect(startsWith(sessionQueryKey(qk.zoom(undefined), 7), broken)).toBe(false);
+    expect(startsWith(sessionQueryKey(qk.gpa('2026-09-01'), 7), sessionQueryKey(['gpa'], 7))).toBe(false);
+  });
+
+  it('갈래마다 실제로 걸리는 키가 하나는 있다 — 아무 데도 안 쓰는 앞자락은 두지 않는다', () => {
+    const keys = [...Object.values(SAMPLE), ...CONST_SAMPLE];
+    for (const [name, head] of Object.entries(family)) {
+      expect(
+        keys.some((k) => startsWith(k, head)),
+        `${name} 갈래에 걸리는 키가 없다`,
+      ).toBe(true);
+    }
+  });
+});
+
+describe('S2-b 할 일 쓰기의 종속 조회', () => {
+  it.each([
+    { body: { dueOn: '2026-09-23' }, tracking: false },
+    { body: { dueOn: null }, tracking: false },
+    { body: { dueOn: null, done: true }, tracking: true },
+  ])('기한 PATCH $body 는 ops·drawer와 실제 완료 변경 조회만 갱신한다', async ({ body, tracking }) => {
+    const client = new QueryClient();
+    const keys = [qk.ops, [...qk.ops, { from: '2026-09-01' }], qk.meeting(4), qk.plan(3), qk.drawer(), qk.drawer('all'), qk.tracking(3, '2026-09-23')];
+    keys.forEach((key) => client.setQueryData(sessionQueryKey(key, 7), { marker: '기존 응답' }));
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({ data: { ok: true } });
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const view = renderHook(useDrawerWrite, { wrapper });
+    try {
+      await act(async () => { await view.result.current.mutateAsync({ kind: 'todoPatch', id: 31, body }); });
+      expect(patch).toHaveBeenCalledWith('/drawer/todos/31', body);
+      for (const key of keys.slice(0, -1)) expect(client.getQueryState(sessionQueryKey(key, 7))?.isInvalidated).toBe(true);
+      expect(client.getQueryState(sessionQueryKey(keys.at(-1)!, 7))?.isInvalidated).toBe(tracking);
+    } finally { view.unmount(); client.clear(); patch.mockRestore(); }
+  });
+
+  it.each(['todo', 'todoClear'] as const)('%s는 연결 수업 준비상태 tracking도 갱신한다', async (kind) => {
+    const client = new QueryClient();
+    const key = sessionQueryKey(qk.tracking(3, '2026-09-23'), 7);
+    client.setQueryData(key, { marker: '기존 응답' });
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({ data: { ok: true } });
+    const del = vi.spyOn(api, 'delete').mockResolvedValue({ data: { ok: true, deleted: 1 } });
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const view = renderHook(useDrawerWrite, { wrapper });
+    try {
+      await act(async () => { await view.result.current.mutateAsync(kind === 'todo' ? { kind, id: 31, done: true } : { kind, ids: [31] }); });
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    } finally { view.unmount(); client.clear(); patch.mockRestore(); del.mockRestore(); }
+  });
+
+  it('완료 거절은 기존 drawer 낙관값을 복원하고 운영 성공 갱신을 만들지 않는다', async () => {
+    const client = new QueryClient();
+    const key = sessionQueryKey(qk.drawer(), 7);
+    const original = { todos: [{ id: 31, done: false }], members: [] };
+    client.setQueryData(key, original);
+    client.setQueryData(qk.ops, { marker: '운영 응답' });
+    const changed = vi.spyOn(client, 'setQueryData');
+    const patch = vi.spyOn(api, 'patch').mockRejectedValue(new Error('거절'));
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const view = renderHook(useDrawerWrite, { wrapper });
+    try {
+      await act(async () => { await expect(view.result.current.mutateAsync({ kind: 'todo', id: 31, done: true })).rejects.toThrow('거절'); });
+      expect(changed.mock.calls.some(([, value]) => (value as typeof original)?.todos?.[0]?.done === true)).toBe(true);
+      expect(client.getQueryData(key)).toEqual(original);
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(qk.ops)?.isInvalidated).toBe(false);
+    } finally { view.unmount(); client.clear(); patch.mockRestore(); changed.mockRestore(); }
+  });
+});
+
+describe('BOC-02b 승인 대기함 건의 답변', () => {
+  it('기존 건의 답변 API를 쓰고 운영과 모든 drawer snapshot을 서버값으로 갱신한다', async () => {
+    const client = new QueryClient();
+    const drawer = sessionQueryKey(qk.drawer(), 7);
+    const drawerAll = sessionQueryKey(qk.drawer('all'), 7);
+    client.setQueryData(drawer, { marker: '이번 달' });
+    client.setQueryData(drawerAll, { marker: '전체' });
+    client.setQueryData(qk.ops, { marker: '운영' });
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({ data: { id: 31 } });
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    const view = renderHook(useDrawerWrite, { wrapper });
+    try {
+      await act(async () => {
+        await view.result.current.mutateAsync({ kind: 'suggestionReply', id: 31, reply: '확인 후 자료 위치를 변경했습니다' });
+      });
+      expect(patch).toHaveBeenCalledWith('/ops/suggestions/31/reply', { reply: '확인 후 자료 위치를 변경했습니다' });
+      expect(client.getQueryState(drawer)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(drawerAll)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(qk.ops)?.isInvalidated).toBe(true);
+    } finally { view.unmount(); client.clear(); patch.mockRestore(); }
+  });
+});
+
+/**
+ * 무효화가 **어떤 모양으로 적혀 있는가**를 소스에서 직접 본다.
+ *
+ * C48 에서 한 번 당했다 — `sessionQueryKey(['zoom'], viewerId)` 는 사용자 꼬리를 앞자락에
+ * 끼워 넣어 **아무 키에도 안 걸렸다.** 오류가 안 나고 화면만 옛 값을 보여 줬다.
+ * 그래서 표기를 두 가지로만 좁히고, 기계가 그 둘인지 본다.
+ *
+ *   · `family.X`                        — 갈래 전체를 버린다 (뒤에 무엇이 붙든)
+ *   · `sessionQueryKey(qk.Y, viewerId)` — 이 사용자의 **그 키 하나**만 버린다
+ *
+ * 두 번째는 `qk.Y` 가 **인자를 안 받는 상수**여야 한다. 인자를 받는 키는 뒤에 조각이 더
+ * 붙으므로, 그 모양으로 적으면 앞자락이 짧아져 다시 안 걸린다.
+ */
+describe('무효화 표기', () => {
+  const src = readFileSync(join(__dirname, 'queries.ts'), 'utf8');
+  // viewer predicate는 앞자락을 바꾸지 않는다. 키 검사와 사용자 격리 실행 회귀를 함께 유지한다.
+  const args = [...src.matchAll(/invalidateQueries\(\{\s*queryKey:\s*([^}]+?)\s*\}\)/g)]
+    .map((m) => m[1].replace(/,\s*predicate:\s*\w+\s*$/, '').trim());
+
+  it('무효화는 family 앞자락이거나 정확한 한 키다 — 그 사이는 없다', () => {
+    expect(args.length).toBeGreaterThan(20);
+    const constKeys = new Set(
+      Object.entries(qk)
+        .filter(([, v]) => Array.isArray(v))
+        .map(([k]) => k),
+    );
+    for (const a of args) {
+      const asFamily = /^family\.(\w+)$/.exec(a);
+      const asExact = /^sessionQueryKey\(qk\.(\w+),\s*\w+\)$/.exec(a);
+      expect(Boolean(asFamily || asExact), `모양이 둘 중 하나가 아니다: ${a}`).toBe(true);
+      if (asFamily) {
+        expect(Object.keys(family), `family.${asFamily[1]} 가 없다`).toContain(asFamily[1]);
+      }
+      if (asExact) {
+        // 인자를 받는 키를 이 모양으로 적으면 앞자락이 짧아져 아무것도 안 걸린다
+        expect(constKeys, `qk.${asExact[1]} 는 인자를 받는다 — family 앞자락을 쓰라`).toContain(asExact[1]);
+      }
+    }
+  });
+
+  it('쓰기 훅은 하나도 빠짐없이 캐시를 버린다', () => {
+    /*
+     * 함수 본문을 중괄호로 끊으려다 두 번 틀렸다 — 시그니처의 타입 리터럴
+     * (`UseMutationResult<T, unknown, { id: number }>`) 이 먼저 열고 닫아서 본문 전에 끝난다.
+     * 다음 `export` 앞까지 자르는 편이 단순하고 안 틀린다. 뒤따르는 주석이 딸려 오므로 지운다.
+     */
+    const starts = [...src.matchAll(/^export (?:function|const) (\w+)/gm)];
+    const hooks = starts
+      .map((m, i) => ({
+        name: m[1],
+        body: src.slice(m.index ?? 0, starts[i + 1]?.index ?? src.length).replace(/\/\*[\s\S]*?\*\//g, ''),
+      }))
+      .filter((h) => /UseMutationResult/.test(h.body) && /^use[A-Z]/.test(h.name));
+    expect(hooks.length).toBeGreaterThan(20);
+    const helpers = /function (refreshReportConsumers|reconcileReportError|use\w*Invalidate)/g;
+    const helperNames = new Set([...src.matchAll(helpers)].map((m) => m[1]));
+    for (const h of hooks) {
+      const buries =
+        /invalidateQueries|Invalidate\(\)|invalidate\b/.test(h.body) || [...helperNames].some((n) => h.body.includes(n));
+      expect(buries, `${h.name} 이 쓰기 뒤에 아무것도 안 버린다`).toBe(true);
+    }
+  });
+});
+
+/**
+ * C56 에서 실제로 겪은 것 — **기획 결재가 보고서를 다시 읽지 않았다.**
+ *
+ * `sessionQueryKey` 는 사용자 id 를 키의 **꼬리**가 아니라 **가운데**에 끼운다
+ * (`['ops','viewer',7]`). 그래서 `['ops','plan',3,'viewer',7]` 은 그 앞자락에 안 걸린다.
+ * 갈래 전체를 버릴 때는 **사용자 꼬리 없는 `family.X`** 를 써야 한다 (C48).
+ */
+describe('C56 — 기획 보고서 키가 무효화에 실제로 걸리는가', () => {
+  const VIEWER = 7;
+  const plan = sessionQueryKey(qk.plan(3), VIEWER);
+  const list = sessionQueryKey(qk.ops, VIEWER);
+
+  it('사용자 꼬리가 낀 ops 앞자락으로는 보고서가 안 걸린다 — 이것이 그 버그였다', () => {
+    expect(startsWith(plan, list)).toBe(false);
+  });
+
+  it('family.ops 로는 목록과 보고서가 함께 걸린다', () => {
+    expect(startsWith(plan, family.ops)).toBe(true);
+    expect(startsWith(list, family.ops)).toBe(true);
+  });
+
+  it('기획 결재 훅은 family.ops 를 쓴다 — 소스에서 직접 본다', () => {
+    const src = readFileSync(join(__dirname, 'queries.ts'), 'utf8');
+    const body = src.slice(src.indexOf('function useOpsFamilyInvalidate'), src.indexOf('export function useMeetingDetail'));
+    expect(body).toContain('queryKey: family.ops');
+    // §66 회의 쓰기도 같은 앞자락을 쓴다 — 창을 열어 둔 채 저장해도 화면이 따라온다 (C57)
+    for (const hook of ['useDecidePlanDue', 'useReviewPlan', 'useWriteMinutes', 'useAssignMeetingTask']) {
+      const h = src.slice(src.indexOf(`export function ${hook}`));
+      expect(h.slice(0, 400)).toContain('useOpsFamilyInvalidate()');
+    }
+  });
+});
+
+describe('C77 — 교재 쓰기의 교차 갈래 무효화', () => {
+  const src = readFileSync(join(__dirname, 'queries.ts'), 'utf8');
+  const hookBody = (name: string) => {
+    const start = src.indexOf(`export function ${name}`);
+    const end = src.indexOf('\nexport function ', start + 1);
+    return src.slice(start, end < 0 ? src.length : end);
+  };
+
+  it('학생 교재 상태 변경은 현황판도 다시 읽는다', () => {
+    for (const hook of ['useCreateBookIssue', 'useTransitionBookIssue', 'useReturnBookIssue']) {
+      expect(hookBody(hook), hook).toContain('useBooksInvalidate({ board: true })');
+    }
+  });
+
+  it('자료 전달 변경은 서랍 할 일도 다시 읽는다', () => {
+    for (const hook of ['useCreateBookPack', 'usePatchBookPack', 'useDeliverBookPack', 'useReceiveBookPack']) {
+      expect(hookBody(hook), hook).toContain('useBooksInvalidate({ drawer: true })');
+    }
+  });
+
+  it('안내 작성 결과가 남긴 교재 이력도 다시 읽는다', () => {
+    const body = src.slice(src.indexOf('function useGuidesInvalidate'), src.indexOf('export function useCreateGuideTemplate'));
+    expect(body).toContain('queryKey: family.guides');
+    expect(body).toContain('queryKey: family.books');
+    expect(hookBody('useWriteGuideBody')).toContain('useGuidesInvalidate({ books: true })');
+  });
+});
+
+describe('C77 — 실제 mutation의 query cache 무효화', () => {
+  const run = async <TVariables,>(
+    hook: () => { mutateAsync: (body: TVariables) => Promise<unknown> },
+    body: TVariables,
+  ) => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const original = api.defaults.adapter;
+    const adapter: AxiosAdapter = async (config) => ({
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {},
+    });
+    api.defaults.adapter = adapter;
+    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client }, children);
+    try {
+      const { result } = renderHook(hook, { wrapper });
+      await act(() => result.current.mutateAsync(body));
+      return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    } finally {
+      api.defaults.adapter = original;
+      client.clear();
+    }
+  };
+
+  it('배부 쓰기는 books와 board를 함께 버린다', async () => {
+    const keys = await run(useCreateBookIssue, { studentId: 3, libId: 4, state: 'ok' });
+    expect(keys).toEqual(expect.arrayContaining([family.books, family.board]));
+  });
+
+  it('자료 전달 쓰기는 books와 drawer를 함께 버린다', async () => {
+    const keys = await run(useCreateBookPack, {
+      packType: 'exam',
+      title: '자료',
+      effectiveOn: '2026-09-14',
+      coordinatorId: 3,
+      studentIds: [4],
+      libIds: [5],
+    });
+    expect(keys).toEqual(expect.arrayContaining([family.books, family.drawer]));
+  });
+
+  it('안내 작성은 guides와 books를 함께 버린다', async () => {
+    const keys = await run(useWriteGuideBody, {
+      id: 8, body: '안내', expectedVersion: 1, requestKey: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(keys).toEqual(expect.arrayContaining([family.guides, family.books]));
+  });
+
+  /* W11 D — 옛 로컬 훅 파일(intake · ops · accounting)에서 옮긴 쓰기 훅. 옮기기 전과 **같은 앞자락만** 버린다(더도 덜도 아니다) */
+  it('상담 카드 쓰기 넷은 family.ops 만 버린다', async () => {
+    expect(await run(useSaveLeadPlan, { id: 3, lines: [] })).toEqual([family.ops]);
+    expect(await run(useExtendLeadHold, { id: 3 })).toEqual([family.ops]);
+    expect(await run(useSaveLeadAppt, { id: 3, kind: 'diag', onDate: '2026-09-27', startMin: 600, endMin: 660, mode: 'offline' })).toEqual([family.ops]);
+    expect(await run(useDeleteLeadAppt, { id: 3, kind: 'diag' })).toEqual([family.ops]);
+  });
+
+  it('상담 일정을 시간표로 만들면 운영 · 회차 · 지평 · 일정 원본 수를 버린다', async () => {
+    expect(await run(useScheduleLeadAppts, { id: 3 })).toEqual([family.ops, family.occurrences, family.horizon, family.seriesCounts]);
+    // A-02 「상담 일정 잡기」도 시간표 회차를 만든다 — 같은 갈래
+    expect(await run(useBookLeadAppt, { id: 3, kind: 'second', onDate: '2026-09-27', startMin: 960, endMin: 1020, mode: 'offline', ownerId: 4 }))
+      .toEqual([family.ops, family.occurrences, family.horizon, family.seriesCounts]);
+  });
+
+  it('대표 지시 · 오늘 한 것은 family.ops 만 버린다', async () => {
+    expect(await run(useAddPlanTask, { id: 3, title: '지시', toId: 4 })).toEqual([family.ops]);
+    expect(await run(useCreateMarketing, { requestKey: '00000000-0000-4000-8000-000000000059', title: '활동', channel: 'kakao', item: 'reply' })).toEqual([family.ops]);
+  });
+
+  it('가산 규칙은 회계 · 강사 히스토리를, 비공개 스위치는 회계 · 컨설팅 · 서랍을 버린다', async () => {
+    expect(await run(useWriteBonusRule, { kind: 'per_session', kindKey: 'mock', amount: 5000 })).toEqual([family.accounting, family.teacherHistory]);
+    expect(await run(useSetAcctPrivacy, { key: 'wage', private: true })).toEqual([family.accounting, family.consulting, family.drawer]);
+  });
+});

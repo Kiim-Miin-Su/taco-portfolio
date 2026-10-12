@@ -1,0 +1,318 @@
+/** @file-guide
+ * 목적: §54 수업료 계산 — 화면이 계산하지 않는다 (C65).
+ * 책임/재사용: 실제 TuitionTable 을 쓰고 props 로만 상태를 준다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { cleanup, fireEvent, render, within } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { Tuition } from '@/api/types';
+import { TuitionTable } from './TuitionTable';
+import { MASKED } from '@/lib/money';
+
+const base: Tuition = {
+  month: '2026-08', today: '2026-08-21', daysPast: 21, daysLeft: 10,
+  doneCount: 196, totalCount: 288, canceledCount: 5, deductedCount: 0, extraCount: 1, carriedInCount: 0, carriedInAmount: 0,
+  doneAmount: 29_911_667, carryAmount: 870_000,
+  canSeeAmounts: true,
+  close: null, canClose: false, canReopen: false,
+  items: [
+    {
+      studentId: 1, name: '이하린', grade: 'G9', tag: 'G9 · 채드윅',
+      done: 8, total: 11, percent: 73, canceled: 2, deducted: 0, extra: 1,
+      unitPrice: 140_000, unitPriceOverride: true, priceCount: 1,
+      carryable: false, carriedAt: null, carriedIn: 0, carriedInSessions: 0,
+      doneAmount: 1_365_000, carryAmount: 420_000,
+      lines: [
+        { subKey: 'sat-read', label: 'SAT Reading', count: 8, unitPrice: 140_000, amount: 1_120_000 },
+      ],
+    },
+    {
+      studentId: 2, name: '김태린', grade: 'G5', tag: 'G5',
+      done: 13, total: 20, percent: 65, canceled: 0, deducted: 0, extra: 0,
+      unitPrice: 120_000, unitPriceOverride: false, priceCount: 1,
+      carryable: false, carriedAt: null, carriedIn: 0, carriedInSessions: 0,
+      doneAmount: 2_220_000, carryAmount: 0,
+      lines: [],
+    },
+  ],
+};
+const clone = (): Tuition => JSON.parse(JSON.stringify(base)) as Tuition;
+
+afterEach(cleanup);
+
+/** 컷의 상자는 **값이 위 · 이름이 아래**다 — 이름으로 찾아 바로 앞 형제를 읽는다 */
+const headBox = (v: ReturnType<typeof render>, label: string) => {
+  // 표의 열 머리에도 같은 낱말이 있다 — 상자 묶음 안에서만 찾는다
+  const boxes = v.container.querySelector('.grid')!;
+  const el = [...boxes.querySelectorAll('div')].find((d) => d.textContent === label)!;
+  return el.previousElementSibling!.textContent ?? '';
+};
+
+it('머리 다섯 칸은 서버가 준 값 그대로다 — 화면이 줄을 더하지 않는다 (D-R37)', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(headBox(v, '한 수업')).toBe('196');
+  expect(headBox(v, '이번 달 전체')).toBe('288');
+  expect(headBox(v, '결강 · 휴강')).toBe('5');
+  expect(headBox(v, '지금까지 금액')).toBe('₩29,911,667');
+  expect(headBox(v, '다음 달로 넘길 돈')).toBe('₩870,000');
+});
+
+it('추가 수업(KIND.extra)은 여섯째 칸과 줄의 「추가 N」으로 따로 선다 — 없는 달엔 칸 자체가 없다 (C94-d · C-38)', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(headBox(v, '추가 수업')).toBe('1');
+  const row = v.getAllByRole('row').find((r) => (r.textContent ?? '').includes('이하린'))!;
+  expect((row.textContent ?? '').replace(/\s+/g, ' ')).toContain('추가 1');
+  cleanup();
+  const none = clone(); none.extraCount = 0; none.items.forEach((i) => { i.extra = 0; });
+  const v2 = render(<TuitionTable data={none} />);
+  expect([...v2.container.querySelector('.grid')!.querySelectorAll('div')].some((d) => d.textContent === '추가 수업')).toBe(false);
+  expect((v2.container.textContent ?? '')).not.toContain('추가 1');
+});
+
+it('퍼센트도 서버가 준 값이다 — 화면이 done/total 을 다시 나누지 않는다', () => {
+  const d = clone();
+  // 서버가 이렇게 말했다면 그것이 맞다 — 화면이 8/11 을 다시 나누면 이 값이 안 보인다
+  d.items[0].percent = 99;
+  const v = render(<TuitionTable data={d} />);
+  expect(v.getByText('99%')).toBeTruthy();
+  expect(v.queryByText('73%')).toBeNull();
+});
+
+it('원문 표의 머리 한 줄을 서버 값으로 적는다 — 「오늘 08-21 기준 · 21일 지남 · 10일 남음」', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByText('8월 수업 진행')).toBeTruthy();
+  expect(v.getByText('오늘 08-21 기준 · 21일 지남 · 10일 남음')).toBeTruthy();
+});
+
+it('「개별 단가」와 「일반」을 갈라 적는다 — 예외인지 한눈에 보여야 한다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByText('개별 단가')).toBeTruthy();
+  expect(v.getByText('일반')).toBeTruthy();
+});
+
+it('값이 둘이어도 **컷 그대로 대표 단가를 적는다** — 컷의 이하린 줄이 이미 그 모양이다', () => {
+  const d = clone();
+  d.items[0].priceCount = 2; // SAT 14만 + 모의 4.5만
+  const v = render(<TuitionTable data={d} />);
+  // 8 × 140,000 = 1,120,000 ≠ 1,365,000 인 줄을 원문이 그대로 보여 준다 — 정확한 줄은 「내역」에 있다
+  expect(v.getByText('₩140,000')).toBeTruthy();
+  expect(v.getByText('개별 단가')).toBeTruthy();
+});
+
+it('칸 이름은 컷의 낱말이다 — 「시급」', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByText('시급')).toBeTruthy();
+  expect(v.queryByText('단가')).toBeNull();
+});
+
+it('단가표에 그 과목이 없으면 「단가 없음」 — 0원으로 꾸미지 않는다', () => {
+  const d = clone();
+  d.items[1].priceCount = 0;
+  d.items[1].unitPrice = 0;
+  const v = render(<TuitionTable data={d} />);
+  expect(v.getByText('단가 없음')).toBeTruthy();
+});
+
+it('결강이 없으면 「—」 · 있으면 붉게 센다 — 0 을 적지 않는다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByText('2')).toBeTruthy();
+  expect(v.getAllByText('—').length).toBeGreaterThan(0);
+});
+
+it('넘길 돈이 0 이면 「—」 — ₩0 으로 적지 않는다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByText('₩420,000')).toBeTruthy();
+  expect(v.queryByText('₩0')).toBeNull();
+});
+
+it('금액을 못 보면 배너로 알리고 숨긴 금액 낱말(「비공개」)을 적는다 — 0 으로 뭉개지 않는다 (D-R39)', () => {
+  const d = clone();
+  d.canSeeAmounts = false;
+  d.doneAmount = null; d.carryAmount = null;
+  d.items = d.items.map((r) => ({ ...r, unitPrice: null, doneAmount: null, carryAmount: null, lines: [] }));
+  const v = render(<TuitionTable data={d} />);
+  expect(v.getByText(/서버가 값을 내려보내지 않으므로/)).toBeTruthy();
+  expect(v.getAllByText(MASKED).length).toBeGreaterThan(0);
+});
+
+it('「내역」은 청구서가 쓸 바로 그 줄을 보여 준다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  fireEvent.click(v.getAllByRole('button', { name: '내역' })[0]);
+  expect(v.getByText('SAT Reading')).toBeTruthy();
+  expect(v.getByText('8회 × ₩140,000')).toBeTruthy();
+  expect(v.getByText(/청구서를 만들 때 이 계산 결과를 그대로 씁니다/)).toBeTruthy();
+});
+
+it('줄이 비면 왜 비었는지 말한다 — 「0원으로 꾸미지 않는다」', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  fireEvent.click(v.getAllByRole('button', { name: '내역' })[1]);
+  expect(v.getByText(/0원으로 꾸미지 않습니다/)).toBeTruthy();
+});
+
+it('막대의 보조 설명이 간 것·결강·남은 것을 갈라 말한다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.getByLabelText('간 것 8회 · 결강 2회 · 남은 것 3회')).toBeTruthy();
+});
+
+it('막대의 길이와 밑에 적은 값이 **같은 분모**다 — 반쯤 찬 막대에 75% 라고 적지 않는다', () => {
+  const d = clone();
+  // 결강 2회를 분모에 섞으면 8/(8+2+1)… 로 막대만 짧아지고 숫자는 73% 로 남는다
+  d.items[0].percent = 73;
+  const v = render(<TuitionTable data={d} />);
+  const bar = v.getByLabelText('간 것 8회 · 결강 2회 · 남은 것 3회');
+  expect((bar.firstElementChild as HTMLElement).style.width).toBe('73%');
+  expect(v.getByText('73%')).toBeTruthy();
+  // 막대는 한 토막이다 — 결강은 제 칸에서 센다
+  expect(bar.children.length).toBe(1);
+});
+
+/**
+ * 대표 결정 2026-09-13 (N-39): 「이월 처리는 **수업이 결제 됐으나 정해진 시수가 채워지지 않은
+ * 경우**」. 그 판정은 서버가 한다 — 화면이 「완납인가」를 다시 읽으면 **단추가 서는 줄과 서버가
+ * 받아 주는 줄이 갈려** 「눌리는데 거절당하는 단추」가 된다.
+ */
+it('「이월 처리」는 **서버가 된다고 한 줄에만** 선다', () => {
+  const d = clone();
+  d.items[0].carryable = true;
+  const v = render(<TuitionTable data={d} onCarry={() => {}} />);
+  expect(v.getAllByRole('button', { name: '이월 처리' })).toHaveLength(1);
+});
+
+it('넘길 돈이 있어도 **서버가 아니라면** 단추가 서지 않는다 — 돈을 안 받았으면 넘길 것이 없다', () => {
+  const d = clone();
+  // 결강 2회 · 넘길 돈 ₩420,000 이지만 청구서가 완납이 아니다
+  d.items[0].carryable = false;
+  const v = render(<TuitionTable data={d} onCarry={() => {}} />);
+  expect(v.getByText('₩420,000')).toBeTruthy();
+  expect(v.queryByRole('button', { name: '이월 처리' })).toBeNull();
+});
+
+it('서버가 이월을 막은 줄은 단추 대신 **막힌 이유**를 둔다 — 쓰기의 409 와 같은 문장 (PB-04)', () => {
+  const d = clone();
+  d.items[0].carryable = false;
+  d.items[0].carryBlockedReason = '다음 달 청구서가 이미 나가 이월할 수 없습니다';
+  const v = render(<TuitionTable data={d} onCarry={() => {}} />);
+  expect(v.queryByRole('button', { name: '이월 처리' })).toBeNull();
+  expect(v.getByLabelText('다음 달 청구서가 이미 나가 이월할 수 없습니다').textContent).toBe('이월 막힘');
+});
+
+it('누르면 그 학생으로 알린다', () => {
+  const d = clone();
+  d.items[0].carryable = true;
+  const asked: number[] = [];
+  const v = render(<TuitionTable data={d} onCarry={(id) => asked.push(id)} />);
+  fireEvent.click(v.getByRole('button', { name: '이월 처리' }));
+  expect(asked).toEqual([1]);
+});
+
+it('이미 넘긴 달은 단추 대신 **넘긴 날**을 적는다 — 한 달은 한 번만 넘긴다', () => {
+  const d = clone();
+  d.items[0].carryable = false;
+  d.items[0].carriedAt = '2026-09-01 10:20';
+  const v = render(<TuitionTable data={d} onCarry={() => {}} />);
+  expect(v.getByText('넘김 09-01')).toBeTruthy();
+  expect(v.queryByRole('button', { name: '이월 처리' })).toBeNull();
+});
+
+it('지난달에서 **넘어온 회차와 돈**은 그 줄과 머리에 적는다 — 이 달이 받은 것이고 청구에서 빠진다 (C-35)', () => {
+  const d = clone();
+  d.items[1].carriedIn = 70_000;
+  d.items[1].carriedInSessions = 2;
+  d.carriedInCount = 2;
+  d.carriedInAmount = 70_000;
+  const v = render(<TuitionTable data={d} />);
+  expect(v.getByText('이월 2회 · ₩70,000 받음')).toBeTruthy();
+  expect(v.getByText('이월 2회 받음 · ₩70,000 — 8월 청구에서 빠집니다')).toBeTruthy();
+});
+
+it('넘어온 회차가 있는데 금액을 못 보면 회차만 적는다 — 금액은 서버가 안 준 것이다 (D-R39)', () => {
+  const d = clone();
+  d.canSeeAmounts = false;
+  d.items[1].carriedIn = null;
+  d.items[1].carriedInSessions = 3;
+  d.carriedInCount = 3;
+  d.carriedInAmount = null;
+  const v = render(<TuitionTable data={d} />);
+  expect(v.getByText('이월 3회 받음')).toBeTruthy();
+  expect(v.getByText('이월 3회 받음 — 8월 청구에서 빠집니다')).toBeTruthy();
+});
+
+it('넘어온 것이 없으면 이월 줄이 서지 않는다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  expect(v.queryByText(/청구에서 빠집니다/)).toBeNull();
+});
+
+/* ── 월 마감 (C92-d · C-39 · N-140) ─────────────────────────────────────── */
+
+it('「N월 마감하기」는 서버의 canClose 로만 선다 — 누르면 확인 창을 거쳐 부른다', () => {
+  const onCloseMonth = vi.fn();
+  const v = render(<TuitionTable data={{ ...base, canClose: true }} onCloseMonth={onCloseMonth} />);
+  expect(v.queryByText(/8월 마감 ·/)).toBeNull();
+  fireEvent.click(v.getByRole('button', { name: '8월 마감하기' }));
+  const dialog = v.getByRole('dialog', { name: '8월 마감' });
+  fireEvent.click(within(dialog).getByRole('button', { name: '마감' }));
+  expect(onCloseMonth).toHaveBeenCalledTimes(1);
+  // canClose 가 없으면 단추도 없다 — 판정은 서버다 (D-R39)
+  cleanup();
+  const w = render(<TuitionTable data={base} onCloseMonth={onCloseMonth} />);
+  expect(w.queryByRole('button', { name: '8월 마감하기' })).toBeNull();
+});
+
+it('마감된 달은 배지가 서고 「마감 해제」는 사유가 있어야 보낸다 — 흔적 없이 고치지 않는다', () => {
+  const onReopenMonth = vi.fn();
+  const closed = { ...base, canReopen: true, close: { id: 3, month: '2026-08', closedAt: '2026-09-01T09:30:00.000Z', closedBy: '체험인물07', reopenedAt: null, reopenedBy: null, reopenReason: null } };
+  const v = render(<TuitionTable data={closed} onReopenMonth={onReopenMonth} />);
+  expect(v.getByText('8월 마감 · 09/01 체험인물07')).toBeTruthy();
+  fireEvent.click(v.getByRole('button', { name: '마감 해제' }));
+  const dialog = v.getByRole('dialog', { name: '8월 마감 해제' });
+  const submit = within(dialog).getByRole('button', { name: '해제' }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText('해제 사유'), { target: { value: ' 8월 휴강 하나를 빠뜨렸다 ' } });
+  fireEvent.click(submit);
+  expect(onReopenMonth).toHaveBeenCalledWith('8월 휴강 하나를 빠뜨렸다');
+});
+
+/*
+ * 불러오는 동안은 「—」다 (54-01). 숨긴 금액 낱말(「비공개」)은 **권한이 없어서 서버가 안 줬다**는 뜻이라,
+ * 아직 응답이 오지 않은 자리에 적으면 대표에게도 권한이 없다고 거짓말을 한다.
+ * 같은 페이지 머리 여섯 칸(`Head`)이 이미 이렇게 막는다 — 여기도 같은 규칙이다.
+ */
+it('응답 전에는 머리 금액 두 칸이 숨긴 금액 낱말이 아니라 「—」다 — 권한이 없다고 말하지 않는다', () => {
+  const v = render(<TuitionTable loading />);
+  expect(headBox(v, '지금까지 금액')).toBe('—');
+  expect(headBox(v, '다음 달로 넘길 돈')).toBe('—');
+  expect(v.queryByText(MASKED)).toBeNull();
+});
+
+it('내역 창 설명은 사람의 말이다 — 절 번호를 적지 않는다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  fireEvent.click(within(v.getAllByRole('row').find((r) => (r.textContent ?? '').includes('이하린'))!).getByRole('button', { name: '내역' }));
+  const text = document.body.textContent ?? '';
+  expect(text).toContain('이 줄이 곧 청구서의 줄입니다');
+  expect(text).not.toMatch(/§\s?\d/);
+});
+
+/*
+ * 원문 §54 는 넘길 돈이 있는 줄을 **위에 모으고 옅게 칠한다** (x5 · 54-02).
+ * 차례는 서버가 정하고, 칠할지는 서버의 `carryPending` 하나로 정한다 — 금액 권한이 없으면
+ * `carryAmount` 가 null 이라 화면이 금액으로 가르면 대표 밖의 사람에게는 줄이 사라진다.
+ */
+it('넘길 돈이 남은 줄(서버 carryPending)만 옅게 칠하고, 받은 차례 그대로 그린다 — 금액을 못 봐도 같다 (54-02)', () => {
+  const data = clone();
+  data.canSeeAmounts = false;
+  data.items[0].carryAmount = null;
+  data.items[0].carryPending = true;
+  data.items[1].carryPending = false;
+  const v = render(<TuitionTable data={data} />);
+  const rows = v.getAllByRole('row').slice(1);
+  expect(rows.map((r) => (r.textContent ?? '').includes('이하린') ? '이하린' : '김태린')).toEqual(['이하린', '김태린']);
+  expect(rows[0].className).toContain('bg-amber/5');
+  expect(rows[1].className).not.toContain('bg-amber/5');
+});
+
+it('N-137 — 줄의 학년 칩은 서버 꼬리(tag)다: 같은 이름이 있는 학생은 학교까지 적힌다', () => {
+  const v = render(<TuitionTable data={clone()} />);
+  const text = v.container.textContent ?? '';
+  expect(text).toContain('G9 · 채드윅');
+  expect(text).toContain('G5');
+});

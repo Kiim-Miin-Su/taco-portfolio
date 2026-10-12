@@ -1,0 +1,177 @@
+/** @file-guide
+ * 목적: §31 「+ 회차 기록」 창 — 날짜 여러 개를 보내고 순번·연결·「한 회차」는 서버 미리보기를 그대로 그리며, 미리 본 뒤에만 확정이 선다 (C95 · I-91).
+ * 책임/재사용: 실제 ConsultingSessionDialog/useAddConsultingSessions/useMeta 를 쓰고 네트워크만 어댑터로 갈아 끼운다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
+import type { ConsSessionsResult, ConsultingDetail } from '@/api/types';
+import { ConsultingSessionDialog } from './ConsultingSessionDialog';
+import { CONTRACT_STEPS_FIXTURE } from './consulting.fixture';
+
+const meta = {
+  kinds: [], subs: [], staff: [
+    { id: 3, name: '체험인물10', role: 'manager', canAdminPage: true, canGpaPack: false, title: null },
+    { id: 7, name: '체험인물11', role: 'teacher', canAdminPage: false, canGpaPack: false, title: null },
+  ],
+  rooms: [], students: [], zaccs: [], invTypes: [], cancelReasons: [], cancelTreats: [],
+};
+const detail = {
+  id: 1, consType: 'admissions', consTypeLabel: '국제학교 지원', stage: 'running', contractStep: 5,
+  studentIds: [5], studentNames: ['체험인물28'], requester: 'mother', ownerId: 3, ownerName: '체험인물10',
+  startOn: '2026-07-08', endOn: '2027-01-31', amount: 8400000, sessions: 13,
+  share: 'money_only', shareLabel: '수납만 공개', shareMeaning: '금액만 보이고 내용은 숨깁니다', contractSteps: CONTRACT_STEPS_FIXTURE,
+  pickedStaffIds: [], pickedStaffNames: [], createdAt: '2026-07-08T00:00:00+09:00',
+  typeCapability: { defaultItemsSupported: true, reason: null, scheduleCreationSupported: false, scheduleCreationReason: '약정 회차만 저장' },
+  capabilities: {
+    canEdit: false, canChangeShare: false, canSetPrivate: false, canAddContractFile: false, canRemoveContractFile: false, canAddFeedback: false, canResolveFeedback: false,
+    canDeliver: false, canAddSignedFile: false, canAddPayment: false, payBlockedReason: null, canCreateInvoice: false, canArchive: true,
+    externalParentSendSupported: false, externalParentSendReason: null,
+    canAddSession: true, addSessionBlockedReason: null, canClose: false, closeBlockedReason: '약정 13회 중 8회를 했습니다 — 남은 5회를 마쳐야 종료할 수 있습니다',
+    archiveBlockedReason: '받은 돈이 있는 컨설팅은 지울 수 없습니다', canSendContract: false, canCloseException: true, canEditItems: true,
+  },
+  contractFiles: [], signedFiles: [], feedback: [], delivery: null, payment: { paid: 4400000, due: 4000000, invoiceId: null },
+  sessionsDone: 8, sessionsPlanned: 0, requiredLeft: 3, closedAt: null, closedByName: null, closeReason: null,
+} satisfies ConsultingDetail;
+const result: ConsSessionsResult = {
+  preview: true, consId: 1, staffId: 3, staffName: '체험인물10', studentNames: ['체험인물28'],
+  rows: [
+    { date: '2026-09-23', seq: 9, sessId: 91, serId: 12, linked: true, startMin: 1020, endMin: 1110, done: false, todoId: 71 },
+    { date: '2026-09-25', seq: 10, sessId: 92, serId: 88, linked: false, startMin: 600, endMin: 660, done: false, todoId: 72 },
+  ],
+  created: 1, linked: 1, sessionsDone: 8, sessionsPlanned: 2, sessions: 13, overContract: false, unavailable: [], notified: false, busy: [],
+};
+let busyNext: ConsSessionsResult['busy'] = [];
+
+const originalAdapter = api.defaults.adapter;
+const clients: QueryClient[] = [];
+const posts: Array<{ url?: string; body: unknown }> = [];
+afterEach(() => { cleanup(); clients.splice(0).forEach((c) => c.clear()); api.defaults.adapter = originalAdapter; posts.length = 0; busyNext = []; });
+
+function setup() {
+  api.defaults.adapter = (async (config: { url?: string; method?: string; data?: string }) => {
+    if (config.method === 'post') {
+      posts.push({ url: config.url, body: JSON.parse(config.data ?? '{}') });
+      const preview = config.url?.endsWith('/preview') ?? false;
+      return { config, status: 201, statusText: 'Created', headers: {}, data: { ...result, preview, busy: preview ? busyNext : [] } };
+    }
+    return { config, status: 200, statusText: 'OK', headers: {}, data: config.url === '/meta' ? meta : {} };
+  }) as never;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  clients.push(client);
+  const onDone = vi.fn();
+  const onClose = vi.fn();
+  const view = render(<QueryClientProvider client={client}><ConsultingSessionDialog open detail={detail} onClose={onClose} onDone={onDone} /></QueryClientProvider>);
+  return { view, onDone, onClose };
+}
+
+it('날짜 둘·시각·담당(기본 = 건의 담당)을 보내고, 순번·연결·「앞으로」는 서버 미리보기 그대로 그리며, 미리 본 뒤에만 「회차 확정」이 선다 (I-91)', async () => {
+  const { view, onDone, onClose } = setup();
+  const dialog = await view.findByRole('dialog', { name: '회차 기록 — 체험인물28' });
+  await waitFor(() => expect(within(dialog).getByRole('option', { name: '체험인물10' })).toBeTruthy());
+  expect((within(dialog).getByLabelText('담당') as HTMLSelectElement).value).toBe('3'); // 건의 담당이 기본
+  const confirm = within(dialog).getByRole('button', { name: '회차 확정' }) as HTMLButtonElement;
+  const preview = within(dialog).getByRole('button', { name: '미리 보기' }) as HTMLButtonElement;
+  expect(preview.disabled).toBe(true); // 날짜가 없다
+  fireEvent.change(within(dialog).getByLabelText('날짜 1'), { target: { value: '2026-09-25' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '+ 날짜 더하기' }));
+  fireEvent.change(within(dialog).getByLabelText('날짜 2'), { target: { value: '2026-09-23' } });
+  fireEvent.change(within(dialog).getByLabelText('시작'), { target: { value: '10:00' } });
+  expect(preview.disabled).toBe(true); // 끝이 없다 — 시작과 끝은 함께
+  fireEvent.change(within(dialog).getByLabelText('끝'), { target: { value: '11:00' } });
+  expect(preview.disabled).toBe(false);
+  expect(confirm.disabled).toBe(true); // 아직 미리 보지 않았다
+  fireEvent.click(preview);
+  await waitFor(() => expect(posts).toHaveLength(1));
+  // 날짜는 오름차순으로 · 시각은 분으로 · 담당은 숫자로 — 순번은 보내지 않는다
+  expect(posts[0]).toEqual({ url: '/consulting/1/sessions/preview', body: { dates: ['2026-09-23', '2026-09-25'], staffId: 3, mode: 'offline', startMin: 600, endMin: 660 } });
+  const box = await within(dialog).findByLabelText('회차 미리보기');
+  const text = (box.textContent ?? '').replace(/\s+/g, ' ');
+  expect(text).toContain('9회차');
+  expect(text).toContain('9/23 17:00–18:30');
+  expect(text).toContain('시간표 회차에 연결');
+  expect(text).toContain('10회차');
+  expect(text).toContain('새 회차');
+  expect(text).toContain('회차 8 / 약정 13 · 잡힌 날짜 2');
+  await waitFor(() => expect((within(dialog).getByRole('button', { name: '회차 확정' }) as HTMLButtonElement).disabled).toBe(false));
+  // 날짜를 고치면 다시 잠긴다 — 지금 입력 그대로 미리 본 것만 확정한다
+  fireEvent.change(within(dialog).getByLabelText('날짜 2'), { target: { value: '2026-09-24' } });
+  expect((within(dialog).getByRole('button', { name: '회차 확정' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText('날짜 2'), { target: { value: '2026-09-23' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '회차 확정' }));
+  await waitFor(() => expect(posts).toHaveLength(2));
+  expect(posts[1]!.url).toBe('/consulting/1/sessions');
+  await waitFor(() => expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ preview: false, created: 1, linked: 1 })));
+  expect(onClose).toHaveBeenCalled();
+});
+
+/**
+ * I-91 「겹침 검사가 먼저 돈다 · 담당자가 그 시간에 다른 일정 있으면 주황 점 표시」 — 미리보기가 날짜마다 준 겹침(busy)을
+ * 그 날짜 칸 옆 주황 점과 겹친 일정 한 줄로 보인다. 겹친 날짜가 있으면 「회차 확정」은 서지 않는다(확정은 서버가 다시 막는다).
+ */
+it('미리보기가 겹친 날짜를 주면 그 날짜 옆에 주황 점과 겹친 일정을 보이고 확정을 잠근다 (I-91)', async () => {
+  busyNext = [{ date: '2026-09-25', lines: ['10:00–11:00 SAT Math'] }];
+  const { view } = setup();
+  const dialog = await view.findByRole('dialog', { name: '회차 기록 — 체험인물28' });
+  await waitFor(() => expect(within(dialog).getByRole('option', { name: '체험인물10' })).toBeTruthy());
+  fireEvent.change(within(dialog).getByLabelText('날짜 1'), { target: { value: '2026-09-25' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '+ 날짜 더하기' }));
+  fireEvent.change(within(dialog).getByLabelText('날짜 2'), { target: { value: '2026-09-23' } });
+  fireEvent.change(within(dialog).getByLabelText('시작'), { target: { value: '10:00' } });
+  fireEvent.change(within(dialog).getByLabelText('끝'), { target: { value: '11:00' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }));
+  const dot = await within(dialog).findByRole('status', { name: '9/25 담당 일정 겹침' });
+  expect(dot.textContent).toContain('10:00–11:00 SAT Math');
+  expect(dot.querySelector('[data-busy-dot]')).toBeTruthy();
+  // 겹치지 않은 날짜에는 점이 없다
+  expect(within(dialog).queryByRole('status', { name: '9/23 담당 일정 겹침' })).toBeNull();
+  expect(within(dialog).getByText(/담당에게 그 시간 다른 일정이 있는 날짜 1개/)).toBeTruthy();
+  expect((within(dialog).getByRole('button', { name: '회차 확정' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('UX-13C3b — 선택 시각 둘은 분 단위 선택기이며 비우면 linked 회차를 위해 시각 없이 미리 본다', async () => {
+  const { view } = setup();
+  const dialog = await view.findByRole('dialog', { name: '회차 기록 — 체험인물28' });
+  await waitFor(() => expect(within(dialog).getByRole('option', { name: '체험인물10' })).toBeTruthy());
+  const start = within(dialog).getByLabelText('시작') as HTMLInputElement;
+  const end = within(dialog).getByLabelText('끝') as HTMLInputElement;
+  expect(start.type).toBe('time');
+  expect(end.type).toBe('time');
+  expect(start.step).toBe('60');
+  expect(end.step).toBe('60');
+  fireEvent.change(within(dialog).getByLabelText('날짜 1'), { target: { value: '2026-09-23' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toEqual({ url: '/consulting/1/sessions/preview', body: { dates: ['2026-09-23'], staffId: 3, mode: 'offline' } });
+});
+
+it('UX-13C3b — 24:00 종료는 보이는 출력과 endMin 1440으로 보내고, 해제하면 끝 시각을 다시 고르게 한다', async () => {
+  const { view } = setup();
+  const dialog = await view.findByRole('dialog', { name: '회차 기록 — 체험인물28' });
+  await waitFor(() => expect(within(dialog).getByRole('option', { name: '체험인물10' })).toBeTruthy());
+  fireEvent.change(within(dialog).getByLabelText('날짜 1'), { target: { value: '2026-09-25' } });
+  fireEvent.change(within(dialog).getByLabelText('시작'), { target: { value: '23:00' } });
+  const end = within(dialog).getByLabelText('끝') as HTMLInputElement;
+  const midnight = within(dialog).getByRole('checkbox', { name: '24:00 (자정에 종료)' });
+  fireEvent.click(midnight);
+  expect(end.hidden).toBe(true);
+  expect(end.tabIndex).toBe(-1);
+  expect(end.value).toBe('');
+  expect(within(dialog).getByRole('status', { name: '끝 시각' }).textContent).toBe('24:00');
+  fireEvent.click(within(dialog).getByRole('button', { name: '미리 보기' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toEqual({ url: '/consulting/1/sessions/preview', body: { dates: ['2026-09-25'], staffId: 3, mode: 'offline', startMin: 1380, endMin: 1440 } });
+  fireEvent.click(midnight);
+  expect(end.hidden).toBe(false);
+  expect(end.value).toBe('');
+  expect(within(dialog).queryByRole('status', { name: '끝 시각' })).toBeNull();
+  expect((within(dialog).getByRole('button', { name: '미리 보기' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(dialog).getByRole('button', { name: '회차 확정' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(posts).toHaveLength(1);
+  fireEvent.click(midnight);
+  fireEvent.click(within(dialog).getByRole('button', { name: '회차 확정' }));
+  await waitFor(() => expect(posts).toHaveLength(2));
+  expect(posts[1]).toEqual({ url: '/consulting/1/sessions', body: { dates: ['2026-09-25'], staffId: 3, mode: 'offline', startMin: 1380, endMin: 1440 } });
+});

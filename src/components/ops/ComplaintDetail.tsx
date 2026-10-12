@@ -1,0 +1,232 @@
+/** @file-guide
+ * 목적: ComplaintDetail.tsx — ComplaintDetail (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * §67 카드 처리 창 (C93 · 테스트 시나리오 J-101 「마무리 처리」 · J-97 「강사 교체 요구」 · J-98 기한).
+ *
+ * 담당 · 단계 · 조치 · 결과 · 기한 · 심각도 · 누가 알렸나(67-5 · wave 6)를 **바뀐 칸만** 보낸다. 결과 건의 마무리 날짜(67-6)는 보여 주기만 한다 —
+ * 「결과」로 옮기는 순간 서버가 찍는 값이라 받는 칸이 아니다. 「대응은 담당이 있어야」「마무리는 결과가 있어야」는 서버가 409 로 말하고
+ * 화면은 그 문장을 그대로 띄운다 — 단계 이름·한 줄·심각도 낱말은 전부 `GET /ops` 의 것이다(D-R18). 「강사 교체」는 마법사를, 「수강 종료 · 환불」은 C94-c 창을 연다(둘 다 부모가 소유 · J-97 · J-99).
+ */
+'use client';
+import { useEffect, useId, useState } from 'react';
+import { Banner, Button, Chip, Dialog, Input, Label, LinkButton, Segmented, Select, Textarea } from '../ui';
+import { apiMessage } from '@/api/client';
+import { useBookIssueDiag, useMeta, usePatchComplaint, useReports } from '@/api/queries';
+import type { Complaint, ComplaintPatch, CplWord, Meta, ReportRow } from '@/api/types';
+import { GuideScoreCards } from '@/components/guides/GuideDiagnosticSummary';
+import { ComplaintRefunds } from './ComplaintRefunds';
+
+/**
+ * J-100 학생 근거. 컴플레인에는 「성적」 전용 구조값이 없으므로 본문 키워드를 추측하지 않고
+ * 학생이 연결된 모든 건에 같은 읽기 전용 근거를 둔다. 두 조회는 이 컴포넌트가 열린 동안에만 돈다.
+ */
+function ComplaintStudentEvidence({ studentId, subjects }: { studentId: number; subjects: Meta['subs'] | undefined }) {
+  const diagnostic = useBookIssueDiag(studentId);
+  // 근거로 쓸 수 있는 승인 완료 리포트만. GET /reports의 기존 REP_STU 학생 목록으로 고른다.
+  const reports = useReports({ state: 'ok' });
+  const recent = [...(reports.data?.items ?? [])]
+    .filter((report) => report.students.some((student) => student.id === studentId))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.startMin ?? -1) - (a.startMin ?? -1))
+    .slice(0, 3);
+  const subjectName = (report: ReportRow) =>
+    subjects?.find((subject) => subject.key === report.subKey)?.name ?? report.subKey ?? report.kindKey;
+
+  return (
+    <section aria-label="학생 근거" className="rounded-lg border border-line bg-bg-2 p-3">
+      <div className="mb-2">
+        <h3 className="text-[12px] font-bold text-fg">학생 근거</h3>
+        <p className="mt-0.5 text-[12px] text-fg-subtle">진단 이력과 승인된 최근 리포트를 함께 확인합니다.</p>
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="rounded-lg border border-line bg-card p-3">
+          <h4 className="mb-2 text-[12px] font-bold text-fg-2">진단 이력</h4>
+          {diagnostic.isPending ? <p className="text-[12px] text-fg-subtle">진단 기록을 불러오는 중…</p>
+            : diagnostic.isError ? <p className="text-[12px] text-red">진단 기록을 불러오지 못했습니다.</p>
+              : diagnostic.data?.diag ? (
+                <>
+                  <GuideScoreCards scores={diagnostic.data.diag} />
+                  <LinkButton size="sm" variant="ghost" href={`/intake?lead=${diagnostic.data.diag.leadId}`}>
+                    진단 이력 보기
+                  </LinkButton>
+                </>
+              ) : <p className="text-[12px] text-fg-subtle">진단 이력이 없습니다.</p>}
+        </div>
+
+        <div className="rounded-lg border border-line bg-card p-3">
+          <h4 className="mb-2 text-[12px] font-bold text-fg-2">최근 승인 리포트</h4>
+          {reports.isPending ? <p className="text-[12px] text-fg-subtle">리포트를 불러오는 중…</p>
+            : reports.isError ? <p className="text-[12px] text-red">리포트를 불러오지 못했습니다.</p>
+              : recent.length ? (
+                <ul className="flex flex-col gap-1.5">
+                  {recent.map((report) => (
+                    <li key={report.id} className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                      <b className="text-fg">{report.date}</b>
+                      <span className="text-fg-2">{subjectName(report)}</span>
+                      <span className="text-fg-subtle">{report.teacherName ?? '담당 기록 없음'}</span>
+                      <LinkButton className="ml-auto" size="sm" variant="ghost"
+                        href={`/reports?serId=${report.serId}&onDate=${report.onDate}`}>
+                        리포트 보기
+                      </LinkButton>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-[12px] text-fg-subtle">승인된 리포트가 없습니다.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export interface ComplaintDetailProps {
+  complaint: Complaint | null;
+  stages: Array<{ key: string; label: string; sub: string }>;
+  severities: CplWord[];
+  /** 누가 알렸나 — 서버 낱말(`GET /ops.cplRequesters`). 비어 있으면 칸이 서지 않는다 */
+  requesters?: CplWord[];
+  onClose: () => void;
+  /** 「강사 교체」 — 부모가 마법사를 연다 (컴플레인·학생을 미리 채운다) */
+  onTeacherChange?: (c: Complaint) => void;
+  /** 「수강 종료 · 환불」 — 부모가 C94-c 창을 연다 (J-99 · 학생이 있는 건만 · 사유에 컴플레인을 적어 잇는다) */
+  onWithdraw?: (c: Complaint) => void;
+}
+
+export function ComplaintDetail({ complaint, stages, severities, requesters = [], onClose, onTeacherChange, onWithdraw }: ComplaintDetailProps) {
+  const id = useId();
+  const open = complaint !== null;
+  const meta = useMeta(open);
+  const write = usePatchComplaint();
+  const [stage, setStage] = useState<NonNullable<ComplaintPatch['stage']>>('received');
+  const [ownerId, setOwnerId] = useState('');
+  const [action, setAction] = useState('');
+  const [result, setResult] = useState('');
+  const [dueOn, setDueOn] = useState('');
+  const [severity, setSeverity] = useState<NonNullable<ComplaintPatch['severity']> | ''>('');
+  const [requester, setRequester] = useState<NonNullable<ComplaintPatch['requester']> | ''>('');
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!complaint) return;
+    setStage(complaint.stage as NonNullable<ComplaintPatch['stage']>); setOwnerId(complaint.ownerId ? String(complaint.ownerId) : ''); setAction(complaint.action ?? '');
+    setResult(complaint.result ?? ''); setDueOn(complaint.dueOn ?? ''); setSeverity((complaint.severity ?? '') as NonNullable<ComplaintPatch['severity']> | '');
+    setRequester((complaint.requester ?? '') as NonNullable<ComplaintPatch['requester']> | ''); setErr(null);
+  }, [complaint]);
+
+  if (!complaint) return null;
+  const pending = write.isPending;
+
+  /** 바뀐 칸만 — 안 바뀐 칸을 보내면 서버가 그 값으로 다시 쓴다(같은 값이라 해는 없지만 LOG 가 지저분해진다) */
+  const diff = (): ComplaintPatch => {
+    const out: ComplaintPatch = {};
+    if (stage !== complaint.stage) out.stage = stage;
+    const owner = ownerId ? Number(ownerId) : null;
+    if (owner !== (complaint.ownerId ?? null)) out.ownerId = owner;
+    if (action.trim() !== (complaint.action ?? '')) out.action = action.trim() || null;
+    if (result.trim() !== (complaint.result ?? '')) out.result = result.trim() || null;
+    if ((dueOn || null) !== (complaint.dueOn ?? null)) out.dueOn = dueOn || null;
+    if ((severity || null) !== (complaint.severity ?? null)) out.severity = severity || null;
+    if ((requester || null) !== (complaint.requester ?? null)) out.requester = requester || null;
+    return out;
+  };
+  const changes = diff();
+  const dirty = Object.keys(changes).length > 0;
+
+  const save = () => {
+    if (!dirty || pending) return;
+    setErr(null);
+    write.mutate({ id: complaint.id, ...changes }, {
+      onSuccess: () => onClose(),
+      onError: (e) => setErr(apiMessage(e)),
+    });
+  };
+  const stageSub = stages.find((s) => s.key === stage)?.sub;
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={`컴플레인 — ${complaint.studentName ?? '문의자'} · ${complaint.areaLabel}`}
+      width={620}
+      footer={(
+        <>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>닫기 (Esc)</Button>
+          {onTeacherChange && complaint.stage !== 'closed' ? (
+            <Button type="button" variant="secondary" onClick={() => onTeacherChange(complaint)} disabled={pending}>강사 교체</Button>
+          ) : null}
+          {/* 서는지는 서버가 정한다 (S5 · D-R39) — 이 창이 여는 환불 미리보기가 `canMoney` 라,
+              화면이 권한을 안 보면 창이 뜨자마자 403 이 났다. 단계·학생 조건도 같은 값에 들어 있다. */}
+          {onWithdraw && complaint.canWithdraw ? (
+            <Button type="button" variant="secondary" onClick={() => onWithdraw(complaint)} disabled={pending}>수강 종료 · 환불</Button>
+          ) : null}
+          <Button type="button" onClick={save} disabled={!dirty || pending}>{pending ? '저장 중…' : '저장'}</Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <Chip tone="purple">{complaint.areaLabel}</Chip>
+          {complaint.severityLabel ? <Chip tone={complaint.severity === 'severe' ? 'danger' : complaint.severity === 'normal' ? 'warning' : 'neutral'}>{complaint.severityLabel}</Chip> : null}
+          {complaint.teacherChanged ? <Chip tone="info">강사 교체됨</Chip> : null}
+          <span className="text-fg-subtle">{complaint.createdAt} 접수 · {complaint.ageDays}일 지남</span>
+          {complaint.overdueDays > 0 ? <Chip tone="danger">기한 {complaint.overdueDays}일 지남</Chip> : null}
+          {/* 결과 건의 마무리 날짜 (67-6) — 서버가 「결과」로 옮긴 순간 찍은 날. 옛 결과 건은 모른다고 적는다 */}
+          {complaint.stage === 'closed' ? <span className="font-bold text-fg-2">마무리 {complaint.closedOn ?? '날짜 기록 없음'}</span> : null}
+        </div>
+        <p className="rounded-lg border border-line bg-inset p-3 text-[12px] leading-relaxed text-fg">{complaint.body}</p>
+
+        {/* J-99 · N-135 — 이 컴플레인에서 연 수강 종료 · 환불(「이력」 표의 펼친 줄과 같은 부품 · J-102) */}
+        <ComplaintRefunds refunds={complaint.refunds} />
+
+        {complaint.studentId ? <ComplaintStudentEvidence studentId={complaint.studentId} subjects={meta.data?.subs} /> : null}
+
+        <div>
+          <Label hint={stageSub}>단계</Label>
+          {/* 칸 이름은 서버의 것 — 화면은 고르기만 하고 「담당이 있어야」「결과가 있어야」는 서버가 판정한다 */}
+          <Segmented<NonNullable<ComplaintPatch['stage']>> ariaLabel="단계" value={stage} disabled={pending} onChange={setStage}
+            options={stages.map((s) => ({ value: s.key as NonNullable<ComplaintPatch['stage']>, label: s.label }))} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <Label htmlFor={`${id}-owner`}>담당</Label>
+            <Select id={`${id}-owner`} value={ownerId} onChange={(e) => setOwnerId(e.target.value)} disabled={pending}>
+              <option value="">담당 없음</option>
+              {(meta.data?.staff ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor={`${id}-due`}>대응 기한</Label>
+            <Input id={`${id}-due`} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} disabled={pending} />
+          </div>
+          <div>
+            <Label htmlFor={`${id}-sev`}>심각도</Label>
+            <Select id={`${id}-sev`} value={severity} onChange={(e) => setSeverity(e.target.value as NonNullable<ComplaintPatch['severity']> | '')} disabled={pending}>
+              <option value="">미정</option>
+              {severities.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </Select>
+          </div>
+        </div>
+        {requesters.length ? (
+          <div className="w-52">
+            <Label htmlFor={`${id}-req`}>누가 알렸나</Label>
+            <Select id={`${id}-req`} value={requester} onChange={(e) => setRequester(e.target.value as NonNullable<ComplaintPatch['requester']> | '')} disabled={pending}>
+              <option value="">모름</option>
+              {requesters.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+            </Select>
+          </div>
+        ) : null}
+        <div>
+          <Label htmlFor={`${id}-action`} hint="「대응」 칸에 적힙니다">조치</Label>
+          <Textarea id={`${id}-action`} value={action} maxLength={1000} onChange={(e) => setAction(e.target.value)} disabled={pending} className="min-h-[64px]" />
+        </div>
+        <div>
+          <Label htmlFor={`${id}-result`} hint="마무리에 필요합니다">결과</Label>
+          <Textarea id={`${id}-result`} value={result} maxLength={1000} onChange={(e) => setResult(e.target.value)} disabled={pending} className="min-h-[64px]" />
+        </div>
+        {err ? <Banner tone="danger">{err}</Banner> : null}
+      </div>
+    </Dialog>
+  );
+}

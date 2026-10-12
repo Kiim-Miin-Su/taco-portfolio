@@ -1,0 +1,347 @@
+/** @file-guide
+ * 목적: AppDrawer.tsx — DrawerPane, AppDrawer, DrawerButton (component)
+ * 책임/재사용: 기존 components/ui와 도메인 selector/hook을 재사용한다. 공유 상태는 상위 소유자에 두고 서버 업무 판정을 복제하지 않는다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * 우측 서랍 — 탭 02 (§14~§21).
+ *
+ * **전역**이다. 어느 탭에서 열든 같은 것이 보인다. 그래서 `AppShell` 이 한 벌만 들고 있고,
+ * 데이터도 `useDrawer()` 한 번으로 공용 칸을 다 받는다 — 칸마다 부르면
+ * 배지에는 3건인데 목록에는 2건인 상태가 생긴다.
+ *
+ * 껍데기는 `ui/Overlay` 의 `Drawer` 를 그대로 쓴다. 서랍을 새로 그리지 않는다 —
+ * 수업 상세(§12)와 같은 닫기·같은 Esc 여야 한다. **자리와 폭만 원문 서랍의 것**이다(`docked` ·
+ * 머리줄 아래 · 레일 왼쪽 · 폭 ≈468px — g2 대조 C-1). 수업 상세는 예전처럼 화면 위 모달이다.
+ * 머리는 원문 서랍 그대로 **어두운 바 + 흰 제목 + ×** 이고 부제가 없다(g2 대조 C-4 — 건수는 레일 배지가 말한다).
+ */
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import { Drawer, Chip, Banner, Button, ConflictGuard, Dialog } from '@/components/ui';
+import { useDrawer, useDrawerWrite, useMeta, useOccurrences, useZoom } from '@/api/queries';
+import { ApiError, apiMessage, getSessionGeneration } from '@/api/client';
+import { sessionAccessKey } from '@/api/session-cache';
+import { browserLog } from '@/lib/browser-log';
+import { useSession } from '@/store/useSession';
+import { useWorkspace } from '@/store/useWorkspace';
+import { useRailPresent } from '@/components/shell/WorkspaceRail';
+import { approvalKindLabel } from '@/components/approval/ApprovalRowContent';
+import type { ChangeReqResult, ReqReviewResult } from '@/api/types';
+import {
+  ApprovalsPane, changeReqBody, ChangeReqForm, changeReqReady, ChangeReqsPane, KindsPane, MembersPane,
+  EMPTY_DRAFT, NotisPane, ZoomPane,
+} from './panes';
+import { MyExpenses } from './MyExpenses';
+import { ScheduleHistory } from './ScheduleHistory';
+import { conflictLines } from '@/lib/calendar';
+
+/**
+ * 최신 수정사항의 여섯 칸 — 받은 할 일은 승인 대기함 안으로 이동했다(A07 · 관리자 p17).
+ *
+ * **이름이 두 벌이면 안 된다.** 오른쪽 레일은 「승인 대기함」·「프로그램」·「줌 계정」이라 부르는데
+ * 여기 탭은 「승인」·「종류」·「줌」이라 줄여 부르고 있었다 — **같은 칸을 같은 화면이 두 이름으로**
+ * 불렀다. 레일의 낱말이 컷의 낱말이므로 그쪽으로 맞춘다.
+ *
+ * `title` 은 **창의 제목**이다. 전에는 어느 칸을 열든 제목이 「서랍」이었다 — 컷은 칸마다
+ * 제목이 다르다(승인 대기함 · 알림 · 구성원 · 시간대 …). 「서랍」은 이 창이 무엇인지가 아니라
+ * 이 창이 **어떻게 생겼는지**를 말하는 이름이다.
+ *
+ * **「변경 요청」은 한 칸이다** — 원문 레일의 「변경 요청」은 §20 「변경 요청 · 이력」을 열고, §19 넣기는
+ * 그 칸 머리의 「+ 변경 요청」이 여는 **가운데 창**이다(g2 대조 19-1 · 20-1 · 20-2). 넣기를 따로 칸으로
+ * 두던 동안 레일은 넣기 폼을 열고 이력은 서랍 안 탭으로만 닿았다.
+ */
+const PANES = [
+  { key: 'approvals', label: '승인 대기함', title: '승인 대기함' },
+  { key: 'notis', label: '알림', title: '알림' },
+  { key: 'members', label: '구성원', title: '구성원 · 시간대' },
+  { key: 'kinds', label: '프로그램', title: '프로그램 · 과목' },
+  { key: 'chreqs', label: '변경 요청', title: '변경 요청 · 이력' },
+  { key: 'zoom', label: '줌 계정', title: '줌 계정' },
+] as const;
+export type DrawerPane = (typeof PANES)[number]['key'];
+
+/** 선택 pane은 셸이 소유한다. 닫기/다른 pane 이동에도 선택은 남지만, 생성 모달 초안은 재열 때 비운다(P-157). */
+export function AppDrawer({ open, onClose, pane, onPaneChange }: {
+  open: boolean;
+  onClose: () => void;
+  pane: DrawerPane;
+  onPaneChange: (pane: DrawerPane) => void;
+}) {
+  const drawer = useWorkspace((w) => w.drawer);
+  const beginChangeReq = useWorkspace((w) => w.beginChangeReq);
+  const setChangeReqDraft = useWorkspace((w) => w.setChangeReqDraft);
+  const endChangeReq = useWorkspace((w) => w.endChangeReq);
+  const startChangeReqSubmission = useWorkspace((w) => w.startChangeReqSubmission);
+  const finishChangeReqSubmission = useWorkspace((w) => w.finishChangeReqSubmission);
+  const acknowledgeChangeReqFeedback = useWorkspace((w) => w.acknowledgeChangeReqFeedback);
+  /** §16 — 보여 주는 범위. 지우는 규칙이 아니다 (N-7 · D-16) */
+  const [notiWindow, setNotiWindow] = useState<'month' | 'all'>('month');
+  /** 서버가 거절한 말을 **그대로** 띄운다 — 화면이 이유를 다시 지어내지 않는다 */
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [suggestionReplyError, setSuggestionReplyError] = useState<{ id: number; message: string } | null>(null);
+  const paneRetryInFlight = useRef(false);
+  const previousPane = useRef<DrawerPane>(pane);
+
+  const me = useSession((s) => s.me);
+  const meId = me?.id ?? null;
+  const ownerKey = me ? sessionAccessKey(me) : null;
+  /** §19 모달과 초안은 라우트 셸 재마운트만 넘긴다. 로그아웃/권한 경계에서는 즉시 폐기한다. */
+  const creating = Boolean(ownerKey && drawer.ownerKey === ownerKey && drawer.creating);
+  const draft = creating && drawer.draft ? drawer.draft : EMPTY_DRAFT;
+  const submittingChangeReq = Boolean(ownerKey && drawer.ownerKey === ownerKey && drawer.submission);
+  const feedback = ownerKey && drawer.ownerKey === ownerKey ? drawer.feedback : null;
+  const currentFeedback = feedback && !feedback.priorDraft ? feedback : null;
+  const priorFeedback = feedback?.priorDraft ? feedback : null;
+  const pendingPriorDraft = Boolean(submittingChangeReq && drawer.submission?.draftVersion !== drawer.draftVersion);
+  const pushUndo = useWorkspace((w) => w.pushUndo);
+  /* 원문 서랍 안에는 칸 전환 줄이 없다 — 레일이 그 일을 한다(g2 대조 C-3). 레일이 없는 화면에서만 줄을 남긴다 */
+  const railed = useRailPresent();
+  // 닫혀 있으면 부르지 않는다 — 모든 화면이 서랍을 들고 있으므로 열 때만 읽는다
+  const { data, isLoading, isError, refetch } = useDrawer(open, notiWindow);
+  const { data: meta } = useMeta(open && creating);
+  /*
+   * §19 「어느 일정」 — 고른 날의 일정을 **시간표와 같은 질의**로 받는다(새 경로를 만들지 않는다).
+   * 창이 열려 있고 날짜가 온전할 때만 부른다 — 날짜 칸을 치는 도중의 조각으로는 부르지 않는다.
+   */
+  const dayOk = /^\d{4}-\d{2}-\d{2}$/.test(draft.day);
+  const dayOccurrences = useOccurrences({ from: draft.day, to: draft.day }, open && creating && dayOk);
+  /*
+   * §21 격자는 서랍 payload 에 없다 — **칸을 열 때만** 부른다.
+   * 공용 조회에 얹으면 §21 을 안 여는 사람도 매번 점유 질의를 치른다.
+   * 「줌 계정 관리」와 같은 훅이므로 두 화면의 「지금 가능」이 갈리지 않는다.
+   */
+  const zoom = useZoom(undefined, open && pane === 'zoom');
+  const write = useDrawerWrite();
+
+  /**
+   * 같은 drawer snapshot 안에서 pane만 옮겨도 query key는 바뀌지 않는다. 그래서 오류가 보이는
+   * 동안의 pane 전환을 명시적 재시도로 해석한다. 이 전환은 내부 탭뿐 아니라 AppShell의 우측
+   * rail에서도 들어오므로, 클릭 핸들러가 아닌 제어형 `pane` 변경 한 곳에서 감시한다.
+   */
+  useEffect(() => {
+    const fromPane = previousPane.current;
+    previousPane.current = pane;
+    if (!open || fromPane === pane || !isError || paneRetryInFlight.current) return;
+
+    const details = { fromPane, toPane: pane, notiWindow } as const;
+    paneRetryInFlight.current = true;
+    browserLog('drawer.fetch.retry.requested', details);
+    void refetch().then((result) => {
+      if (!result.isError) {
+        browserLog('drawer.fetch.retry.succeeded', details);
+        return;
+      }
+
+      const error = result.error;
+      browserLog('drawer.fetch.retry.failed', {
+        ...details,
+        errorCode: error instanceof ApiError ? error.code : 'UNKNOWN',
+        status: error instanceof ApiError ? error.status : 0,
+      }, 'warn');
+    }).finally(() => {
+      paneRetryInFlight.current = false;
+    });
+  }, [isError, notiWindow, open, pane, refetch]);
+
+  async function submitChangeReq() {
+    if (!ownerKey || !changeReqReady(draft)) return;
+    const body = changeReqBody(draft);
+    const submission = startChangeReqSubmission(ownerKey, getSessionGeneration(), body);
+    if (submission === null) return; // 라우트 재마운트 직후 이전 mutation이 아직 전송 중일 수 있다
+    try {
+      const res = await write.mutateAsync({
+        kind: 'changeReq',
+        body: { ...body, requestKey: submission.requestKey },
+      }) as ChangeReqResult;
+      finishChangeReqSubmission(ownerKey, submission.token, getSessionGeneration(), res.conflicts.length
+        ? { kind: 'conflict', conflicts: res.conflicts } : { kind: 'success' });
+    } catch (error) {
+      const message = error instanceof ApiError && error.code === 'TIMEOUT'
+        ? '서버 응답 시간이 초과되어 접수 여부를 확인하지 못했습니다. 변경 요청 이력에서 확인하거나 같은 요청을 다시 보내 결과를 확인해 주세요.'
+        : apiMessage(error);
+      finishChangeReqSubmission(ownerKey, submission.token, getSessionGeneration(), { kind: 'error', message });
+    }
+  }
+
+  function closeCreate() {
+    if (ownerKey) endChangeReq(ownerKey);
+  }
+
+  function openCreate() {
+    if (ownerKey) beginChangeReq(ownerKey);
+  }
+
+  const count = data?.approvals.inboxCount ?? 0;
+  const unread = data?.notis.filter((n) => !n.read).length ?? 0;
+  const pendingNotice = pendingPriorDraft ? <Banner tone="warning" className="mb-3">
+    앞서 보낸 변경 요청을 처리 중입니다. 취소·닫기는 서버 전송을 멈추지 않습니다. 결과가 올 때까지 새 요청을 보낼 수 없습니다.
+  </Banner> : null;
+  const priorNotice = priorFeedback ? <div className="mb-3 space-y-2" role="status">
+    <Banner tone={priorFeedback.kind === 'success' ? 'success' : 'warning'}>
+      {priorFeedback.kind === 'success' ? '이전 변경 요청이 접수되었습니다. 이력을 확인한 뒤 새 요청을 진행하세요.'
+        : priorFeedback.kind === 'conflict' ? `이전 변경 요청은 ${priorFeedback.conflicts.length}건과 겹쳐 제출되지 않았습니다.`
+          : `이전 변경 요청을 넣지 못했습니다: ${priorFeedback.message}`}
+    </Banner>
+    {priorFeedback.kind === 'conflict' ? <ConflictGuard result="blocking"
+      message={`${priorFeedback.conflicts.length}건과 겹칩니다 — 제출되지 않았습니다`}
+      dates={conflictLines(priorFeedback.conflicts)} /> : null}
+    <Button size="sm" onClick={() => { if (ownerKey) acknowledgeChangeReqFeedback(ownerKey); }}>결과 확인</Button>
+  </div> : null;
+
+  return (
+    /* 탭 02 서랍은 머리줄 아래 · 레일 왼쪽 칸에 붙는다 — 자리는 셸이 준다(`docked` · 원문 폭 ≈468px · g2 대조 C-1) */
+    <Drawer
+      open={open} onClose={onClose} width={468} docked headerTone="dark"
+      title={PANES.find((p) => p.key === pane)?.title ?? '서랍'}
+    >
+      {railed ? null : (
+        <nav aria-label="서랍 메뉴" className="mb-4 flex flex-wrap gap-1 border-b border-line pb-2">
+          {PANES.map((p) => {
+            const badge = p.key === 'approvals' ? count : p.key === 'notis' ? unread : 0;
+            return (
+              <button
+                key={p.key} type="button" onClick={() => onPaneChange(p.key)} aria-pressed={pane === p.key}
+                className={`flex min-h-11 items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-bold transition-colors sm:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg ${
+                  pane === p.key ? 'bg-primary text-white' : 'text-fg-subtle hover:bg-inset hover:text-fg-2'}`}
+              >
+                {p.label}
+                {badge > 0 ? (
+                  <span className={`rounded-full px-1.5 text-[12px] ${
+                    pane === p.key ? 'bg-white/25' : 'bg-red text-white'}`}>{badge}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      {isLoading ? <p className="py-10 text-center text-[12px] text-fg-subtle">읽는 중…</p> : null}
+      {isError ? <Banner tone="danger">서랍을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.</Banner> : null}
+      {pane === 'chreqs' && !creating ? (priorNotice ?? pendingNotice ?? (currentFeedback?.kind === 'success' ? (
+        <div className="mb-3"><ConflictGuard result="ok" message="요청을 넣었습니다 — 승인은 그 화면에서 이뤄집니다" /></div>
+      ) : null)) : null}
+
+      {data ? (
+        <>
+          {pane === 'approvals' ? (
+            <ApprovalsPane
+              flow={data.approvals} onGo={onClose} busy={write.isPending}
+              todos={data.todos} members={data.members} meId={meId}
+              onTodoToggle={(id, done) => write.mutate({ kind: 'todo', id, done })}
+              onTodoCreate={(body) => write.mutate({ kind: 'todoCreate', body })}
+              canReplySuggestions={Boolean(me?.canCrudAll)}
+              suggestionReplyError={suggestionReplyError}
+              onSuggestionReply={(id, reply) => {
+                setSuggestionReplyError(null);
+                write.mutate({ kind: 'suggestionReply', id, reply }, {
+                  onError: (cause) => setSuggestionReplyError({ id, message: apiMessage(cause) }),
+                });
+              }}
+              error={reviewError}
+              onReview={(v) => {
+                setReviewError(null);
+                // 되돌리기 목록의 이름 — 누른 줄의 사람 · 분류를 그대로 잇는다(서버가 준 낱말만 · 새로 짓지 않는다)
+                const row = data.approvals.inbox.find((r) => r.kind === v.kind && r.id === v.id);
+                const undoLabel = `${row ? `${row.byName} · ${row.categoryLabel ?? approvalKindLabel(row.kind)} ` : ''}${v.decision === 'approve' ? '승인' : '반려'}`;
+                // 갈래마다 경로가 다르다 — 어느 줄인지는 서버가 준 kind 로 안다
+                write.mutate(
+                  v.kind === 'chreq'
+                    ? { kind: 'chreqReview', id: v.id, decision: v.decision, reason: v.reason }
+                    : { kind: 'reqReview', id: v.id, decision: v.decision, reason: v.reason },
+                  {
+                    onError: (e) => setReviewError(apiMessage(e)),
+                    /* N-84 — 서버가 되돌리기 토큰을 주면(본인 · 10분 · 그 처리 하나) 상단바 「되돌리기」와 같은 목록에 쌓는다.
+                       토큰이 없는 처리(줌 계정 갈래)는 쌓지 않는다 — 못 되돌리는 것을 되돌릴 수 있다고 말하지 않는다. */
+                    onSuccess: (res) => {
+                      const r = res as ReqReviewResult;
+                      if (r.undoToken) pushUndo({ token: r.undoToken, label: undoLabel, expiresAt: r.undoExpiresAt, kind: 'approval' });
+                    },
+                  },
+                );
+              }}
+            />
+          ) : null}
+          {pane === 'notis' ? (
+            <NotisPane
+              notis={data.notis} meId={meId} busy={write.isPending}
+              categories={data.notiCategories}
+              windowDays={data.notiWindowDays}
+              olderCount={data.notiOlderCount}
+              widened={notiWindow === 'all'}
+              onWiden={(all) => setNotiWindow(all ? 'all' : 'month')}
+              onReadAll={() => write.mutate({ kind: 'notiReadAll' })}
+              onRead={(id) => write.mutate({ kind: 'notiRead', id })}
+            />
+          ) : null}
+          {pane === 'members' ? (
+            <MembersPane groups={data.memberGroups} tzGroups={data.tzGroups} tz={data.tz}
+              canAddMember={data.canAddMember} canWage={data.canWage} phoneCountries={data.phoneCountries}
+              loginIdRule={data.loginIdRule} tempPasswordRule={data.tempPasswordRule} />
+          ) : null}
+          {pane === 'kinds' ? <KindsPane kinds={data.kinds} /> : null}
+          {pane === 'chreqs' ? (
+            <>
+              <ChangeReqsPane rows={data.changeReqs} onCreate={openCreate} />
+              {/* 원문 §20 「최근 변경 이력」 — 스케줄 쓰기 감사 줄의 서버 문장. 이 칸을 열 때만 읽는다 (W11 A' 후속) */}
+              <ScheduleHistory enabled={open && pane === 'chreqs'} />
+              {/* N-52 — 서랍(요청함)의 「+ 지출 신청」 · 「내 지출 신청」. 목록은 이 칸을 열 때만 읽는다 */}
+              <MyExpenses summary={data.myExpenses} enabled={open && pane === 'chreqs'} />
+            </>
+          ) : null}
+          {pane === 'zoom' ? <ZoomPane rows={data.zoomAccounts} board={zoom.data} loading={zoom.isLoading} /> : null}
+        </>
+      ) : null}
+
+      {/* 원문 §19 — 가운데 창. 공용 Dialog 를 그대로 쓴다(스크림·Esc·초점 복귀가 한 벌이다) */}
+      <Dialog
+        open={open && creating} onClose={closeCreate} title="변경 요청" width={640} closeX
+        sub={<>겹치면 넣을 수 없습니다 · 반영하면 <b className="text-fg">이력</b>에 남습니다</>}
+        footer={(
+          <>
+            <Button onClick={closeCreate}>취소</Button>
+            <Button variant="primary" disabled={!changeReqReady(draft) || write.isPending || submittingChangeReq || Boolean(priorFeedback)} onClick={() => void submitChangeReq()}>
+              {write.isPending || submittingChangeReq ? '보내는 중…' : '요청 넣기'}
+            </Button>
+          </>
+        )}
+      >
+        {priorNotice ?? pendingNotice}
+        <ChangeReqForm
+          draft={draft} onDraft={(d) => {
+            if (ownerKey) setChangeReqDraft(ownerKey, d);
+          }}
+          conflicts={currentFeedback?.kind === 'conflict' ? currentFeedback.conflicts : []}
+          error={currentFeedback?.kind === 'error' ? currentFeedback.message : null}
+          occurrences={dayOk ? dayOccurrences.data?.items : undefined}
+          occurrencesLoading={dayOk && dayOccurrences.isLoading}
+          staff={meta?.staff ?? []} rooms={meta?.rooms ?? []} zaccs={meta?.zaccs ?? []}
+          subs={meta?.subs ?? []} kinds={meta?.kinds ?? []}
+        />
+      </Dialog>
+    </Drawer>
+  );
+}
+
+/** 상단 바의 여는 단추 — 숫자는 AppShell이 공용 drawer snapshot에서 내려준다. */
+export function DrawerButton({
+  onOpen,
+  count,
+  unread,
+}: {
+  onOpen: () => void;
+  count: number;
+  unread: number;
+}) {
+  const total = count + unread;
+  return (
+    <button
+      type="button" onClick={onOpen}
+      className="ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-bold text-line-2 hover:bg-white/10"
+      aria-label={`서랍 열기${total > 0 ? ` — ${total}건` : ''}`}
+    >
+      서랍
+      {total > 0 ? <Chip tone="danger" styleKind="solid">{total}</Chip> : null}
+    </button>
+  );
+}

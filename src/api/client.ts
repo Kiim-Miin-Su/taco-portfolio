@@ -1,0 +1,244 @@
+/** @file-guide
+ * 목적: client.ts — ApiError, api, apiMessage, isConflict, getSessionGeneration 등 (client)
+ * 책임/재사용: 공용 Axios 헤더·오류·401 재발급 경계다. 토큰을 로그/영속 저장하지 않고 JWT/권한의 최종 검증은 서버에 위임한다.
+ * 검증/작업 지침: docs/contracts/FILE-GUIDE.md · docs/AGENT.md · docs/CLAUDE.md
+ */
+
+/**
+ * Axios 인스턴스 **하나**. 화면마다 fetch 를 부르지 않는다.
+ *
+ * 여기서 하는 일 둘:
+ *   ① 서버가 내려준 { code, message } 를 ApiError 로 정규화한다
+ *   ② 401 이면 **한 번만** /auth/refresh 로 재시도한다 (D-R41)
+ *
+ * 동시에 여러 요청이 401 이 되어도 재발급은 한 번만 하고 나머지는 그 결과를 기다린다.
+ * 그렇게 하지 않으면 새로고침 한 번에 재발급이 열 번 날아간다.
+ */
+import axios, { AxiosError, type AxiosAdapter, type AxiosRequestConfig, type AxiosResponse } from 'axios';
+import { demoTransport } from '@/demo/transport';
+import type { ApiErrorResponse, RefreshResult } from './types';
+import { beginRequestDiagnostic, logRequestDispatch, logRequestOutcome, type RequestDiagnostic } from './request-diagnostics';
+
+export class ApiError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export const api = axios.create({
+  // 공개 체험은 외부 API 환경 변수를 사용하지 않는다. demo adapter도 같은 origin 안에서만 전송한다.
+  baseURL: '/api/v1',
+  withCredentials: true, // Refresh 쿠키를 주고받는다
+  timeout: 60_000,
+  // 공개 데모는 운영 API 대신 방문자별 RAM snapshot을 교환하는 단일 경계만 사용한다.
+  adapter: demoTransport,
+  // XHR timeout을 ETIMEDOUT로 받아 브라우저 abort(ECONNABORTED)와 구분한다.
+  transitional: { clarifyTimeoutError: true },
+});
+
+/** 응답이 없는 오류의 공용 문구. Axios config/request에는 비밀번호·토큰이 있어 보존/출력하지 않는다. */
+const TRANSPORT_FAILURES: Record<string, { code: string; message: string }> = {
+  [AxiosError.ETIMEDOUT]: {
+    code: 'TIMEOUT', message: '서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.',
+  },
+  [AxiosError.ECONNABORTED]: { code: 'ABORTED', message: '요청이 중단되었습니다. 다시 시도해 주세요.' },
+  [AxiosError.ERR_CANCELED]: { code: 'CANCELED', message: '요청이 취소되었습니다.' },
+  [AxiosError.ERR_NETWORK]: { code: 'NETWORK', message: '서버에 닿지 못했습니다' },
+};
+
+/** 사람에게 보여 줄 실패 문구 — 화면이 문구를 지어내지 않는다. 해석하는 자리는 여기 하나다 */
+export function apiMessage(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  const r = (e as { response?: { data?: { message?: string } } })?.response?.data;
+  return r?.message ?? '저장하지 못했습니다';
+}
+
+/** 겹침(409) 인가 — 낙관 반영을 되돌리고 ConflictGuard 를 띄울 자리 판정 */
+export function isConflict(e: unknown): boolean {
+  if (e instanceof ApiError) return e.code === 'RESOURCE_CONFLICT' || e.code === 'DUPLICATE';
+  const s2 = (e as { response?: { status?: number } })?.response?.status;
+  return s2 === 409;
+}
+
+let accessToken: string | null = null;
+// 명시적 토큰 설정 또는 현재 권한 변경 때 증가한다. 자동 Access 갱신만으로는 증가하지 않는다.
+let sessionGeneration = 0;
+export const getSessionGeneration = () => sessionGeneration;
+/** 계정은 같아도 권한이 바뀌면 옛 보호 응답/재전송을 폐기한다. 토큰은 교체하지 않는다. */
+export const invalidateSessionRequests = () => { sessionGeneration += 1; };
+export const setAccessToken = (t: string | null) => {
+  accessToken = t;
+  invalidateSessionRequests();
+};
+
+type Retryable = AxiosRequestConfig & { _retried?: boolean; _sessionGeneration?: number; _diagnostic?: RequestDiagnostic };
+const authPaths = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+const isAuthAction = (url?: string) => authPaths.has((url ?? '').split('?')[0]);
+const sessionChanged = () => new ApiError('SESSION_CHANGED', '로그인 상태가 바뀌어 이전 요청을 취소했습니다.', 0);
+
+/** UI/캐시 정리는 RouteAccess가 구독한다. Axios는 store/router/QueryClient를 소유하지 않는다. */
+const expiryListeners = new Set<() => void>();
+const recheckListeners = new Set<() => void>();
+/** 권한 재조회와 UI 반영은 공용 인증 경계가 소유한다. 403 요청 자체를 재전송하지 않는다. */
+export function onSessionRecheck(listener: () => void): () => void {
+  recheckListeners.add(listener);
+  return () => { recheckListeners.delete(listener); };
+}
+export function onSessionExpired(listener: () => void): () => void {
+  expiryListeners.add(listener);
+  return () => { expiryListeners.delete(listener); };
+}
+function expireSession(generation: number): void {
+  if (generation !== sessionGeneration) return;
+  setAccessToken(null);
+  for (const listener of expiryListeners) listener();
+}
+
+api.interceptors.request.use((cfg) => {
+  const owned = cfg as Retryable;
+  owned._sessionGeneration ??= sessionGeneration;
+  if (!isAuthAction(cfg.url) && owned._sessionGeneration !== sessionGeneration) {
+    logRequestOutcome({ diagnostic: owned._diagnostic, outcome: 'error', status: 0, code: 'SESSION_CHANGED' });
+    throw sessionChanged();
+  }
+  // 이 인스턴스의 Bearer는 메모리 토큰 하나만 권위다. 재시도 config의 오래된 헤더도 제거한다.
+  if (accessToken && !isAuthAction(cfg.url)) cfg.headers.Authorization = `Bearer ${accessToken}`;
+  else cfg.headers.delete('Authorization');
+  return cfg;
+});
+
+/**
+ * 같은 쓰기가 끝나기 전에 또 오면 앞선 요청을 함께 기다린다 — 서버에 두 번 보내지 않는다 (P1 DELIVERY · 2026-09-29).
+ *
+ * 단추의 `disabled={isPending}` 은 다음 그리기 뒤에야 잠겨서, **한 틱에 두 번** 누르면 요청이 둘 나갔다(실측). 입금(N-132)처럼 서버가
+ * 요청 키로 수렴시키는 쓰기도 있지만 만들기(컴플레인 · 할 일 · 상담 · 회의 · 지출)에는 키가 없어 두 줄이 됐다. 판정은 여기 한 곳이다 —
+ * 세션 세대 · 방법 · 주소 · **보낼 본문 글자**가 같고 앞선 것이 아직 안 끝났으면 같은 약속을 돌려준다(성공도 실패도 함께 받는다).
+ * 읽기는 묶지 않는다(TanStack Query 가 이미 한 벌로 모은다) · 본문을 글자로 견줄 수 없는 파일(FormData)도 묶지 않는다 ·
+ * 끝나면 곧바로 풀어 다음 쓰기는 따로 간다(같은 금액을 한 번 더 받는 정상 분납은 막지 않는다). 두 창 · 끊긴 응답의 재시도는 서버 몫이다.
+ */
+const WRITE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+const pendingWrites = new Map<string, { promise: Promise<AxiosResponse>; diagnostic: RequestDiagnostic }>();
+// 401 재시도의 config.adapter를 다시 감쌀 때 이전 진단/병합 wrapper를 중첩하지 않는다.
+const transportAdapters = new WeakMap<AxiosAdapter, AxiosAdapter>();
+api.interceptors.request.use((cfg) => {
+  const owned = cfg as Retryable;
+  const diagnostic = beginRequestDiagnostic({ method: cfg.method, url: cfg.url, body: cfg.data, previous: owned._diagnostic });
+  owned._diagnostic = diagnostic;
+  const configured = axios.getAdapter(cfg.adapter ?? api.defaults.adapter);
+  const send = transportAdapters.get(configured) ?? configured;
+  cfg.adapter = (c) => {
+    const mayCoalesce = WRITE_METHODS.has((c.method ?? 'get').toLowerCase()) && !isAuthAction(c.url)
+      && (c.data === undefined || typeof c.data === 'string');
+    if (!mayCoalesce) {
+      logRequestDispatch({ diagnostic });
+      return send(c);
+    }
+    const key = `${(c as Retryable)._sessionGeneration} ${String(c.method).toLowerCase()} ${c.baseURL ?? ''}${c.url ?? ''} ${c.data ?? ''}`;
+    const running = pendingWrites.get(key);
+    if (running) {
+      logRequestDispatch({ diagnostic, coalescedWith: running.diagnostic });
+      // 공유 전송 결과라도 호출별 config는 분리한다. 원본의 _retried를 공유하면 follower의 첫401이 재발급 실패가 된다.
+      return running.promise.then((r) => ({ ...r, config: c }), (error: unknown) => {
+        if (axios.isCancel(error)) throw new axios.CanceledError(undefined, c);
+        if (axios.isAxiosError(error)) {
+          throw new AxiosError(error.message, error.code, c, error.request,
+            error.response ? { ...error.response, config: c } : undefined);
+        }
+        throw error;
+      });
+    }
+    logRequestDispatch({ diagnostic });
+    const flight = { diagnostic, promise: send(c).finally(() => { if (pendingWrites.get(key) === flight) pendingWrites.delete(key); }) };
+    pendingWrites.set(key, flight);
+    return flight.promise;
+  };
+  transportAdapters.set(cfg.adapter, send);
+  return cfg;
+});
+
+/** 재발급은 동시에 하나만 — 나머지는 이 약속을 기다린다 */
+let inFlight: { generation: number; promise: Promise<void> } | null = null;
+
+function renew(generation: number): Promise<void> {
+  if (inFlight?.generation === generation) return inFlight.promise;
+  const flight = {
+    generation,
+    promise: api.post<RefreshResult>('/auth/refresh').then((r) => {
+      if (generation !== sessionGeneration) throw sessionChanged();
+      accessToken = r.data.accessToken;
+    }).finally(() => { if (inFlight === flight) inFlight = null; }),
+  };
+  inFlight = flight;
+  return flight.promise;
+}
+
+api.interceptors.response.use(
+  (r) => {
+    if (!isAuthAction(r.config.url)
+      && (r.config as Retryable)._sessionGeneration !== sessionGeneration) {
+      logRequestOutcome({ diagnostic: (r.config as Retryable)._diagnostic, outcome: 'error', status: r.status, code: 'SESSION_CHANGED' });
+      throw sessionChanged();
+    }
+    logRequestOutcome({ diagnostic: (r.config as Retryable)._diagnostic, outcome: 'response', status: r.status, body: r.data });
+    // 갱신 뒤 보호 재시도까지 성공한 때만 재확인한다. Me 자체는 재귀적으로 재조회하지 않는다.
+    if ((r.config as Retryable)._retried && r.config.url !== '/auth/me') {
+      for (const listener of recheckListeners) listener();
+    }
+    return r;
+  },
+  async (err: AxiosError<Partial<ApiErrorResponse>>) => {
+    if (err instanceof ApiError) throw err;
+    const cfg = err.config as Retryable | undefined;
+    const status = err.response?.status ?? 0;
+    const changed = cfg && !isAuthAction(cfg.url) && cfg._sessionGeneration !== sessionGeneration;
+    logRequestOutcome({ diagnostic: cfg?._diagnostic, outcome: 'error', status,
+      code: changed ? 'SESSION_CHANGED' : status ? err.response?.data?.code : TRANSPORT_FAILURES[err.code ?? '']?.code,
+      body: changed ? undefined : err.response?.data });
+
+    if (cfg && !isAuthAction(cfg.url)) {
+      const generation = cfg._sessionGeneration;
+      if (generation !== sessionGeneration) throw sessionChanged();
+      if (status === 403 && cfg.url !== '/auth/me') {
+        for (const listener of recheckListeners) listener();
+      }
+      if (status === 401) {
+        if (!cfg._retried) {
+          cfg._retried = true;
+          try {
+            // 다른 보호 요청이 이미 갱신했다면 늦게 도착한 옛401도 같은 Access를 재사용한다.
+            if (!accessToken || cfg.headers?.Authorization === `Bearer ${accessToken}`) await renew(generation);
+          } catch (refreshError) {
+            if (generation !== sessionGeneration) throw sessionChanged();
+            // 만료 확정만 세션을 폐기한다. 네트워크/서버 장애를 로그아웃으로 위장하지 않는다.
+            if (refreshError instanceof ApiError && refreshError.status === 401) expireSession(generation);
+            throw refreshError;
+          }
+          if (generation !== sessionGeneration) throw sessionChanged();
+          return api(cfg);
+        }
+        expireSession(generation);
+      }
+    }
+
+    if (status === 0) {
+      const failure = TRANSPORT_FAILURES[err.code ?? ''] ?? {
+        code: 'REQUEST_FAILED', message: '요청을 보내지 못했습니다.',
+      };
+      throw new ApiError(failure.code, failure.message, 0);
+    }
+
+    const body = err.response?.data;
+    throw new ApiError(
+      body?.code ?? 'ERROR',
+      body?.message ?? err.message,
+      status,
+      body,
+    );
+  },
+);
