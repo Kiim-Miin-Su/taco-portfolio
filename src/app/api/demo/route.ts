@@ -66,8 +66,14 @@ export async function POST(req: Request): Promise<Response> {
     if (['DEMO_STATE_INVALID', 'DEMO_REQUEST_INVALID', 'DEMO_PATH_INVALID', 'DEMO_REQUEST_LIMIT'].includes(code)) {
       return Response.json({ code, message: '체험 데이터 형식을 확인해 주세요. 초기화 후 다시 시도할 수 있습니다.' }, { status: 400, headers });
     }
-    // 요청·DB snapshot·자격 값을 서버 로그에 남기지 않는다.
-    console.error('[demo] in-memory request failed');
+    // 패키징 누락을 식별할 고정 메타데이터만 기록한다. 요청·SQL·snapshot·자격 값은 남기지 않는다.
+    const errorCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+    const missing = code.match(/^Cannot find module '([@a-zA-Z0-9_./-]+)'/u)?.[1];
+    console.error('[demo] in-memory request failed', {
+      phase: demoRuntime ? 'request' : 'load',
+      code: /^[A-Z_]{3,40}$/u.test(errorCode) ? errorCode : 'UNKNOWN',
+      ...(missing ? { missingModule: missing } : {}),
+    });
     return Response.json({ code: 'DEMO_UNAVAILABLE', message: '체험판을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 503, headers });
   }
 }
